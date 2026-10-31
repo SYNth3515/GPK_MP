@@ -40,17 +40,62 @@ int Net_IslandGetNumForts(ref rIsland)
 	return iNumForts;
 }
 
+// Названия островов для мультиплеера (в Корсарах 3 строк для островов Мэйна нет)
+string Net_GetIslandName(string sID)
+{
+	if (sID == "Barbados") { return "Барбадос"; }
+	if (sID == "Jamaica") { return "Ямайка"; }
+	if (sID == "PuertoRico") { return "Пуэрто-Рико"; }
+	if (sID == "Cuba1") { return "Куба (Сантьяго)"; }
+	if (sID == "Cuba2") { return "Куба (Гавана)"; }
+	if (sID == "Curacao") { return "Кюрасао"; }
+	if (sID == "Tortuga") { return "Тортуга"; }
+	if (sID == "SentMartin") { return "Сен-Мартен"; }
+	if (sID == "Trinidad") { return "Тринидад"; }
+	if (sID == "Nevis") { return "Невис"; }
+	if (sID == "Antigua") { return "Антигуа"; }
+	if (sID == "Guadeloupe") { return "Гваделупа"; }
+	if (sID == "Martinique") { return "Мартиника"; }
+	if (sID == "Hispaniola1") { return "Эспаньола (Санто-Доминго)"; }
+	if (sID == "Hispaniola2") { return "Эспаньола (Порт-о-Пренс)"; }
+	if (sID == "Bermudes") { return "Бермуды"; }
+	if (sID == "Dominica") { return "Доминика"; }
+	if (sID == "Terks") { return "Тёркс"; }
+	if (sID == "Caiman") { return "Кайман"; }
+	if (sID == "PortoBello") { return "Порто-Белло"; }
+	if (sID == "Cartahena") { return "Картахена"; }
+	if (sID == "Maracaibo") { return "Маракайбо"; }
+	if (sID == "Caracas") { return "Каракас"; }
+	if (sID == "Cumana") { return "Кумана"; }
+	if (sID == "SantaCatalina") { return "Санта-Каталина"; }
+	if (sID == "Beliz") { return "Белиз"; }
+	if (sID == "LostShipsCity") { return "Город Потерянных Кораблей"; }
+
+	// запасной вариант: строка из локализации, если острова нет в списке выше
+	string sName = XI_ConvertString(sID);
+	if (sName == "") { sName = sID; }
+	return sName;
+}
+
+// false = остров не показывать в мультиплеере (нет локаторов/картинки/режимов)
+bool Net_IsIslandAllowed(string sID)
+{
+	if (sID == "") { return false; }
+	return true;
+}
+
 void Net_InitIslands()
 {
 	if (iNumIslands == 0 || iNumNetIslands == 0)
 	{
 		IslandsInit();
 
-		for (int i=0; i<iNumIslands; i++)
+		// iNumIslands = индекс последнего острова (n в islands_init.c), а не их количество, поэтому <=
+		for (int i=0; i<=iNumIslands; i++)
 		{
 			ref rIsland = GetIslandByIndex(i);
 
-			if (sti(rIsland.Net))
+			if (sti(rIsland.Net) && Net_IsIslandAllowed(rIsland.ID))
 			{
 				iNetIslandsIndex[iNumNetIslands] = i;
 				iNumNetIslands++;

@@ -46,6 +46,23 @@ void Net_Stop()
 	DelEventHandler("NetFileSend_TransferReady", "NetFileSend_TransferReady");
 }
 
+// COOP: the server closed the game (or the connection was lost). The client has already deleted its NetClient
+// (Net_DeleteClient), so Net_Stop - which deletes it again - must not be used here. Release the rest and go
+// to the main menu, as after a manual exit.
+void Net_ExitToMainMenuAfterDisconnect()
+{
+	bNetActive = false;
+
+	Net_DeleteServer();
+
+	DeleteClass(&Net);
+
+	DelEventHandler("NetFileSend_SendData", "NetFileSend_SendData");
+	DelEventHandler("NetFileSend_TransferReady", "NetFileSend_TransferReady");
+
+	ReturnToMainMenu();
+}
+
 void Net_Init()
 {
 	// load favorites list

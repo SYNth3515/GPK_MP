@@ -54,9 +54,15 @@ void NetClient_WhrCreateSeaEnvironment()
 	NCSea.Bump.Ang = Whr_GetFloat(aSea, "Bump.Ang");
 	NCSea.Bump.Speed = Whr_GetFloat(aSea, "Bump.Speed");
 	NCSea.Bump.Scale = Whr_GetFloat(aSea, "Bump.Scale");
-	NCSea.Bump.Speed = Whr_GetFloat(aSea, "Bump.AnimSpeed");
+	NCSea.Bump.AnimSpeed = Whr_GetFloat(aSea, "Bump.AnimSpeed");
 	NCSea.Bump.MipLevels = 4;
 	NCSea.Bump.Size = 128;
+
+	// Sun road section (as in singleplayer WhrSea.c)
+	NCSea.Road.Start = Whr_GetFloat(aSea, "SunRoad.Start");
+	NCSea.Road.Color1 = Whr_GetColor(aSea, "SunRoad.Color1");
+	NCSea.Road.Color2 = Whr_GetColor(aSea, "SunRoad.Color2");
+	NCSea.Road.Power = Whr_GetFloat(aSea, "SunRoad.Power");
 
 	NCSea.CubeMap.Size = 512;	
 	NCSea.CubeMap.VectorsSize = 256;

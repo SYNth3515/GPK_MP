@@ -20,6 +20,8 @@ void NetClient_WhrCreateSkyEnvironment()
 	CreateEntity(&NCSky, "NetSky");
 	LayerAddObject("sea_reflection", &NCSky, 1);
 
+	// NetSky читает Dir только как обычную строку-папку (формат одиночной игры Dir.dN + время не подходит:
+	// получается путь вида "11.0000000SKY_BACK.TGA")
 	NCSky.Dir = Whr_GetString(aSky, "Dir");
 	NCSky.Color = Whr_GetColor(aSky, "Color");
 	NCSky.RotateSpeed = Whr_GetFloat(aSky, "Rotate");

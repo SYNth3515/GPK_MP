@@ -108,7 +108,7 @@ void InitInterface(string iniName)
 		ref rIsland = Net_GetIslandByIndex(i);
 
 		string sTest = "tr" + (i + 3);
-		GameInterface.TABLE_MAPLIST.(sTest).td1.str = XI_ConvertString(rIsland.ID);
+		GameInterface.TABLE_MAPLIST.(sTest).td1.str = Net_GetIslandName(rIsland.ID);
 		GameInterface.TABLE_MAPLIST.(sTest).td1.IslandID = rIsland.ID;
 	}
 
@@ -341,7 +341,7 @@ void SelectServer(ref rServer, int iSelected)
 
 	SetFormatedText("SERVERINFO_NAME", rServer.Name);
 
-	StringCollection_SetText("STRINGS_SERVERINFO", 1, "#" + XI_ConvertString(sIslandMap));
+	StringCollection_SetText("STRINGS_SERVERINFO", 1, "#" + Net_GetIslandName(sIslandMap));
 	StringCollection_SetText("STRINGS_SERVERINFO", 2, "txtCS_" + NetModes[sti(rServer.GameType)].Name);
 	StringCollection_SetText("STRINGS_SERVERINFO", 3, "#" + rServer.Credit);
 	StringCollection_SetText("STRINGS_SERVERINFO", 4, "#" + rServer.NumClients + " / " + rServer.MaxClients);

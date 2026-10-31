@@ -63,9 +63,24 @@ void NetClient_ShipStartRepair()
 	NMDelete(iSMsg);
 }
 
+// COOP: the client camera can be NaN (uninitialized ship height); a NaN fire request freezes the host
+bool COOP_CliFloatOk(float f)
+{
+	return (f > -100000.0) && (f < 100000.0);
+}
+
+bool COOP_CliCamOk()
+{
+	bool bOk = COOP_CliFloatOk(stf(NCDeckCamera.Pos.x)) && COOP_CliFloatOk(stf(NCDeckCamera.Pos.y)) && COOP_CliFloatOk(stf(NCDeckCamera.Pos.z));
+	bOk = bOk && COOP_CliFloatOk(stf(NCDeckCamera.Dir.x)) && COOP_CliFloatOk(stf(NCDeckCamera.Dir.y)) && COOP_CliFloatOk(stf(NCDeckCamera.Dir.z));
+	if (!bOk) { Trace("COOP: cli fire blocked, deck camera is not finite"); }
+	return bOk;
+}
+
 void NetClient_ShipControlActivation()
 {
 	string sControl = GetEventData();
+	Trace("COOP: ctl " + sControl + " deckOn=" + NCDeckCamera.On + " shipOn=" + NCShipCamera.On + " canFire=" + NCDeckCamera.IsCanFire + " camPos=" + NCDeckCamera.Pos.x + "," + NCDeckCamera.Pos.y + "," + NCDeckCamera.Pos.z + " camDir=" + NCDeckCamera.Dir.x + "," + NCDeckCamera.Dir.y + "," + NCDeckCamera.Dir.z);
 
 	bool bSend = false;
 
@@ -97,7 +112,7 @@ void NetClient_ShipControlActivation()
 		case "Ship_Fire":
 			if (sti(NCDeckCamera.On))
 			{
-				if (sti(NCDeckCamera.IsCanFire))
+				if (sti(NCDeckCamera.IsCanFire) && COOP_CliCamOk())
 				{
 					NMAddByte(iSMsg, NSC_SHIP_FIRE);
 					NMAddByte(iSMsg, 1);
@@ -433,7 +448,11 @@ void NetClient_OnShipInfo(int iMsg)
 	rClient.Skills.Repair.TotalCooldownTime = iTotalCooldownTime;
 	rClient.Skills.Repair.CurrentCooldownTime = iCurrentRepairTime;
 
-	SendMessage(rClient, "llffffff", MSG_SHIP_CURVES, iMsgServerTime, x, y, z, sx, sy, sz);
+	// COOP: the ship may not exist yet (it is created a moment after the load message, see NetClient_ShipCreateLater)
+	if (sti(rClient.CoopReady))
+	{
+		SendMessage(rClient, "llffffff", MSG_SHIP_CURVES, iMsgServerTime, x, y, z, sx, sy, sz);
+	}
 }
 
 void NetClient_Ship_PlaySound3DComplex(ref rClient, string sSoundID, float fVolume, float fX, float fY, float fZ)

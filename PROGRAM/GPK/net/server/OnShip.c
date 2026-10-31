@@ -1,3 +1,9 @@
+// COOP: NaN guard for client camera data
+bool COOP_SrvFloatOk(float f)
+{
+	return (f > -100000.0) && (f < 100000.0);
+}
+
 #define NET_REPAIR_COOLDOWN			60
 
 void NetServer_DeleteShipEnvironment()
@@ -54,6 +60,7 @@ void NetServer_OnShip(int wNetClientID, int iMsg)
 		break;
 		case NSC_SHIP_SAILUP:
 			rClient.Ship.SailState = stf(rClient.Ship.SailState) + 0.5;
+			Trace("COOP: srv sailup client=" + wNetClientID + " sail=" + rClient.Ship.SailState);
 		break;
 		case NSC_SHIP_SAILDOWN:
 			rClient.Ship.SailState = stf(rClient.Ship.SailState) - 0.5;
@@ -72,8 +79,16 @@ void NetServer_OnShip(int wNetClientID, int iMsg)
 				rClient.Camera.Dir.y = NMGetFloat(iMsg);
 				rClient.Camera.Dir.z = NMGetFloat(iMsg);
 				EntityUpdate(1);
+				Trace("COOP: srv fire client=" + wNetClientID + " camPos=" + rClient.Camera.Pos.x + "," + rClient.Camera.Pos.y + "," + rClient.Camera.Pos.z + " camDir=" + rClient.Camera.Dir.x + "," + rClient.Camera.Dir.y + "," + rClient.Camera.Dir.z + " shipPos=" + rClient.Ship.Pos.x + "," + rClient.Ship.Pos.y + "," + rClient.Ship.Pos.z);
 
-				rClient.DoCannonFire = "";
+				if (COOP_SrvFloatOk(stf(rClient.Camera.Pos.x)) && COOP_SrvFloatOk(stf(rClient.Camera.Pos.y)) && COOP_SrvFloatOk(stf(rClient.Camera.Pos.z)) && COOP_SrvFloatOk(stf(rClient.Camera.Dir.x)) && COOP_SrvFloatOk(stf(rClient.Camera.Dir.y)) && COOP_SrvFloatOk(stf(rClient.Camera.Dir.z)))
+				{
+					rClient.DoCannonFire = "";
+				}
+				else
+				{
+					Trace("COOP: srv fire ignored, camera is not finite, client=" + wNetClientID);
+				}
 			}
 			else
 			{
@@ -634,6 +649,12 @@ void NetServer_ShipUpdateParameters()
 
 	NMAddByte(iSMsg, makeint(2.0 * stf(rClient.Ship.SailState)));
 
+	// COOP debug: log ship position about every 3 s per client (find where NaN appears)
+	rClient.DbgN = sti(rClient.DbgN) + 1;
+	if (sti(rClient.DbgN) - makeint(sti(rClient.DbgN) / 25) * 25 == 1)
+	{
+		Trace("COOP: pos client=" + wOurClientID + " x=" + rClient.Ship.Pos.x + " z=" + rClient.Ship.Pos.z + " ay=" + rClient.Ship.Ang.y + " spdz=" + rClient.Ship.Speed.z + " y=" + rClient.Ship.Pos.y + " maxz=" + rClient.Ship.MaxSpeedZ + " wind=" + NetServer_WhrGetWindSpeed() + " sail=" + rClient.Ship.SailState);
+	}
 	NMAddFloat(iSMsg, stf(rClient.Ship.Pos.x));
 	NMAddFloat(iSMsg, stf(rClient.Ship.Ang.y));
 	NMAddFloat(iSMsg, stf(rClient.Ship.Pos.z));

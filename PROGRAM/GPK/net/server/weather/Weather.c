@@ -6,6 +6,9 @@ object	NSWeather;
 int		iServerCurWeatherNum = -1;
 float	fServerWeatherDelta = 0.0;
 float	fServerWeatherAngle, fServerWeatherSpeed;
+float	fServerWindSyncTimer = 0.0;
+// COOP switch for tests: 1 = send the wind phase to the clients once a second, 0 = never send it (set iCoopWindSync = 0 in client\weather\Weather.c too)
+int		iCoopWindSyncSrv = 0;
 bool	bServerWeatherIsNight = false;
 bool	bServerWeatherIsStorm = false;
 bool	bServerWhrTornado = false;
@@ -66,11 +69,16 @@ void NetServer_CreateWeatherEnvironment(int iSMsg)
 		NSWeather.WindSpeed = 7.0;
 	}
 
-	SetEventHandler("frame","Whr_OnWindChange",0);
+	SetEventHandler("frame","NetServer_WhrOnWindChange",0);
 
 	fServerWeatherDelta = 0.0;
 	fServerWeatherAngle = stf(NSWeather.WindAngle);
 	fServerWeatherSpeed = stf(NSWeather.WindSpeed);
+	fServerWindSyncTimer = 0.0;
+
+	// WIND SYNC: base wind goes to the clients in the start message, right after the weather id
+	NMAddFloat(iSMsg, fServerWeatherAngle);
+	NMAddFloat(iSMsg, fServerWeatherSpeed);
 	
 	NetServer_WhrCreateLightningEnvironment();
 	NetServer_WhrCreateSeaEnvironment();
@@ -97,6 +105,26 @@ void NetServer_WhrOnWindChange()
 
 	NSWeather.WindAngle = fAng;
 	NSWeather.WindSpeed = fSpd;
+
+	// WIND SYNC: periodically send the wind phase, clients run the same formula between the packets
+	fServerWindSyncTimer = fServerWindSyncTimer + fDeltaTime;
+	if (iCoopWindSyncSrv != 0 && fServerWindSyncTimer >= 1.0)
+	{
+		fServerWindSyncTimer = 0.0;
+		NetServer_WhrSendWind();
+	}
+}
+
+void NetServer_WhrSendWind()
+{
+	int iSMsg = NMCreate();
+	NMAddByte(iSMsg, NC_WEATHER);
+	NMAddByte(iSMsg, NSC_WEATHER_WIND);
+	NMAddFloat(iSMsg, fServerWeatherDelta);
+	NMAddFloat(iSMsg, fServerWeatherAngle);
+	NMAddFloat(iSMsg, fServerWeatherSpeed);
+	NetServer_SendMessage(DST_ALL, iSMsg, false);
+	NMDelete(iSMsg);
 }
 
 string NetServer_WhrGetLightingPath() { return sServerLightingPath; }

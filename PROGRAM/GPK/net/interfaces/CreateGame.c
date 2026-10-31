@@ -194,14 +194,14 @@ void FillIslandsList()
 		string sTexture = "Interfaces\Net\Islands\" + rIsland.ID + ".tga";
 
 		string sTest = "tr" + (i + 2);
-		GameInterface.TABLE_MAPLIST.(sTest).td1.str = XI_ConvertString(rIsland.ID);
+		GameInterface.TABLE_MAPLIST.(sTest).td1.str = Net_GetIslandName(rIsland.ID);
 		GameInterface.TABLE_MAPLIST.(sTest).td1.IslandID = rIsland.ID;
 		GameInterface.TABLE_MAPLIST.(sTest).td1.my_texture = sTexture;
 
 		if (Net_IsIslandHaveForts(rIsland))
 		{
 			sTest = "tr" + iForts;
-			GameInterface.TABLE_MAPLIST_FORT.(sTest).td1.str = XI_ConvertString(rIsland.ID);
+			GameInterface.TABLE_MAPLIST_FORT.(sTest).td1.str = Net_GetIslandName(rIsland.ID);
 			GameInterface.TABLE_MAPLIST_FORT.(sTest).td1.IslandID = rIsland.ID;
 			GameInterface.TABLE_MAPLIST_FORT.(sTest).td1.my_texture = sTexture;
 			iForts++;
@@ -321,37 +321,37 @@ string CS_GetCurrentWeather()
 		case 0: 
 			switch (iWeatherType)
 			{
-				case 0:	return "Six Hours"; break;
-				case 1:	return "Eight Hour"; break;
-				case 2:	return "Ten Hours"; break;
-				case 3:	return "Overcast2"; break;
+				case 0:	return "6 Hours"; break;
+				case 1:	return "8 Hour"; break;
+				case 2:	return "10 Hours"; break;
+				case 3:	return "Storm01"; break;
 			}
 		break;
 		case 1: 
 			switch (iWeatherType)
 			{
-				case 0:	return "Eleven Hour"; break;
-				case 1:	return "Fourhteen Hour"; break;
-				case 2:	return "Sixteen Nour"; break;
-				case 3:	return "Stormy1"; break;
+				case 0:	return "11 Hour"; break;
+				case 1:	return "14 Hour"; break;
+				case 2:	return "16 Nour"; break;
+				case 3:	return "Storm02"; break;
 			}
 		break;
 		case 2: 
 			switch (iWeatherType)
 			{
-				case 0:	return "Nineteen Hour"; break;
-				case 1:	return "TwentyTwo Hour"; break;
-				case 2:	return "TwentyThree Hour"; break;
-				case 3:	return "Overcast1"; break;
+				case 0:	return "19 Hour"; break;
+				case 1:	return "22 Hour"; break;
+				case 2:	return "23 Hour"; break;
+				case 3:	return "Storm03"; break;
 			}
 		break;
 		case 3: 
 			switch (iWeatherType)
 			{
-				case 0:	return "Tweny Four Hour"; break;
-				case 1:	return "One Hour"; break;
-				case 2:	return "Three Hour"; break;
-				case 3:	return "Overcast5"; break;
+				case 0:	return "0 Hours"; break;
+				case 1:	return "1 hour"; break;
+				case 2:	return "3 Hours"; break;
+				case 3:	return "Storm04"; break;
 			}
 		break;
 	}
@@ -435,6 +435,18 @@ void CS_RecreateCancel()
 	CS_OnOk();
 }
 
+// ќстрова, на которых можно играть только в части режимов.
+// √ород ѕотер€нных  ораблей: только Deathmatch и Team Deathmatch (нет фортов и точек конво€).
+bool CS_IsIslandAllowedForMode(string sIslandID, int iMode)
+{
+	if (sIslandID == "LostShipsCity")
+	{
+		if (iMode == NETGAME_DEATHMATCH || iMode == NETGAME_NAVAL) { return true; }
+		return false;
+	}
+	return true;
+}
+
 void OnCreate()
 {
 	bool bError = false;
@@ -445,6 +457,21 @@ void OnCreate()
 		bError = true;
 
 		SetFormatedText("TEXT_OK", XI_ConvertString("Net_YouNeedtoEnterServerName"));
+
+		XI_WindowDisable("WND_NETCREATEGAME", true);
+
+		XI_WindowShow("WND_OK", true);
+		XI_WindowDisable("WND_OK", false);
+
+		SetEventHandler("OnOk", "CS_OnOk", 0);
+
+		return;
+	}
+
+	// остров доступен не во всех режимах
+	if (!CS_IsIslandAllowedForMode(CS_GetCurrentIsland(), iGameType))
+	{
+		SetFormatedText("TEXT_OK", "Ётот остров доступен только в режимах Deathmatch и Team Deathmatch.");
 
 		XI_WindowDisable("WND_NETCREATEGAME", true);
 

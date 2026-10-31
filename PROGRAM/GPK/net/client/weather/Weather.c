@@ -14,6 +14,12 @@ bool	bClientWeatherIsLight = false;
 bool	bClientWeatherIsRain = false;
 bool	bClientWeatherIsStorm = false;
 string	sClientLightingPath;
+// COOP switch: 1 = wind is synced from the server (client frame handler + periodic packets), 0 = wind stays fixed at the base value
+int		iCoopWindSync = 0;
+int		iCoopWindSyncCount = 0;
+float	fClientWeatherDelta = 0.0;
+float	fClientWeatherAngle = 0.0;
+float	fClientWeatherSpeed = 3.0;
 
 //#event_handler("EWhr_GetWindAngle", "NetClient_WhrGetWindAngle");
 //#event_handler("EWhr_GetWindSpeed", "NetClient_WhrGetWindSpeed");
@@ -41,7 +47,7 @@ void NetClient_DeleteWeatherEnvironment()
 	NetClient_WhrDeleteAstronomyEnvironment();
 
 	DelEventHandler("NetClient_WhrOnCalcFogColor", "NetClient_WhrOnCalcFogColor");
-	DelEventHandler("frame", "Whr_OnWindChange");
+	DelEventHandler("frame", "NetClient_WhrOnWindChange");
 
 	bWeatherLoaded = false;
 }
@@ -56,8 +62,22 @@ aref NetClient_GetCurrentWeather()
 void NetClient_CreateWeatherEnvironment(int iMsg)
 {
 	iClientCurWeatherNum = 0;
+	Trace("COOP: cli weather id=" + sWeatherID);
 
 	string sWeatherID = NMGetString(iMsg);
+
+	// WIND SYNC: base wind from the server (written right after the weather id in NetServer_CreateWeatherEnvironment)
+	fClientWeatherAngle = NMGetFloat(iMsg);
+	fClientWeatherSpeed = NMGetFloat(iMsg);
+	fClientWeatherDelta = 0.0;
+
+	Trace("COOP: cli base wind angle=" + fClientWeatherAngle + " speed=" + fClientWeatherSpeed);
+	if (COOP_WindBad(fClientWeatherAngle) || COOP_WindBad(fClientWeatherSpeed))
+	{
+		Trace("COOP: cli base wind is bad (NaN/INF), using table values, check that host and client have the same files");
+		fClientWeatherAngle = 0.0;
+		fClientWeatherSpeed = 3.0;
+	}
 
 	for (int i=0; i<iTotalNumWeathers; i++) 
 	{
@@ -86,8 +106,9 @@ void NetClient_CreateWeatherEnvironment(int iMsg)
 	bClientWeatherIsNight = Whr_GetLong(aCurWeather, "Night");
 	bClientWeatherIsLight = Whr_GetLong(aCurWeather, "Lights");
 
-	NCWeather.WindAngle = frand(180.0);//Whr_GetFloat(aCurWeather,"Wind.Angle");
-	NCWeather.WindSpeed = Whr_GetFloat(aCurWeather, "Wind.Speed");
+	NCWeather.WindAngle = fClientWeatherAngle;
+	NCWeather.WindSpeed = fClientWeatherSpeed;
+	if (iCoopWindSync != 0) { SetEventHandler("frame", "NetClient_WhrOnWindChange", 0); }
 
 	sClientCurrentFog = "Fog";
 	if (CheckAttribute(aCurWeather, "SpecialSeaFog")) { sClientCurrentFog = "SpecialSeaFog"; }	
@@ -129,9 +150,9 @@ void NetClient_CreateWeatherEnvironment(int iMsg)
 	NetClient_WhrCreateAstronomyEnvironment();
 	//if (bWhrTornado) { NetClient_WhrCreateTornadoEnvironment(); }
 
-	Particles.windpower = 0.05 * Clampf(Whr_GetWindSpeed() / WIND_NORMAL_POWER);
-	Particles.winddirection.x = sin(Whr_GetWindAngle());
-	Particles.winddirection.z = cos(Whr_GetWindAngle());
+	Particles.windpower = 0.05 * Clampf(5.0 * fClientWeatherSpeed / WIND_NORMAL_POWER);
+	Particles.winddirection.x = sin(fClientWeatherAngle);
+	Particles.winddirection.z = cos(fClientWeatherAngle);
 
 	bWeatherLoaded = true;
 
@@ -180,14 +201,60 @@ void NetClient_MoveWeatherToLayers(string sExecuteLayer, string sRealizeLayer)
 
 float NetClient_WhrGetWindAngle()
 {
-	if (!CheckAttribute(&Weather,"WindAngle")) { return 0.0; }
+	if (!CheckAttribute(&NCWeather,"WindAngle")) { return 0.0; }
 	return stf(NCWeather.WindAngle);
 }
 
 float NetClient_WhrGetWindSpeed()
 {
-	if (!CheckAttribute(&Weather,"WindSpeed")) { return 0.0; }
+	if (!CheckAttribute(&NCWeather,"WindSpeed")) { return 0.0; }
 	return stf(NCWeather.WindSpeed);
+}
+
+// same formula as the server (NetServer_WhrOnWindChange), so the wind is smooth and identical on all machines
+// COOP: true if the float is NaN / INF (string form contains N or #)
+bool COOP_WindBad(float f)
+{
+	string sF = "" + f;
+	if (findSubStr(&sF, "N", 0) >= 0) { return true; }
+	if (findSubStr(&sF, "#", 0) >= 0) { return true; }
+	return false;
+}
+
+void NetClient_WhrOnWindChange()
+{
+	float fDeltaTime = MakeFloat(GetDeltaTime()) * 0.001;
+	fClientWeatherDelta = fClientWeatherDelta + fDeltaTime;
+
+	float fVar = sin(fClientWeatherDelta) + sin(0.2 * fClientWeatherDelta) + sin(PI + 0.8 * fClientWeatherDelta) + cos(1.5 * fClientWeatherDelta);
+	float fSpd = fClientWeatherSpeed + (fClientWeatherSpeed / 6.0) * 0.1 * fVar;
+	float fAng = fClientWeatherAngle + 0.02 * fVar;
+
+	NCWeather.WindAngle = fAng;
+	NCWeather.WindSpeed = fSpd;
+
+	Particles.windpower = 0.05 * Clampf(5.0 * fSpd / WIND_NORMAL_POWER);
+	Particles.winddirection.x = sin(fAng);
+	Particles.winddirection.z = cos(fAng);
+}
+
+// periodic correction from the server
+void NetClient_WhrOnWindSync(int iMsg)
+{
+	float fDelta = NMGetFloat(iMsg);
+	float fAngle = NMGetFloat(iMsg);
+	float fSpeed = NMGetFloat(iMsg);
+
+	if (!bWeatherLoaded) { return; }
+	if (iCoopWindSync == 0) { return; }
+
+	iCoopWindSyncCount = iCoopWindSyncCount + 1;
+	if (iCoopWindSyncCount <= 3) { Trace("COOP: cli wind sync #" + iCoopWindSyncCount + " delta=" + fDelta + " angle=" + fAngle + " speed=" + fSpeed); }
+	if (COOP_WindBad(fDelta) || COOP_WindBad(fAngle) || COOP_WindBad(fSpeed)) { return; }
+
+	fClientWeatherDelta = fDelta;
+	fClientWeatherAngle = fAngle;
+	fClientWeatherSpeed = fSpeed;
 }
 
 string NetClient_WhrGetLightingPath() { return sClientLightingPath; }

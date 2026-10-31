@@ -21,7 +21,11 @@ void IDoExit(int exitCode)
 
 void ICancelProcedure()
 {
+	// COOP: after the game is over everybody goes to the main menu - the same path as the "Exit" button in the
+	// find-game screen. Sound, music and all net objects are released, so the next game starts from a clean state.
 	Net_Stop();
 
-	IDoExit( RC_INTERFACE_NET_FINDGAME );
+	IDoExit( RC_INTERFACE_NET_EXIT );
+
+	ReturnToMainMenu();
 }

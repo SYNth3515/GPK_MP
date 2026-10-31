@@ -6,5 +6,8 @@ void NetClient_OnWeather(int iMsg)
 		case NSC_WEATHER_ADD_LIGHTNING:
 			NetClient_LightningAdd(iMsg);
 		break;
+		case NSC_WEATHER_WIND:
+			NetClient_WhrOnWindSync(iMsg);
+		break;
 	}
 }

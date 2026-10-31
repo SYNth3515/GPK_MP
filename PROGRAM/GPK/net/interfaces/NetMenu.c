@@ -22,9 +22,12 @@ void IDoExit(int exitCode)
 
 void ICancelProcedure()
 {
+	// COOP: leaving the running game from the in-game net menu also goes to the main menu (see EndGame.c)
 	Net_Stop();
 
-	IDoExit( RC_INTERFACE_NET_FINDGAME );
+	IDoExit( RC_INTERFACE_NET_EXIT );
+
+	ReturnToMainMenu();
 }
 
 void IReturnToGame()

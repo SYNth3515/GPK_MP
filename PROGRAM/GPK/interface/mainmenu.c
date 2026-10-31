@@ -157,7 +157,7 @@ void ProcCommand()
 	case "Save":		SavePress(); break;
 	case "Options":		OptionsPress(); break;
 	case "Multiplayer":	MultiPress(); break;
-	case "Credits":		MultiPress(); break; // COOP TEST: Credits -> net
+	case "Credits":		CreditsPress(); break;
 	case "Exit":		SetEventHandler("frame","QuitPress",0);  break;
 	}
 }
@@ -199,8 +199,10 @@ void CreateBackEnvironment()
 	//arMenu.l4.locname = "menu05";	arMenu.l4.sel = "mainmenu\menu05_active";	arMenu.l4.norm = "mainmenu\menu05_passive"; arMenu.l4.event = "Multiplayer";	arMenu.l4.path = LanguageGetLanguage();
 	//arMenu.l5.locname = "menu06";	arMenu.l5.sel = "mainmenu\menu06_active";	arMenu.l5.norm = "mainmenu\menu06_passive"; arMenu.l5.event = "Credits";		arMenu.l5.path = LanguageGetLanguage();
 	//arMenu.l6.locname = "menu07";	arMenu.l6.sel = "mainmenu\menu07_active";	arMenu.l6.norm = "mainmenu\menu07_passive"; arMenu.l6.event = "Exit";			arMenu.l6.path = LanguageGetLanguage();
-	arMenu.l4.locname = "menu05";	arMenu.l4.sel = "mainmenu\menu05_active";	arMenu.l4.norm = "mainmenu\menu05_passive"; arMenu.l4.event = "Credits";		arMenu.l4.path = LanguageGetLanguage();
-	arMenu.l5.locname = "menu06";	arMenu.l5.sel = "mainmenu\menu06_active";	arMenu.l5.norm = "mainmenu\menu06_passive"; arMenu.l5.event = "Exit";			arMenu.l5.path = LanguageGetLanguage();
+	// GPK_MP: 6 menu items. Slot menu05 = Network game (new), menu06 = Credits (original models), menu07 = Exit (original models)
+	arMenu.l4.locname = "menu05";	arMenu.l4.sel = "mainmenu\MenuNet_active";	arMenu.l4.norm = "mainmenu\MenuNet_passive"; arMenu.l4.event = "Multiplayer";	arMenu.l4.path = LanguageGetLanguage();
+	arMenu.l5.locname = "menu06";	arMenu.l5.sel = "mainmenu\menu05_active";	arMenu.l5.norm = "mainmenu\menu05_passive"; arMenu.l5.event = "Credits";		arMenu.l5.path = LanguageGetLanguage();
+	arMenu.l6.locname = "menu07";	arMenu.l6.sel = "mainmenu\menu06_active";	arMenu.l6.norm = "mainmenu\menu06_passive"; arMenu.l6.event = "Exit";			arMenu.l6.path = LanguageGetLanguage();
 	SendMessage(&InterfaceBackScene, "lla", 3, 1, arMenu ); // set menu
 	//SendMessage(&InterfaceBackScene, "lll", 7, 0, true ); // set menu
 	//SendMessage(&InterfaceBackScene, "lll", 7, 1, true ); // set menu

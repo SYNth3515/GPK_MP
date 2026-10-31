@@ -1,3 +1,9 @@
+// COOP switch: 0 = create the client ship at once inside the load message (as in the original code),
+//              1 = create it 50..3000 ms later, when the client clock has reached 150 (NetClient_ShipCreateLater).
+// Two hard freezes (one on the host, one on a client) happened right after the "ship create postponed" lines, so the
+// default is 0.
+int iCoopDelayShip = 0;
+
 
 void NetClient_OnClient(int iMsg)
 {
@@ -168,10 +174,71 @@ void NetClient_Load(int iMsg)
 
 	NetClient_SetTrackSettings(rClient);
 
+	// COOP: ships created in the very first frame (before the sea and the other entities have run a few frames) come out
+	// with a garbage or NaN height: every ship created on the host (server time >= 107) was fine, ships created on the
+	// client machine at server time 0 mostly were not, and a stale key at the start did not help. So the ship is created
+	// a little later, when the client clock has run for a moment (see NetClient_ShipCreateLater).
+	rClient.CoopGame = iCoopGameNo;
+	rClient.CoopReady = 0;
+	rClient.CoopPolls = 0;
+	if (iCoopDelayShip == 0)
+	{
+		// original order: the ship is created right here, inside the load message
+		NetClient_LoadCreateShip(wNetClientID);
+		return;
+	}
+	Trace("COOP: cli ship create postponed id=" + wNetClientID + " (server time " + iClientServerTime + ")");
+	PostEvent("NetClient_ShipCreateLater", 50, "l", wNetClientID);
+}
+
+// COOP: waits until the client clock has run (like on the host) and creates the ship
+void NetClient_ShipCreateLater()
+{
+	int wNetClientID = GetEventData();
+	ref rClient = NetClient_GetClient(wNetClientID);
+
+	if (!sti(rClient.Use)) { return; }
+	if (sti(rClient.CoopReady)) { return; }
+
+	rClient.CoopPolls = sti(rClient.CoopPolls) + 1;
+	if (iClientServerTime < 150 && sti(rClient.CoopPolls) < 60)
+	{
+		PostEvent("NetClient_ShipCreateLater", 50, "l", wNetClientID);
+		return;
+	}
+	Trace("COOP: cli ship create now id=" + wNetClientID + " polls=" + rClient.CoopPolls + " server time " + iClientServerTime);
+	NetClient_LoadCreateShip(wNetClientID);
+}
+
+void NetClient_LoadCreateShip(int wNetClientID)
+{
+	ref rClient = NetClient_GetClient(wNetClientID);
+	ref rShip = Net_GetShipByIndex(sti(rClient.Ship.Type));
+
 	string sPath = "ships\" + rClient.Model + "\" + NetShipHullUpgrades[sti(rClient.Ship.Upgrades.Hull) - 1].str + "\";
 	SetTexturePath(0, sPath);
+	Trace("COOP: cli ship create id=" + wNetClientID + " island=[" + NCServer.IslandID + "] srvPos=" + rClient.Ship.Pos.x + "," + rClient.Ship.Pos.y + "," + rClient.Ship.Pos.z + " ay=" + rClient.Ship.Ang.y);
+	// COOP: explicitly initialise the dynamic ship state; the client NetShip starts with garbage/NaN height otherwise
+	rClient.Ship.NewPos.x = stf(rClient.Ship.Pos.x);
+	rClient.Ship.NewPos.y = stf(rClient.Ship.Pos.y);
+	rClient.Ship.NewPos.z = stf(rClient.Ship.Pos.z);
+	rClient.Ship.Speed.x = 0.0;
+	rClient.Ship.Speed.y = 0.0;
+	rClient.Ship.Speed.z = 0.0;
+	rClient.Ship.Ang.x = 0.0;
+	rClient.Ship.Ang.z = 0.0;
 	CreateEntity(rClient, "NetShip");
+	Trace("COOP: cli ship entity created id=" + wNetClientID);
 	SendMessage(rClient, "la", MSG_SHIP_CREATE, rShip);
+	Trace("COOP: cli ship after MSG_SHIP_CREATE id=" + wNetClientID + " pos=" + rClient.Ship.Pos.x + "," + rClient.Ship.Pos.y + "," + rClient.Ship.Pos.z);
+	// COOP: give the interpolation a valid first key at once (position and angle from the server, zero speed).
+	// Ships that got this key were always fine (every ship on the host, t>=107), ships created while the client did not know
+	// the server time yet (t=0, the key was skipped) came out with a garbage or NaN height on the client machine.
+	// So the key is now always sent, with a time that is never below 100 (the range seen working).
+	int iCoopSeedTime = iClientServerTime;
+	if (iCoopSeedTime < 100) { iCoopSeedTime = 100; }
+	SendMessage(rClient, "llffffff", MSG_SHIP_CURVES, iCoopSeedTime, stf(rClient.Ship.Pos.x), stf(rClient.Ship.Ang.y), stf(rClient.Ship.Pos.z), 0.0, 0.0, 0.0);
+	Trace("COOP: cli seed curves sent id=" + wNetClientID + " t=" + iCoopSeedTime + " (server time " + iClientServerTime + ")");
 	SetTexturePath(0, "");
 
 	// create water sound
@@ -215,6 +282,8 @@ void NetClient_Load(int iMsg)
 	SeaFoam.AddNetShip = wNetClientID;
 
 	NetBI_SelectShipPointer(wNetClientID);
+
+	rClient.CoopReady = 1;
 }
 
 void NetClient_SetTrackSettings(ref rClient)

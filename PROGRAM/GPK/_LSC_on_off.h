@@ -2,7 +2,7 @@
 // здесь и далее ник boal - это разработческий ник ALexusB
 
 #define VERSION_NUMBER1       "Корсары: Город Потерянных Кораблей  " // Корсары: ГПК modding base #1
-#define VERSION_NUMBER2       "ver. 1.3.2 (14.01.11) AT"
+#define VERSION_NUMBER2       "ver. 1.3.2 (14.01.11) AT + GPK_MP 0.311026"
 #define VERSION_NUMBER3       "Seaward.Ru" // ALexusB&Co
 
 #define VERSION_NUM      99930  // текущий номер
@@ -119,4 +119,4 @@ int iFortNation, iFortCommander;
 int ItemsForLocators_start, ItemsForLocators_end, Totems_start, Totems_end;
 
 GetEngineVersion();
-///////////////////////////// by Cheatsurfer
+/////////////////////////////

@@ -1,4 +1,15 @@
 bool bServerGameStarted = false;
+// COOP spawn test switches (edit, restart the game):
+// iCoopSpawnMode: 0 = ring around island centre (old behaviour, worked on Jamaica at R=400), 1 = singleplayer sea/port points
+int iCoopSpawnMode = 1;
+// ring radius used when iCoopSpawnMode = 0 (also as fallback when island has no port points)
+int iCoopRingRadius = 400;
+// ring radius for LostShipsCity (the city is a cluster of wrecks, a small ring may land on a hull - raise it if so)
+int iCoopLSCRingRadius = 400;
+// COOP: ports farther from the island origin than this are not used for spawn (hangs seen at 4200 and 5950, none up to 3500)
+int iCoopMaxPortDist = 2500;
+// COOP test: open sea (no island) deathmatch spawn Z of team 0. Try 0.0, then 600.0, then -600.0
+float fCoopOpenZ = 0.0;
 int iServerEnvSMsg;
 
 void NetServer_EndGame(bool bReconnect)
@@ -147,19 +158,28 @@ void NetServer_StartServerGame()
 		NMAddByte(iServerEnvSMsg, NSC_STARTGAME_ENVIRONMENT);
 
 	// create all environments
+		Trace("COOP: srv NetServer_CreateWeatherEnvironment");
 		NetServer_CreateWeatherEnvironment(iServerEnvSMsg);
+		Trace("COOP: srv NetServer_CreateIslandEnvironment");
 		NetServer_CreateIslandEnvironment(iServerEnvSMsg);
+		Trace("COOP: srv NetServer_CreateBallsEnvironment");
 		NetServer_CreateBallsEnvironment(iServerEnvSMsg);
+		Trace("COOP: srv NetServer_CreateTouchEnvironment");
 		NetServer_CreateTouchEnvironment(iServerEnvSMsg);
+		Trace("COOP: srv NetServer_CreateRiggingEnvironment");
 		NetServer_CreateRiggingEnvironment(iServerEnvSMsg);
+		Trace("COOP: srv NetServer_CreateShipEnvironment");
 		NetServer_CreateShipEnvironment(iServerEnvSMsg);
+		Trace("COOP: srv NetServer_CreateFortEnvironment");
 		NetServer_CreateFortEnvironment(iServerEnvSMsg);
+		Trace("COOP: srv NetServer_CreateTimeEnvironment");
 		NetServer_CreateTimeEnvironment(iServerEnvSMsg);
 
 	// send message to all client's for start game and load environment
 		NetServer_SendMessage(DST_ALL, iServerEnvSMsg, true);
 		NMDelete(iServerEnvSMsg);
 
+	NetServer.CoopN = 0;	// COOP: reset, filled below only for island games
 	// setup group positions
 	if (NetServer.IslandID == "")
 	{
@@ -167,7 +187,7 @@ void NetServer_StartServerGame()
 		{
 			case NETGAME_DEATHMATCH:
 				oTeams[0].Pos.x = 0.0;
-				oTeams[0].Pos.z = 0.0;
+				oTeams[0].Pos.z = fCoopOpenZ;
 			break;
 			case NETGAME_NAVAL:
 				oTeams[0].Pos.x = -500.0;	oTeams[1].Pos.x = 500.0;	oTeams[2].Pos.x = 500.0;	oTeams[3].Pos.x = -500.0;
@@ -186,6 +206,93 @@ void NetServer_StartServerGame()
 		ref rIsland = Net_GetIsland(NetServer.IslandID);
 
 		string sStartPosition = "l" + (2 + sti(NetServer.StartPosition));
+
+		// COOP: GPK island locators have no net_* groups (they exist only in Corsairs 3 files and the island models differ).
+		// Fallback: start on a ring in open water around the island. Tune the radius if a spawn lands on shore.
+		// COOP: universal sea spawn. Singleplayer reload locators carry real sea start points reload.lK.ships.l0..lN (x, z, ay):
+		// the same points the player gets when he leaves a port, so they are always navigable water. The ring below is the last resort.
+		NetServer.CoopN = 0;
+		DeleteAttribute(&NetServer, "CoopLoc");
+		aref arCoopReload; makearef(arCoopReload, rIsland.reload);
+		int iCoopNumReload = GetAttributesNum(arCoopReload);
+		for (int iCL=0; iCL<iCoopNumReload; iCL++)
+		{
+			aref arCoopLoc = GetAttributeN(arCoopReload, iCL);
+			if (CheckAttribute(arCoopLoc, "ships.l0.x") && CheckAttribute(arCoopLoc, "ships.l0.z"))
+			{
+					float fCoopPX = stf(arCoopLoc.ships.l0.x);
+					float fCoopPZ = stf(arCoopLoc.ships.l0.z);
+					float fCoopMaxD = makefloat(iCoopMaxPortDist);
+					if (fCoopPX * fCoopPX + fCoopPZ * fCoopPZ > fCoopMaxD * fCoopMaxD)
+					{
+						Trace("COOP: port " + iCL + " skipped, too far from the island origin x=" + fCoopPX + " z=" + fCoopPZ);
+						continue;
+					}
+				string sCoopKey = "l" + sti(NetServer.CoopN);
+				NetServer.CoopLoc.(sCoopKey) = iCL;
+				NetServer.CoopN = sti(NetServer.CoopN) + 1;
+			}
+		}
+		NetServer.CoopStart = 0;
+		if (sti(NetServer.CoopN) > 0) { NetServer.CoopStart = rand(sti(NetServer.CoopN) - 1); }
+		Trace("COOP: sea spawn locators found = " + NetServer.CoopN + " start=" + NetServer.CoopStart + " island=" + NetServer.IslandID);
+		Trace("COOP: spawn mode=" + iCoopSpawnMode + " ringR=" + iCoopRingRadius);
+
+		// COOP: ring radius. 4200 put ships on land / out of bounds on Jamaica (client hang). (0,0) is open water on Barbados and Jamaica,
+		// so start with a small ring around it and raise fCoopR step by step.
+		float fCoopR = makefloat(iCoopRingRadius);
+		if (NetServer.IslandID == "LostShipsCity") { fCoopR = makefloat(iCoopLSCRingRadius); }
+		float fCoopD = fCoopR * 0.7071;
+		float fCoopO = fCoopR * 1.2;
+		if (!CheckAttribute(rIsland, "net_deathmatch.l1.x"))
+		{
+			Trace("COOP: ring spawn fallback (deathmatch) for island " + NetServer.IslandID);
+			rIsland.net_deathmatch.l1.x = fCoopR; rIsland.net_deathmatch.l1.z = 0.0;
+			rIsland.net_deathmatch.l2.x = fCoopD; rIsland.net_deathmatch.l2.z = fCoopD;
+			rIsland.net_deathmatch.l3.x = 0.0; rIsland.net_deathmatch.l3.z = fCoopR;
+			rIsland.net_deathmatch.l4.x = -fCoopD; rIsland.net_deathmatch.l4.z = fCoopD;
+			rIsland.net_deathmatch.l5.x = -fCoopR; rIsland.net_deathmatch.l5.z = 0.0;
+			rIsland.net_deathmatch.l6.x = -fCoopD; rIsland.net_deathmatch.l6.z = -fCoopD;
+			rIsland.net_deathmatch.l7.x = 0.0; rIsland.net_deathmatch.l7.z = -fCoopR;
+			rIsland.net_deathmatch.l8.x = fCoopD; rIsland.net_deathmatch.l8.z = -fCoopD;
+		}
+		if (!CheckAttribute(rIsland, "net_team.l1.x"))
+		{
+			Trace("COOP: ring spawn fallback (team) for island " + NetServer.IslandID);
+			rIsland.net_team.l1.x = fCoopR; rIsland.net_team.l1.z = 0.0;
+			rIsland.net_team.l2.x = -fCoopR; rIsland.net_team.l2.z = 0.0;
+			rIsland.net_team.l3.x = 0.0; rIsland.net_team.l3.z = fCoopR;
+			rIsland.net_team.l4.x = 0.0; rIsland.net_team.l4.z = -fCoopR;
+			rIsland.net_team.l5.x = fCoopD; rIsland.net_team.l5.z = fCoopD;
+			rIsland.net_team.l6.x = -fCoopD; rIsland.net_team.l6.z = -fCoopD;
+			rIsland.net_team.l7.x = -fCoopD; rIsland.net_team.l7.z = fCoopD;
+			rIsland.net_team.l8.x = fCoopD; rIsland.net_team.l8.z = -fCoopD;
+			rIsland.net_team.l9.x = fCoopO; rIsland.net_team.l9.z = 0.0;
+			rIsland.net_team.l10.x = -fCoopO; rIsland.net_team.l10.z = 0.0;
+			rIsland.net_team.l11.x = 0.0; rIsland.net_team.l11.z = fCoopO;
+			rIsland.net_team.l12.x = 0.0; rIsland.net_team.l12.z = -fCoopO;
+		}
+		if (!CheckAttribute(rIsland, "net_convoy.l1.x"))
+		{
+			Trace("COOP: ring spawn fallback (convoy) for island " + NetServer.IslandID);
+			rIsland.net_convoy.l1.x = fCoopR; rIsland.net_convoy.l1.z = 0.0;
+			rIsland.net_convoy.l2.x = -fCoopR; rIsland.net_convoy.l2.z = 0.0;
+			rIsland.net_convoy.l3.x = 0.0; rIsland.net_convoy.l3.z = fCoopR;
+			rIsland.net_convoy.l4.x = 0.0; rIsland.net_convoy.l4.z = fCoopR;
+			rIsland.net_convoy.l5.x = 0.0; rIsland.net_convoy.l5.z = -fCoopR;
+			rIsland.net_convoy.l6.x = -fCoopR; rIsland.net_convoy.l6.z = 0.0;
+			rIsland.net_convoy.l7.x = -fCoopR; rIsland.net_convoy.l7.z = 0.0;
+			rIsland.net_convoy.l8.x = fCoopR; rIsland.net_convoy.l8.z = 0.0;
+			rIsland.net_convoy.l9.x = 0.0; rIsland.net_convoy.l9.z = -fCoopR;
+		}
+		if (!CheckAttribute(rIsland, "net_fort.l1.x"))
+		{
+			Trace("COOP: ring spawn fallback (fort) for island " + NetServer.IslandID);
+			rIsland.net_fort.l1.x = -fCoopR; rIsland.net_fort.l1.z = 0.0;
+			rIsland.net_fort.l2.x = fCoopR; rIsland.net_fort.l2.z = 0.0;
+			rIsland.net_fort.l3.x = 0.0; rIsland.net_fort.l3.z = fCoopR;
+			rIsland.net_fort.l4.x = 0.0; rIsland.net_fort.l4.z = -fCoopR;
+		}
 
 		aref arConvoy, arTeam, arDeathmatch;
 		makearef(arConvoy, rIsland.net_convoy);
@@ -223,7 +330,7 @@ void NetServer_StartServerGame()
 				oTeams[1].Pos.z = stf(rIsland.net_fort.(sStartPosition).z);
 			break;
 			case NETGAME_CONVOY:
-				iRand = iNumConvoySpawns * rand(iNumTeamSpawns - 1);
+				iRand = 3 * rand(iNumConvoySpawns - 1);
 				s1 = "l" + (iRand + 1);
 				s2 = "l" + (iRand + 2);
 				s3 = "l" + (iRand + 3);
@@ -239,6 +346,8 @@ void NetServer_StartServerGame()
 			break;
 		}
 	}
+
+	Trace("COOP: spawn team0 x=" + oTeams[0].Pos.x + " z=" + oTeams[0].Pos.z + " island=" + NetServer.IslandID);
 
 	// load players
 	
@@ -303,6 +412,29 @@ void NetServer_StartServerGame()
 		float z = stf(oTeams[iTeam].Pos.z);
 		float dx = makefloat(iTeams[iTeam] - (makeint(iTeams[iTeam] / 4) * 4)) * fRadius;
 		float dz = makefloat(iTeams[iTeam] / 4) * fRadius;
+
+		// COOP: universal sea spawn - each team gets its own port, each ship its own sea point of that port
+		if (iCoopSpawnMode == 1 && sti(NetServer.CoopN) > 0 && NetServer.IslandID != "")
+		{
+			ref rCoopIsl = Net_GetIsland(NetServer.IslandID);
+			aref arCoopRel; makearef(arCoopRel, rCoopIsl.reload);
+			int iCoopN = sti(NetServer.CoopN);
+			int iCoopIdx = sti(NetServer.CoopStart) + iTeam;
+			iCoopIdx = iCoopIdx - makeint(iCoopIdx / iCoopN) * iCoopN;
+			string sCoopK = "l" + iCoopIdx;
+			aref arCoopL = GetAttributeN(arCoopRel, sti(NetServer.CoopLoc.(sCoopK)));
+			aref arCoopSh; makearef(arCoopSh, arCoopL.ships);
+			int iCoopShips = GetAttributesNum(arCoopSh);
+			int iCoopSlot = iTeams[iTeam];
+			if (iCoopShips > 0) { iCoopSlot = iCoopSlot - makeint(iCoopSlot / iCoopShips) * iCoopShips; }
+			string sCoopP = "l" + iCoopSlot;
+			if (!CheckAttribute(arCoopSh, sCoopP + ".x") || !CheckAttribute(arCoopSh, sCoopP + ".z")) { sCoopP = "l0"; }
+			x = stf(arCoopSh.(sCoopP).x);
+			z = stf(arCoopSh.(sCoopP).z);
+			dx = 0.0;
+			dz = 0.0;
+			Trace("COOP: ship " + i + " team " + iTeam + " port " + sCoopK + " point " + sCoopP + " x=" + x + " z=" + z);
+		}
 
 		NSClients[i].Ship.Pos.x = x + dx;
 		NSClients[i].Ship.Pos.z = z + dz;
