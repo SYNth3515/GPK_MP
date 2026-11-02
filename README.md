@@ -4,4 +4,6 @@ A multiplayer/coop project for Age Of Pirates 2: City of Abandoned Ships | Му�
 
 Пока удалось реанимировать только мультиплеер как в корсарах 3, в планах сделать полноценный кооператив где другие игроки выступают в роли офицера/компаньона по функционалу как дубликат игрока (диалоги ведутся с хостом при инициации от других пользователей).
 
+Поддержать проект - https://yoomoney.ru/to/4100119665987017/0
+
 <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/3d500dcb-818a-40b5-86c0-af2450be1fd4" />
