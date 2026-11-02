@@ -25,6 +25,10 @@ void InitInterface(string iniName)
 
 	SendMessage(&GameInterface, "ls", MSG_INTERFACE_INIT, iniName);
 
+	// COOP: default server name, so a server can be created quickly
+	GameInterface.EDITBOX_GAMENAME.str = "GPK_MP";
+	GameInterface.EDITBOX_ADMINPASSWORD.str = "";
+
 	// select checkbox LAN game
 	CheckButton_SetState("CHECKBUTTON_LAN", 1, true);
 
@@ -374,6 +378,7 @@ void CS_CreateServer()
 	oSrvParams.ServerName = GameInterface.EDITBOX_GAMENAME.str;
 	oSrvParams.ServerPort = NET_DEFAULT_SERVER_PORT;
 	oSrvParams.ServerPassword = GameInterface.EDITBOX_GAMEPASSWORD.str;
+	oSrvParams.AdminPassword = GameInterface.EDITBOX_ADMINPASSWORD.str;	// COOP: empty = nobody can become an admin
 	oSrvParams.Dedicated = sti(GameInterface.CHECKBUTTON_DEDICATED.state1);
 	oSrvParams.LanServer = sti(GameInterface.CHECKBUTTON_LAN.state1);
 	oSrvParams.InetServer = sti(GameInterface.CHECKBUTTON_INET.state1);

@@ -3,6 +3,12 @@ void NetServer_OnSay(int wNetClientID, int iMsg)
 	int iSubCode = NMGetByte(iMsg);
 	string sSayString = NMGetString(iMsg);
 
+	// COOP: the admin switched the chat of this player off
+	if (wNetClientID >= 0 && wNetClientID < NET_MAXCLIENTS)
+	{
+		if (sti(NSClients[wNetClientID].Muted)) { return; }
+	}
+
 	int iSMsg = NMCreate();
 	NMAddByte(iSMsg, NC_SAY);
 	NMAddByte(iSMsg, iSubCode);

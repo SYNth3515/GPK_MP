@@ -44,6 +44,7 @@ void NetClient_OnConnectReconnect()
 void NetClient_OnConnectAccepted(int iMsg)
 {
 	wClientID = NMGetClientID(iMsg);
+	bNetClientConnected = true;
 
 	// create chat environment
 	NetClient_CreateChatEnvironment();
@@ -52,6 +53,10 @@ void NetClient_OnConnectAccepted(int iMsg)
 	NetClient_Ping();
 
 	Event("NCEvent_Client_Accepted");
+
+	// COOP: admin rights are reset on every connect; the machine that runs the server logs in with its own admin password
+	NetClient_AdminReset();
+	NetClient_AdminAutoLogin();
 	//LaunchNetBuyScreen();
 
 	SetEventHandler("NCEvent_Disconnect", "NetClient_OnDisconnect", 0);

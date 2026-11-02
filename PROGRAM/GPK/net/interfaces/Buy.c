@@ -1,9 +1,9 @@
-int iSkillAccuracy = 0, iSkillCannons = 0, iSkillSailing = 0, iSkillDefence = 0, iSkillRepair = 0;
+int iSkillAccuracy = 0, iSkillCannons = 0, iSkillSailing = 0, iSkillDefence = 0, iSkillRepair = 0, iSkillGrappling = 0;
 
 int BuyClients[NET_TOTALCLIENTS];
 
 int iCurrentCredit = 0, iMaxCredit = 0;
-int iSkillsQuantity[5];
+int iSkillsQuantity[8];
 int iNetGoodsQuantity[6];
 int iPerks[6];
 int iCurrentShipType = -1;
@@ -18,6 +18,17 @@ int iClientStartTimer = 10000;
 bool bStartCountDown = false;
 bool bSelectNewTeamWindow = false;
 
+// COOP: host "Start" button and lobby chat
+bool bBuyHostStartSent = false;
+int iBuyHostStartTimer = 0;
+bool bBuyChatOpen = false;
+int iBuyChatUnread = 0;
+int iBuyChatUnreadShown = -1;
+
+// COOP: admin login in the lobby
+bool bBuyAdminOpen = false;
+bool bBuyAdminShown = false;
+
 float fServerInfoPiecesLoaded = 0.0;
 
 bool bServerInfoReady = false;
@@ -27,6 +38,14 @@ void InitInterface(string iniName)
 	int i;
 
 	bServerInfoReady = false;
+
+	bBuyHostStartSent = false;
+	bBuyChatOpen = false;
+	iBuyChatUnread = 0;
+	iBuyChatUnreadShown = -1;
+	bNetLobbyChatActive = true;
+	bBuyAdminOpen = false;
+	bBuyAdminShown = false;
 
 	GameInterface.title = "titleNetBuy";
 
@@ -58,6 +77,7 @@ void InitInterface(string iniName)
 	SetEventHandler("AddSailing", "Buy_AddSailing", 0);		SetEventHandler("DecSailing", "Buy_DecSailing", 0);
 	SetEventHandler("AddDefence", "Buy_AddDefence", 0);		SetEventHandler("DecDefence", "Buy_DecDefence", 0);
 	SetEventHandler("AddRepair", "Buy_AddRepair", 0);		SetEventHandler("DecRepair", "Buy_DecRepair", 0);
+	SetEventHandler("AddGrappling", "Buy_AddGrappling", 0);	SetEventHandler("DecGrappling", "Buy_DecGrappling", 0);
 
 	SetEventHandler("AddBalls", "Buy_AddBalls", 0);			SetEventHandler("DecBalls", "Buy_DecBalls", 0);
 	SetEventHandler("AddGrapes", "Buy_AddGrapes", 0);		SetEventHandler("DecGrapes", "Buy_DecGrapes", 0);
@@ -80,6 +100,16 @@ void InitInterface(string iniName)
 
 	SetEventHandler("NCEvent_ClientDrop", "Buy_ClientDrop", 0);
 
+	SetEventHandler("NCEvent_LobbyChat", "Buy_OnLobbyChat", 0);
+	SetEventHandler("OnChatOpen", "Buy_ChatOpen", 0);
+	SetEventHandler("OnChatClose", "Buy_ChatClose", 0);
+	SetEventHandler("OnChatSend", "Buy_ChatSend", 0);
+	SetEventHandler("EditExit", "Buy_ChatEditExit", 0);
+	SetEventHandler("OnAdminOpen", "Buy_AdminOpen", 0);
+	SetEventHandler("OnAdminClose", "Buy_AdminClose", 0);
+	SetEventHandler("OnAdminSend", "Buy_AdminSend", 0);
+	SetEventHandler("NCEvent_AdminStatus", "Buy_OnAdminStatus", 0);
+
 	SetEventHandler("frame", "NetBuy_OnFrame", 0);
 
 	SetEventHandler("OnClickTeam", "NetBuy_OnClickTeam", 0);
@@ -89,6 +119,12 @@ void InitInterface(string iniName)
 
 	XI_WindowDisable("WND_SELECT_TEAM", true);
 	XI_WindowShow("WND_SELECT_TEAM", false);
+
+	XI_WindowDisable("WND_NETCHAT", true);
+	XI_WindowShow("WND_NETCHAT", false);
+
+	XI_WindowDisable("WND_NETADMINLOGIN", true);
+	XI_WindowShow("WND_NETADMINLOGIN", false);
 
 	Buy_GetFullServerInfo();
 
@@ -197,6 +233,189 @@ void NetBuy_OpenSelectTeam()
 	NetBuy_OnFrame();	// update some parameters
 }
 
+// COOP: can the host start the game right now? Same rules as the server: not alone, at least 2 teams in team games.
+bool NetBuy_HostCanStart()
+{
+	if (NET_DEBUG) { return true; }
+
+	int i;
+	int iTeamUsed[4];
+	int iPlayers = 0;
+	int iTeamsUsed = 0;
+
+	for (i=0; i<4; i++) { iTeamUsed[i] = 0; }
+	for (i=0; i<NET_MAXCLIENTS; i++)
+	{
+		if (!sti(NCClients[i].Use)) { continue; }
+
+		iPlayers++;
+
+		int iClientTeam = sti(NCClients[i].Team);
+		if (iClientTeam >= 0 && iClientTeam < 4) { iTeamUsed[iClientTeam] = 1; }
+	}
+	for (i=0; i<4; i++) { iTeamsUsed = iTeamsUsed + iTeamUsed[i]; }
+
+	if (iPlayers < 2) { return false; }
+	if (sti(NCServer.GameType) != NETGAME_DEATHMATCH && iTeamsUsed < 2) { return false; }
+
+	return true;
+}
+
+// ================= lobby chat =================
+
+void Buy_ChatUpdate()
+{
+	int i;
+
+	if (!CheckAttribute(&NCLobbyChat, "Num")) { return; }
+
+	int iNum = sti(NCLobbyChat.Num);
+	int iFirst = iNum - 10;			// only the last 10 messages fit into the window
+	if (iFirst < 0) { iFirst = 0; }
+
+	string sText = "";
+	for (i=iFirst; i<iNum; i++)
+	{
+		string sAttr = "l" + i;
+		string sLine = NCLobbyChat.Lines.(sAttr);
+		if (sText != "") { sText = sText + "\n"; }
+		sText = sText + sLine;
+	}
+
+	SetFormatedText("TEXT_NETCHAT", sText);
+}
+
+void Buy_OnLobbyChat()
+{
+	if (bBuyChatOpen)
+		{ Buy_ChatUpdate(); }
+	else
+		{ iBuyChatUnread++; }
+}
+
+void Buy_ChatOpen()
+{
+	if (bBuyChatOpen) { return; }
+	if (bSelectNewTeamWindow) { return; }
+
+	bBuyChatOpen = true;
+	iBuyChatUnread = 0;
+
+	XI_WindowDisable("WND_NETBUY", true);
+
+	XI_WindowShow("WND_NETCHAT", true);
+	XI_WindowDisable("WND_NETCHAT", false);
+
+	Buy_ChatUpdate();
+
+	SetCurrentNode("EDITBOX_CHAT");
+}
+
+void Buy_ChatClose()
+{
+	if (!bBuyChatOpen) { return; }
+
+	bBuyChatOpen = false;
+
+	XI_WindowDisable("WND_NETCHAT", true);
+	XI_WindowShow("WND_NETCHAT", false);
+
+	XI_WindowDisable("WND_NETBUY", false);
+
+	SetCurrentNode("BTN_CHAT");
+}
+
+void Buy_ChatSend()
+{
+	string sMessage = GameInterface.EDITBOX_CHAT.str;
+	if (sMessage == "") { return; }
+
+	int iSMsg = NMCreate();
+	NMAddClientID(iSMsg, wClientID);
+	NMAddByte(iSMsg, NC_SAY);
+	NMAddByte(iSMsg, NSC_SAY_CHAT);
+	NMAddString(iSMsg, sMessage, 128);
+	NetClient_SendMessage(iSMsg, true);
+	NMDelete(iSMsg);
+
+	GameInterface.EDITBOX_CHAT.str = "";
+	SetCurrentNode("EDITBOX_CHAT");
+}
+
+void Buy_ChatEditExit()
+{
+	string sEditControl = GetEventData();
+
+	if (sEditControl == "EDITBOX_ADMINLOGIN") { Buy_AdminSend(); return; }
+	if (sEditControl != "EDITBOX_CHAT") { return; }
+
+	Buy_ChatSend();
+}
+
+// ================= admin login (the password is set by the host on the Create game screen) =================
+
+void Buy_AdminOpen()
+{
+	if (bBuyAdminOpen) { return; }
+	if (bBuyChatOpen) { return; }
+	if (bSelectNewTeamWindow) { return; }
+	if (bNetClientIsAdmin) { return; }
+
+	bBuyAdminOpen = true;
+
+	SetFormatedText("TEXT_ADMINLOGIN_RESULT", "");
+	GameInterface.EDITBOX_ADMINLOGIN.str = "";
+
+	XI_WindowDisable("WND_NETBUY", true);
+
+	XI_WindowShow("WND_NETADMINLOGIN", true);
+	XI_WindowDisable("WND_NETADMINLOGIN", false);
+
+	SetCurrentNode("EDITBOX_ADMINLOGIN");
+}
+
+void Buy_AdminClose()
+{
+	if (!bBuyAdminOpen) { return; }
+
+	bBuyAdminOpen = false;
+
+	XI_WindowDisable("WND_NETADMINLOGIN", true);
+	XI_WindowShow("WND_NETADMINLOGIN", false);
+
+	XI_WindowDisable("WND_NETBUY", false);
+
+	SetCurrentNode("BTN_ADMIN");
+}
+
+void Buy_AdminSend()
+{
+	string sPassword = GameInterface.EDITBOX_ADMINLOGIN.str;
+	if (sPassword == "") { return; }
+
+	NetClient_AdminLogin(sPassword);
+
+	GameInterface.EDITBOX_ADMINLOGIN.str = "";
+	SetCurrentNode("EDITBOX_ADMINLOGIN");
+}
+
+// the answer of the server
+void Buy_OnAdminStatus()
+{
+	int iAdmin = GetEventData();
+
+	if (!bBuyAdminOpen) { return; }
+
+	if (iAdmin)
+	{
+		Buy_AdminClose();
+	}
+	else
+	{
+		SetFormatedText("TEXT_ADMINLOGIN_RESULT", XI_ConvertString("capNetAdmin_WrongPassword"));
+	}
+}
+
 void NetBuy_OnFrame()
 {
 	int i;
@@ -216,8 +435,43 @@ void NetBuy_OnFrame()
 	if (iMinutes < 10) { sMinutes = "0" + iMinutes; } else { sMinutes = iMinutes; }
 	if (iSeconds < 10) { sSeconds = "0" + iSeconds; } else { sSeconds = iSeconds; }
 	string sValue = "#" + XI_ConvertString("btnNetBuy_Start") + " " + sMinutes + ":" + sSeconds;
-	
+
+	// COOP: the host (the machine that runs the server) can start the game at any moment, without waiting for the countdown
+	if (NetServer_IsStarted() || bNetClientIsAdmin)
+	{
+		if (!bStartCountDown) { sValue = "#" + XI_ConvertString("btnNetBuy_Start"); }
+
+		// the request was sent but the server did not answer (it refused): unlock the button again
+		if (bBuyHostStartSent)
+		{
+			iBuyHostStartTimer = iBuyHostStartTimer - iRealDeltaTime;
+			if (iBuyHostStartTimer <= 0) { bBuyHostStartSent = false; }
+		}
+
+		Button_SetEnable("BTN_START", bServerInfoReady && !bBuyHostStartSent && NetBuy_HostCanStart());
+	}
+
 	Button_SetText("BTN_START", sValue);
+
+	// lobby chat button: show the number of unread messages
+	if (iBuyChatUnread != iBuyChatUnreadShown)
+	{
+		iBuyChatUnreadShown = iBuyChatUnread;
+		string sChatBtn = "#" + XI_ConvertString("btnNetBuy_Chat");
+		if (iBuyChatUnread > 0) { sChatBtn = sChatBtn + " (" + iBuyChatUnread + ")"; }
+		Button_SetText("BTN_CHAT", sChatBtn);
+	}
+
+	// admin button: after a successful login it only shows that you are an admin
+	if (bNetClientIsAdmin != bBuyAdminShown)
+	{
+		bBuyAdminShown = bNetClientIsAdmin;
+		if (bNetClientIsAdmin)
+		{
+			Button_SetText("BTN_ADMIN", "#" + XI_ConvertString("btnNetBuy_AdminOn"));
+			Button_SetEnable("BTN_ADMIN", false);
+		}
+	}
 
 	// set selectteam button
 	ref rOurClient = NetClient_GetThisClient();
@@ -343,7 +597,7 @@ void Buy_OnServerInfo()
 		XI_WindowDisable("WND_NETBUY_WAITINFO", true);
 
 		// update skills costs 
-		for (i=0; i<5; i++)	
+		for (i=0; i<Net_GetSkillsNum(); i++)	
 		{ 
 			iSkillsQuantity[i] = 1;
 			StringCollection_SetTextValue("STRINGS_SKILLS_QUANTITY", i + 1, iSkillsQuantity[i]); 
@@ -806,6 +1060,14 @@ void Buy_OnTableClick()
 		break;
 		case 7:		// kick click
 			if (bClickHimself) { return; }
+
+			// COOP: an admin kicks the player out of the lobby at once (the server drops him and every table is updated)
+			if (bNetClientIsAdmin)
+			{
+				NetClient_AdminSend(NET_ADMIN_KICK, wNetClientID, 0.0);
+				return;
+			}
+
 			rClient.Kick = !sti(rClient.Kick);
 
 			iSMsg = NMCreate();
@@ -858,6 +1120,7 @@ void IDoExit(int exitCode)
 	DelEventHandler("AddSailing", "Buy_AddSailing");	DelEventHandler("DecSailing", "Buy_DecSailing");
 	DelEventHandler("AddDefence", "Buy_AddDefence");	DelEventHandler("DecDefence", "Buy_DecDefence");
 	DelEventHandler("AddRepair", "Buy_AddRepair");		DelEventHandler("DecRepair", "Buy_DecRepair");
+	DelEventHandler("AddGrappling", "Buy_AddGrappling");	DelEventHandler("DecGrappling", "Buy_DecGrappling");
 
 	DelEventHandler("AddBalls", "Buy_AddBalls");			DelEventHandler("DecBalls", "Buy_DecBalls");
 	DelEventHandler("AddGrapes", "Buy_AddGrapes");			DelEventHandler("DecGrapes", "Buy_DecGrapes");
@@ -879,6 +1142,17 @@ void IDoExit(int exitCode)
 	DelEventHandler("NCEvent_Disconnect", "Buy_Disconnect");
 
 	DelEventHandler("NCEvent_ClientDrop", "Buy_ClientDrop");
+
+	DelEventHandler("NCEvent_LobbyChat", "Buy_OnLobbyChat");
+	DelEventHandler("OnChatOpen", "Buy_ChatOpen");
+	DelEventHandler("OnChatClose", "Buy_ChatClose");
+	DelEventHandler("OnChatSend", "Buy_ChatSend");
+	DelEventHandler("EditExit", "Buy_ChatEditExit");
+	DelEventHandler("OnAdminOpen", "Buy_AdminOpen");
+	DelEventHandler("OnAdminClose", "Buy_AdminClose");
+	DelEventHandler("OnAdminSend", "Buy_AdminSend");
+	DelEventHandler("NCEvent_AdminStatus", "Buy_OnAdminStatus");
+	bNetLobbyChatActive = false;
 
 	DelEventHandler("frame", "NetBuy_OnFrame");
 
@@ -912,6 +1186,10 @@ void Buy_GetBuyInfo()
 {
 	int i;
 
+	// COOP: the game is starting, close the chat and admin windows
+	Buy_ChatClose();
+	Buy_AdminClose();
+
 	int iSMsg = NMCreate();
 	NMAddClientID(iSMsg, wClientID);
 	NMAddByte(iSMsg, NC_BUY);
@@ -921,7 +1199,7 @@ void Buy_GetBuyInfo()
 	NMAddByte(iSMsg, iCurrentShipUpgradeRigging + 1);
 	NMAddByte(iSMsg, iCurrentCannonType);
 	NMAddByte(iSMsg, iCurrentCannonUpgrade + 1);
-	for (i=0; i<5; i++) { NMAddByte(iSMsg, iSkillsQuantity[i]); }
+	for (i=0; i<Net_GetSkillsNum(); i++) { NMAddByte(iSMsg, iSkillsQuantity[i]); }
 	for (i=0; i<6; i++) { NMAddByte(iSMsg, iPerks[i]); }
 	for (i=0; i<6; i++) { NMAddWord(iSMsg, iNetGoodsQuantity[i]); }
 	NetClient_SendMessage(iSMsg, true);
@@ -954,6 +1232,13 @@ void OnDisconnect()
 
 void OnTmpStart()
 {
+	// COOP: only the host (the machine that runs the server) can start the game from the lobby
+	if (!NetServer_IsStarted() && !bNetClientIsAdmin) { return; }
+	if (bBuyHostStartSent) { return; }
+
+	bBuyHostStartSent = true;
+	iBuyHostStartTimer = 3000;
+
 	Net_StartServer();
 }
 
@@ -1042,6 +1327,9 @@ void Buy_DecDefence() { Buy_AddSkills(4, -1); }
 
 void Buy_AddRepair() { Buy_AddSkills(5, 1); }
 void Buy_DecRepair() { Buy_AddSkills(5, -1); }
+
+void Buy_AddGrappling() { Buy_AddSkills(6, 1); }
+void Buy_DecGrappling() { Buy_AddSkills(6, -1); }
 
 // ========================================
 //				GOODS SECTION

@@ -111,6 +111,31 @@ void NetServer_OnBuy_Ready(int wNetClientID)
 	PostEvent("NetServer_StartServerCountDown", 250);
 }
 
+// COOP: the host pressed "Start" in the lobby. Skips the countdown and asks all clients for their buy info right away.
+// Same rules as for the countdown: not alone on the server, at least 2 teams in team games.
+// Note: like before, the server does not check WHO sent the command (the lobby shows the button only to the host).
+void NetServer_OnCommandStartGame(int wNetClientID)
+{
+	// already started, or the start was already requested (double click, countdown ended at the same time)
+	if (bServerGameStarted || bServerStartRequested) { return; }
+
+	if (!NET_DEBUG)
+	{
+		if (NetServer_GetNumClients() <= 1) { return; }
+		if (sti(NetServer.GameType) != NETGAME_DEATHMATCH && NetServer_GetNumTeams() <= 1) { return; }
+	}
+
+	bServerStartRequested = true;
+
+	// stop the countdown if it is running (otherwise it would send the start request a second time when it ends)
+	DelEventHandler("NetServer_StartServerCountDown", "NetServer_StartServerCountDown");
+
+	// iSecondsToStartGame >= 0 also locks the lobby: no team change, no ready change, no new connections
+	iSecondsToStartGame = 0;
+
+	NetServer_StartGame();
+}
+
 void NetServer_StartServerCountDown()
 {
 	iSecondsToStartGame = iSecondsToStartGame - 250;
@@ -159,10 +184,10 @@ void NetServer_OnBuy_FullInfo(int wNetClientID, int iMsg)
 	int iCannonsType = NMGetByte(iMsg);
 	int iCannonsUpgrade = NMGetByte(iMsg);
 
-	int iSkills[5], iPerks[6], iGoods[6];
+	int iSkills[8], iPerks[6], iGoods[6];
 
 	// add skills money
-	for (i=0; i<5; i++) 
+	for (i=0; i<Net_GetSkillsNum(); i++) 
 	{ 
 		iSkills[i] = NMGetByte(iMsg); 
 		iCredit = iCredit + Net_GetSkillCost(i, iSkills[i]);
@@ -206,6 +231,7 @@ void NetServer_OnBuy_FullInfo(int wNetClientID, int iMsg)
 	rClient.Skills.Sailing = iSkills[2];
 	rClient.Skills.Defence = iSkills[3];
 	rClient.Skills.Repair = iSkills[4];
+	rClient.Skills.Grappling = iSkills[5];
 	rClient.Skills.Repair.Active = 0;
 	rClient.Skills.Repair.Cooldown = iServerTime - 60 * 1000;		// FIX-ME
 

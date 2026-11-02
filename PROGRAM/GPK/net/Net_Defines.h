@@ -16,6 +16,16 @@
 #define NETKILL_BY_TOUCH_DEAD			2
 #define NETKILL_BY_TOUCH_ALIVE			3
 #define NETKILL_BY_LIGHTNING			4
+#define NETKILL_BY_BOARDING				5
+
+// auto boarding (player vs player, no land fight). Rules are taken from single player:
+//   availability: Ship_CheckMainCharacter (distance minus half ship widths, angle, relative speed, grappling skill and perks)
+//   result:       Ship_AutoAbordage (crew * grappling strength, winner loses loserPower / divider sailors)
+#define NET_BOARD_MIN_CREW_RATIO		0.6		// like Ship_AutoAbordage: attacker crew must be >= 60% of target crew (0.0 = disable)
+#define NET_BOARD_LOSS_DIVIDER			1.8		// winner loses crew * loserPower / (winnerPower * this)
+#define NET_BOARD_STATE_TICKS			4		// board availability is checked every N-th ship update (4 * 120 ms)
+#define NET_SOUND_ABORDAGE				"Interface\\abordage.wav"
+#define NET_SOUND_MUSKETSHOT			"Interface\\_musketshot.wav"
 
 #define NETSKILL_MAX					10.0
 
@@ -99,6 +109,33 @@
 #define NSC_COMMAND_STARTGAME			0
 #define NSC_COMMAND_RESTARTGAME			1
 #define NSC_COMMAND_VOTE_KICK			2
+// COOP: admin system. Client -> server:
+#define NSC_COMMAND_ADMIN_LOGIN         3       // string password
+#define NSC_COMMAND_ADMIN_CMD               4       // byte action (NET_ADMIN_*), clientID target, float value
+// COOP: server -> client:
+#define NSC_COMMAND_ADMIN_STATUS        10      // byte: 1 = you are an admin, 0 = refused
+#define NSC_COMMAND_ADMIN_FLAGS         11      // clientID, byte admin, byte chat muted (sent to all)
+#define NSC_COMMAND_ADMIN_ENV           12      // byte game speed, float wind angle, float wind speed, string weather id, byte time idx, byte weather idx
+#define NSC_COMMAND_SET_WEATHER         13      // string weather id, float wind angle, float wind speed (the same data as in the start message)
+#define NSC_COMMAND_SET_WIND            14      // float wind angle, float wind speed
+#define NSC_COMMAND_RELOAD_SHIPS        15      // ships were recreated on the server
+
+// COOP: admin actions (NSC_COMMAND_ADMIN_CMD)
+#define NET_ADMIN_SYNC                  0       // send me the flags of all players and the environment
+#define NET_ADMIN_KICK                  1
+#define NET_ADMIN_MUTE                  2       // toggle chat of the player
+#define NET_ADMIN_TP_TO                 3       // my ship to the target ship
+#define NET_ADMIN_TP_BRING              4       // target ship to my ship
+#define NET_ADMIN_MAKE_ADMIN            5
+#define NET_ADMIN_RELOAD_SHIPS          6
+#define NET_ADMIN_HEAL                  7
+#define NET_ADMIN_ALL_HEAL              8
+#define NET_ADMIN_DESTROY               9
+#define NET_ADMIN_WEATHER               10      // value = +1 / -1
+#define NET_ADMIN_TIME                  11      // value = +1 / -1
+#define NET_ADMIN_SPEED                 12      // value = +1 / -1
+#define NET_ADMIN_WIND_ANGLE            13      // value = change in radians
+#define NET_ADMIN_WIND_SPEED            14      // value = change
 
 // NC_STARTGAME
 #define NSC_STARTGAME_GETBUYINFO		0
@@ -144,6 +181,10 @@
 #define NSC_SHIP_START_REPAIR			16
 #define NSC_SHIP_SHIP_COLLISION			17
 #define NSC_SHIP_ISLAND_COLLISION		18
+#define NSC_SHIP_BOARD_REQUEST			19
+#define NSC_SHIP_BOARD_STATE			20		// server -> client: which enemy ship can be boarded right now
+#define NSC_SHIP_BOARD_RESULT			22		// server -> all: crew lost on both ships when the boarding is over
+#define NSC_SHIP_BOARD_VOLLEY			21		// server -> both captains: musket volley before the boarding (plays the sound)
 
 // NC_FORT
 #define NSC_FORT_CANNON_DESTROY			0

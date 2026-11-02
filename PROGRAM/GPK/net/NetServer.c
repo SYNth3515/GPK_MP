@@ -1,6 +1,7 @@
 #include "GPK\Net\Server\OnCamera.c"
 #include "GPK\Net\Server\OnBall.c"
 #include "GPK\Net\Server\OnCommand.c"
+#include "GPK\Net\Server\Admin.c"
 #include "GPK\Net\Server\OnConnect.c"
 #include "GPK\Net\Server\OnNetMessage.c"
 #include "GPK\Net\Server\OnSay.c"
@@ -75,6 +76,7 @@ void Net_DeleteServer()
 	DelEventHandler("frame", "NetServer_OneSecondTick");
 
 	iSecondsToStartGame = -1;
+	bServerStartRequested = false;
 	bNetServerIsStarted = false;
 	NetServer.StopServer = "";
 }
@@ -85,7 +87,7 @@ void Net_ServerFirstInit()
 	NetServer.ServerPort = NET_DEFAULT_SERVER_PORT;
 	NetServer.MaxClients = NET_MAXCLIENTS;
 	NetServer.ServerPassword = "";
-	NetServer.AdminPassword = "yupi";
+	NetServer.AdminPassword = "";		// COOP: empty = nobody can become an admin
 	NetServer.LanServer = true;
 	NetServer.InetServer = false;
 	NetServer.UpdateMasterServer = true;
@@ -103,6 +105,7 @@ void Net_CreateServer(ref rSrvParams)
 	Trace("COOP: Net_CreateServer enter");
 	iServerTime = 0;
 	iPingTime = 0;
+	bServerStartRequested = false;
 
 	for (int i=0; i<NET_TOTALCLIENTS; i++)
 	{
@@ -130,13 +133,12 @@ void Net_CreateServer(ref rSrvParams)
 	NetServer.ServerName = rSrvParams.ServerName;
 	NetServer.ServerPort = sti(rSrvParams.ServerPort);
 	NetServer.ServerPassword = rSrvParams.ServerPassword;
-	//NetServer.AdminPassword = "yupi";
+	NetServer.AdminPassword = rSrvParams.AdminPassword;	// COOP: set on the "Create game" screen, empty = no admins
 	NetServer.Dedicated = sti(rSrvParams.Dedicated);
 	NetServer.MaxClients = sti(rSrvParams.MaxPlayers);
 	NetServer.LanServer = sti(rSrvParams.LanServer);
 	NetServer.InetServer = sti(rSrvParams.InetServer);
-	NetServer.InetServer = 0;		// COOP: master server is dead, never use it
-	Trace("COOP: InetServer forced to 0");
+	Trace("COOP: InetServer = " + NetServer.InetServer);
 	NetServer.UpdateMasterServer = sti(rSrvParams.UpdateMasterServer);
 	NetServer.UpdateMasterServer = 0;	// COOP
 	NetServer.MaxFps = sti(rSrvParams.MaxFps);

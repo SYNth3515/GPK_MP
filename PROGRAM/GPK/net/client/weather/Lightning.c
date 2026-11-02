@@ -4,7 +4,7 @@ float fClientLightningScaleY;
 
 void NetClient_WhrDeleteLightningEnvironment()
 {
-	if (isEntity(&Lightning)) 
+	if (isEntity(&NCLightning)) 
 	{ 
 		DeleteClass(&NCLightning);
 		DeleteAttribute(&NCLightning, "");

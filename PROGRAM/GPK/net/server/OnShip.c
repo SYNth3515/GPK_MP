@@ -6,6 +6,14 @@ bool COOP_SrvFloatOk(float f)
 
 #define NET_REPAIR_COOLDOWN			60
 
+// ============================================================================
+// Auto boarding settings. Perks of single player that are switched on for EVERY captain by default.
+// Set a variable to false to turn that perk off (then it is taken from Perks.<name> of the client, which the lobby does not set yet).
+// ============================================================================
+bool bNetBoardPerkLongRangeGrappling	= true;	// boarding distance x1.15
+bool bNetBoardPerkGrapplingProfessional	= true;	// boarding distance x1.25 and no angle / speed test (like in single player)
+bool bNetBoardPerkMusketsShoot			= true;	// musket volley before the boarding (LAi_boarding.c)
+
 void NetServer_DeleteShipEnvironment()
 {
 	DelEventHandler("NetServer_ShipUpdateParameters", "NetServer_ShipUpdateParameters");
@@ -101,10 +109,351 @@ void NetServer_OnShip(int wNetClientID, int iMsg)
 		case NSC_SHIP_START_REPAIR:
 			NetServer_StartRepair(wNetClientID);
 		break;
+		case NSC_SHIP_BOARD_REQUEST:
+			NetServer_TryBoardPlayer(wNetClientID, NMGetClientID(iMsg));
+		break;
 	}
 
 	rClient.Ship.SailState = Clampf(stf(rClient.Ship.SailState));
 	rClient.Ship.TurnState = stf(rClient.Ship.TurnRight) - stf(rClient.Ship.TurnLeft);
+}
+
+
+// ============================================================================
+// Auto boarding player vs player (no land fight).
+// Rules are the single player ones:
+//   availability  - Ship_CheckMainCharacter: distance minus half widths of both ships, angle between
+//                   the ships, relative speed; Grappling skill and perks LongRangeGrappling /
+//                   GrapplingProfessional (the last one ignores angle and speed)
+//   result        - Ship_AutoAbordage: strength = 0.1 + grappling * crew, bigger strength wins,
+//                   winner loses crew * loserStrength / (winnerStrength * 1.8), loser ship is sunk
+// The server is authoritative: clients only get "can board X" and send a request.
+// ============================================================================
+bool NetServer_HasPerk(ref rClient, string sPerk)
+{
+	if (sPerk == "LongRangeGrappling" && bNetBoardPerkLongRangeGrappling) { return true; }
+	if (sPerk == "GrapplingProfessional" && bNetBoardPerkGrapplingProfessional) { return true; }
+	if (sPerk == "MusketsShoot" && bNetBoardPerkMusketsShoot) { return true; }
+	string sAttr = "Perks." + sPerk;
+	if (!CheckAttribute(rClient, sAttr)) { return false; }
+	return sti(rClient.Perks.(sPerk)) != 0;
+}
+
+// 0..1, like TmpSkill.Grappling in single player (skill 1..10 in the lobby)
+float NetServer_GetGrappling(ref rClient)
+{
+	if (!CheckAttribute(rClient, "Skills.Grappling")) { return 1.0 / NETSKILL_MAX; }
+	return stf(rClient.Skills.Grappling) / NETSKILL_MAX;
+}
+
+float NetServer_CalcGrapplingPerk(ref rClient)
+{
+	float fPerk = 1.0;
+	if (NetServer_HasPerk(rClient, "LongRangeGrappling")) { fPerk = 1.15; }
+	if (NetServer_HasPerk(rClient, "GrapplingProfessional")) { fPerk = 1.25; }
+	return fPerk;
+}
+
+float NetServer_GetShipHalfWidth(ref rClient)
+{
+	if (CheckAttribute(rClient, "Ship.BoxSize.x")) { return stf(rClient.Ship.BoxSize.x) / 2.0; }
+	return 10.0;
+}
+
+// slot is a connected player with a spawned ship (all attributes the boarding code reads exist)
+bool NetServer_BoardSlotReady(int wClientID)
+{
+	if (wClientID < 0 || wClientID >= NET_MAXCLIENTS) { return false; }
+	ref rC = NetServer_GetClient(wClientID);
+	if (!CheckAttribute(rC, "Use") || !sti(rC.Use)) { return false; }
+	if (!CheckAttribute(rC, "Ship.HP")) { return false; }
+	if (!CheckAttribute(rC, "Ship.Pos.x") || !CheckAttribute(rC, "Ship.Pos.z")) { return false; }
+	if (!CheckAttribute(rC, "Ship.Crew.Quantity")) { return false; }
+	if (!CheckAttribute(rC, "Team")) { return false; }
+	return true;
+}
+
+// can be boarded at all (alive, not a fort, not a teammate)
+bool NetServer_IsBoardable(int wAttackerID, int wTargetID)
+{
+	if (wAttackerID == wTargetID) { return false; }
+	if (wAttackerID < 0 || wAttackerID >= NET_MAXCLIENTS) { return false; }
+	if (wTargetID < 0 || wTargetID >= NET_MAXCLIENTS) { return false; }
+
+	// NSClients[i] has attributes (index, id, Use...) for EVERY slot, so NetServer_IsClient() is true for empty slots too.
+	// Reading Dead / Ship.* of an empty slot spammed error.log (hundreds of lines per second) and froze the host.
+	if (!NetServer_BoardSlotReady(wAttackerID)) { return false; }
+	if (!NetServer_BoardSlotReady(wTargetID)) { return false; }
+
+	ref rA = NetServer_GetClient(wAttackerID);
+	ref rT = NetServer_GetClient(wTargetID);
+
+	if (CheckAttribute(rA, "Dead") && sti(rA.Dead)) { return false; }
+	if (CheckAttribute(rT, "Dead") && sti(rT.Dead)) { return false; }
+	if (stf(rA.Ship.HP) <= 0.0) { return false; }
+	if (stf(rT.Ship.HP) <= 0.0) { return false; }
+
+	// teammates cannot board each other (everybody is an enemy in deathmatch)
+	if (sti(NetServer.GameType) != NETGAME_DEATHMATCH && sti(rA.Team) == sti(rT.Team)) { return false; }
+
+	return true;
+}
+
+// bLoose: used for the final check when the request arrives (ships moved a bit since the button was shown)
+bool NetServer_CheckBoardPair(ref rA, ref rT, bool bLoose)
+{
+	float fDX = stf(rA.Ship.Pos.x) - stf(rT.Ship.Pos.x);
+	float fDZ = stf(rA.Ship.Pos.z) - stf(rT.Ship.Pos.z);
+	float fDistance = sqrt(fDX * fDX + fDZ * fDZ);
+	if (fDistance > 400.0) { return false; }
+
+	float fGrappling = NetServer_GetGrappling(rA);
+	bool bProfessional = NetServer_HasPerk(rA, "GrapplingProfessional");
+
+	float fMaxDistance = NetServer_CalcGrapplingPerk(rA) * Bring2Range(15.0, 40.0, 0.0, 1.0, fGrappling);
+	float fMaxAngle = Bring2Range(0.70, 0.45, 0.0, 1.0, fGrappling);
+	float fMaxSpeed = Bring2Range(3.0, 5.0, 0.0, 1.0, fGrappling);
+
+	if (bLoose)
+	{
+		fMaxDistance = fMaxDistance * 1.25 + 8.0;
+		fMaxAngle = fMaxAngle - 0.15;
+		fMaxSpeed = fMaxSpeed + 1.5;
+	}
+
+	// distance between hulls, not between centers: bigger ships can board from further away
+	float fAbordageDistance = fDistance - NetServer_GetShipHalfWidth(rA) - NetServer_GetShipHalfWidth(rT);
+	if (fAbordageDistance >= fMaxDistance) { return false; }
+
+	if (!bProfessional)
+	{
+		float fSpeedA = stf(rA.Ship.Speed.z);
+		float fSpeedT = stf(rT.Ship.Speed.z);
+
+		// dot(ay, ay): ~1 when the ships go side by side (same or opposite course), ~0 when nose to nose at an angle
+		float fDot = GetDotProduct(stf(rA.Ship.Ang.y), stf(rT.Ship.Ang.y));
+		if (fDot < 0.0) { fDot = -fDot; }
+		if (fDot <= fMaxAngle) { return false; }
+
+		float fRel2 = fSpeedA * fSpeedA + fSpeedT * fSpeedT - 2.0 * fSpeedA * fSpeedT * GetDotProduct(stf(rA.Ship.Ang.y), stf(rT.Ship.Ang.y));
+		if (fRel2 < 0.0) { fRel2 = 0.0; }
+		if (sqrt(fRel2) >= fMaxSpeed) { return false; }
+	}
+
+	// as in Ship_AutoAbordage: do not attack a ship that has much more crew
+	if (stf(rA.Ship.Crew.Quantity) < stf(rT.Ship.Crew.Quantity) * NET_BOARD_MIN_CREW_RATIO) { return false; }
+
+	return true;
+}
+
+// 0..1 like TmpSkill.Defence in single player
+float NetServer_GetDefenceSkill(ref rClient)
+{
+	if (!CheckAttribute(rClient, "Skills.Defence")) { return 1.0 / NETSKILL_MAX; }
+	return stf(rClient.Skills.Defence) / NETSKILL_MAX;
+}
+
+// Musket volley info for ONE captain (the two captains of the boarding get their own message, nobody else).
+// Everything is from the point of view of the receiver: "our" = his ship, "enemy" = the other ship.
+void NetServer_SendBoardVolley(int wClientID, int iOurShot, int iEnemyShot, int iKilledByUs, int iKilledByEnemy)
+{
+	int iSMsg = NMCreate();
+	NMAddByte(iSMsg, NC_SHIP);
+	NMAddByte(iSMsg, NSC_SHIP_BOARD_VOLLEY);
+	NMAddByte(iSMsg, iOurShot);
+	NMAddByte(iSMsg, iEnemyShot);
+	NMAddWord(iSMsg, iKilledByUs);
+	NMAddWord(iSMsg, iKilledByEnemy);
+	NetServer_SendMessage(wClientID, iSMsg, true);
+	NMDelete(iSMsg);
+}
+
+// Crew lost in the boarding fight itself, for ONE captain, from his point of view
+void NetServer_SendBoardResult(int wClientID, int iOurLost, int iEnemyLost)
+{
+	int iSMsg = NMCreate();
+	NMAddByte(iSMsg, NC_SHIP);
+	NMAddByte(iSMsg, NSC_SHIP_BOARD_RESULT);
+	NMAddWord(iSMsg, iOurLost);
+	NMAddWord(iSMsg, iEnemyLost);
+	NetServer_SendMessage(wClientID, iSMsg, true);
+	NMDelete(iSMsg);
+}
+
+// nearest ship that can be boarded by wAttackerID, -1 if none
+int NetServer_FindBoardTarget(int wAttackerID)
+{
+	int iBest = -1;
+	float fBestDistance = 1000000.0;
+	if (!NetServer_BoardSlotReady(wAttackerID)) { return -1; }
+	ref rA = NetServer_GetClient(wAttackerID);
+
+	for (int i=0; i<NET_MAXCLIENTS; i++)
+	{
+		if (!NetServer_IsBoardable(wAttackerID, i)) { continue; }
+
+		ref rT = NetServer_GetClient(i);
+		if (!NetServer_CheckBoardPair(rA, rT, false)) { continue; }
+
+		float fDX = stf(rA.Ship.Pos.x) - stf(rT.Ship.Pos.x);
+		float fDZ = stf(rA.Ship.Pos.z) - stf(rT.Ship.Pos.z);
+		float fDistance = sqrt(fDX * fDX + fDZ * fDZ);
+		if (fDistance < fBestDistance)
+		{
+			fBestDistance = fDistance;
+			iBest = i;
+		}
+	}
+	return iBest;
+}
+
+// called from the ship update tick: tell the client what it can board, only when that changes
+void NetServer_UpdateBoardState(int wClientID)
+{
+	if (wClientID < 0 || wClientID >= NET_MAXCLIENTS) { return; }
+	ref rClient = NetServer_GetClient(wClientID);
+
+	int iTick = 0;
+	if (CheckAttribute(rClient, "BoardTick")) { iTick = sti(rClient.BoardTick); }
+	rClient.BoardTick = iTick + 1;
+	if (iTick + 1 < NET_BOARD_STATE_TICKS) { return; }
+	rClient.BoardTick = 0;
+
+	int iTarget = NetServer_FindBoardTarget(wClientID);
+
+	int iSent = -1;
+	if (CheckAttribute(rClient, "BoardSent")) { iSent = sti(rClient.BoardSent); }
+	if (iTarget == iSent) { return; }
+	rClient.BoardSent = iTarget;
+
+	int iSMsg = NMCreate();
+	NMAddByte(iSMsg, NC_SHIP);
+	NMAddByte(iSMsg, NSC_SHIP_BOARD_STATE);
+	if (iTarget >= 0)
+	{
+		NMAddByte(iSMsg, 1);
+		NMAddClientID(iSMsg, iTarget);
+	}
+	else
+	{
+		NMAddByte(iSMsg, 0);
+		NMAddClientID(iSMsg, wClientID);
+	}
+	NetServer_SendMessage(wClientID, iSMsg, true);
+	NMDelete(iSMsg);
+}
+
+void NetServer_TryBoardPlayer(int wAttackerID, int wTargetID)
+{
+	ref rAttacker;
+	ref rTarget;
+	ref rWinner;
+	ref rLoser;
+	int wWinnerID;
+	float fAttackCrew;
+	float fDefendCrew;
+	float fAttackPower;
+	float fDefendPower;
+	float fDeadCrew;
+	float fWinnerCrew;
+	float fNewCrew;
+	float fKill;
+	float fLoserCrew;
+	bool bVolley;
+	int iAttackerShot;
+	int iTargetShot;
+	int iKilledByAttacker;
+	int iKilledByTarget;
+	int iWinnerLost;
+	int iLoserLost;
+
+	if (!NetServer_IsBoardable(wAttackerID, wTargetID)) { return; }
+
+	rAttacker = NetServer_GetClient(wAttackerID);
+	rTarget = NetServer_GetClient(wTargetID);
+
+	// distance / angle / speed / skills / perks, checked on the server (do not trust the client)
+	if (!NetServer_CheckBoardPair(rAttacker, rTarget, true)) { return; }
+
+	fAttackCrew = stf(rAttacker.Ship.Crew.Quantity);
+	fDefendCrew = stf(rTarget.Ship.Crew.Quantity);
+
+	// musket volley (LAi_boarding.c, perk MusketsShoot): before the fight a side with the perk shoots 25% of the
+	// enemy crew (not more than its own crew), the enemy Defence skill lowers the losses. Attacker shoots first.
+	bVolley = false;
+	iAttackerShot = 0;
+	iTargetShot = 0;
+	iKilledByAttacker = 0;
+	iKilledByTarget = 0;
+	if (NetServer_HasPerk(rAttacker, "MusketsShoot"))
+	{
+		fKill = makeint(fDefendCrew * 0.25);
+		if (fKill > fAttackCrew) { fKill = fAttackCrew; }
+		fKill = makeint(fKill * (2.1 - NetServer_GetDefenceSkill(rTarget)) / 2.0);
+		fDefendCrew = fDefendCrew - fKill;
+		iKilledByAttacker = makeint(fKill);
+		iAttackerShot = 1;
+		bVolley = true;
+	}
+	if (NetServer_HasPerk(rTarget, "MusketsShoot"))
+	{
+		fKill = makeint(fAttackCrew * 0.25);
+		if (fKill > fDefendCrew) { fKill = fDefendCrew; }
+		fKill = makeint(fKill * (2.1 - NetServer_GetDefenceSkill(rAttacker)) / 2.0);
+		fAttackCrew = fAttackCrew - fKill;
+		iKilledByTarget = makeint(fKill);
+		iTargetShot = 1;
+		bVolley = true;
+	}
+	if (fAttackCrew < 1.0) { fAttackCrew = 1.0; }
+	if (fDefendCrew < 1.0) { fDefendCrew = 1.0; }
+	rAttacker.Ship.Crew.Quantity = makeint(fAttackCrew);
+	rTarget.Ship.Crew.Quantity = makeint(fDefendCrew);
+	if (bVolley)
+	{
+		NetServer_SendBoardVolley(wAttackerID, iAttackerShot, iTargetShot, iKilledByAttacker, iKilledByTarget);
+		NetServer_SendBoardVolley(wTargetID, iTargetShot, iAttackerShot, iKilledByTarget, iKilledByAttacker);
+	}
+
+	// crew strength like Ship_AutoAbordage (crew experience and morale do not exist in the net mod,
+	// they are the same for both ships there, so they do not change who wins)
+	fAttackPower = 0.1 + NetServer_GetGrappling(rAttacker) * fAttackCrew;
+	fDefendPower = 0.1 + NetServer_GetGrappling(rTarget) * fDefendCrew;
+
+	if (fAttackPower >= fDefendPower)
+	{
+		rWinner = rAttacker; wWinnerID = wAttackerID;
+		rLoser = rTarget;
+		fWinnerCrew = fAttackCrew;
+		fLoserCrew = fDefendCrew;
+		fDeadCrew = fAttackCrew * fDefendPower / (fAttackPower * NET_BOARD_LOSS_DIVIDER);
+	}
+	else
+	{
+		rWinner = rTarget; wWinnerID = wTargetID;
+		rLoser = rAttacker;
+		fWinnerCrew = fDefendCrew;
+		fLoserCrew = fAttackCrew;
+		fDeadCrew = fDefendCrew * fAttackPower / (fDefendPower * NET_BOARD_LOSS_DIVIDER);
+	}
+
+	// winner loses sailors (replicated to clients with the regular ship update)
+	fNewCrew = fWinnerCrew - fDeadCrew;
+	if (fNewCrew < 1.0) { fNewCrew = 1.0; }
+	rWinner.Ship.Crew.Quantity = makeint(fNewCrew);
+
+	// casualties of the boarding fight: the winner loses the sailors counted above, the defeated ship loses everybody
+	iWinnerLost = makeint(fWinnerCrew) - makeint(fNewCrew);
+	iLoserLost = makeint(fLoserCrew);
+	NetServer_SendBoardResult(wWinnerID, iWinnerLost, iLoserLost);
+	NetServer_SendBoardResult(sti(rLoser.ID), iLoserLost, iWinnerLost);
+
+	// the defeated ship sinks with its whole crew (the clients show 0 crew on the sinking ship)
+	rLoser.Ship.Crew.Quantity = 0;
+
+	Trace("COOP: boarding attacker=" + wAttackerID + " target=" + wTargetID + " crew " + fAttackCrew + " vs " + fDefendCrew + " power " + fAttackPower + " vs " + fDefendPower + " winner=" + wWinnerID + " lost=" + fDeadCrew);
+
+	NetServer_SetClientDead(rLoser, NETKILL_BY_BOARDING, wWinnerID);
 }
 
 void NetServer_Ship2ShipCollision()
@@ -499,7 +848,7 @@ void NetServer_SetClientDead(ref rOurClient, int iKillStatus, int wKillerClientI
 	NMAddByte(iSMsg, NC_SHIP);
 	NMAddByte(iSMsg, NSC_SHIP_DEAD);
 	NMAddClientID(iSMsg, sti(rOurClient.ID));
-	NMAddByte(iSMsg, iKillStatus)
+	NMAddByte(iSMsg, iKillStatus);
 	NMAddClientID(iSMsg, wKillerClientID);
 
 	bool bKillerClient = NetServer_IsClient(wKillerClientID);
@@ -690,6 +1039,13 @@ void NetServer_ShipUpdateParameters()
 		NMAddWord(iSMsg, iCurrentCooldownTime);		// current cooldown
 	//}
 
+	// COOP: sail state in percent (the client does not simulate sail damage), used by the bars over the ships
+	int iSailPercent = 100;
+	if (CheckAttribute(rClient, "Ship.SP")) { iSailPercent = makeint(stf(rClient.Ship.SP)); }
+	if (iSailPercent < 0) { iSailPercent = 0; }
+	if (iSailPercent > 100) { iSailPercent = 100; }
+	NMAddByte(iSMsg, iSailPercent);
+
 	NetServer_SendMessage(DST_ALL, iSMsg, false);
 	NMDelete(iSMsg);
 
@@ -710,6 +1066,9 @@ void NetServer_ShipUpdateParameters()
 	}
 	NetServer_SendMessage(wOurClientID, iSMsg, false);
 	NMDelete(iSMsg);
+
+	// auto boarding availability (checked every NET_BOARD_STATE_TICKS updates, sent to the client only on change)
+	NetServer_UpdateBoardState(wOurClientID);
 
 	PostEvent("NetServer_ShipUpdateParameters", 120, "l", wOurClientID);
 }

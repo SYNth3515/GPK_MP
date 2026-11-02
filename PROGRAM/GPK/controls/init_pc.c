@@ -342,9 +342,12 @@ void ExternControlsInit(bool bFirst)
 	MapControlToGroup("DeckCamera_Turn_V", "NetShipControls");
 
 	MapControlToGroup("BICommandsActivate", "NetShipControls");
+	MapControlToGroup("BIFastCommand", "NetShipControls");	// Space: quick action (Board), like in SP
 
 	// temporary control
 	CI_CreateAndSetControls( "NetShipControls", "Ship_StartRepair", CI_GetKeyCode("KEY_L"), 0, true );
+	// auto boarding of the nearest enemy player ship (works when an enemy ship is closer than NET_BOARD_DISTANCE)
+	CI_CreateAndSetControls( "NetShipControls", "Ship_Board", CI_GetKeyCode("KEY_B"), 0, true );
 	
 	MapControlToGroup("Ship_TurnLeft", "NetShipControls");
 	MapControlToGroup("Ship_TurnRight", "NetShipControls");

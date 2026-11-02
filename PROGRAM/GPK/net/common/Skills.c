@@ -39,5 +39,9 @@ void Net_InitSkills()
 	rS.Name = "Repair";
 	rS.Cost = 200;
 
+	makeref(rS, NetSkills[n]); n++;
+	rS.Name = "Grappling";
+	rS.Cost = 150;
+
 	iNetSkillsNum = n;
 }

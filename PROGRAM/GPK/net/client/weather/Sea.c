@@ -22,7 +22,9 @@ void NetClient_WhrCreateSeaEnvironment()
 
 	NCSea.Server = false;
 	NCSea.SimpleSea = sti(InterfaceStates.SimpleSea);	// must be before creating
-	CreateEntity(&NCSea, "NetSea");
+	// COOP: the sea is NOT deleted when the admin changes the weather in the running game (ships, foam and rigging use it,
+	// the single player game never deletes it either): only its data is replaced
+	if (!isEntity(&NCSea)) { CreateEntity(&NCSea, "NetSea"); }
 
 	NCSea.Transparency = Whr_GetFloat(aSea,"Transparency");
 	NCSea.FrenelCoefficient = Whr_GetFloat(aSea,"FrenelCoefficient");
@@ -100,6 +102,8 @@ void NetClient_WhrCreateSeaEnvironment()
 
 void NetClient_MoveSeaToLayers(string sExecuteLayer, string sRealizeLayer)
 {
+	LayerDelObject(sExecuteLayer, &NCSea);
+	LayerDelObject(sRealizeLayer, &NCSea);
 	LayerAddObject(sExecuteLayer, &NCSea, 65530);
 	LayerAddObject(sRealizeLayer, &NCSea, 65530);
 }

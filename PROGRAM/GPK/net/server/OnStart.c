@@ -1,4 +1,6 @@
 bool bServerGameStarted = false;
+// COOP: the host pressed "Start" in the lobby (the 10 second countdown is skipped); lobby is locked, game is starting
+bool bServerStartRequested = false;
 // COOP spawn test switches (edit, restart the game):
 // iCoopSpawnMode: 0 = ring around island centre (old behaviour, worked on Jamaica at R=400), 1 = singleplayer sea/port points
 int iCoopSpawnMode = 1;
@@ -16,6 +18,7 @@ void NetServer_EndGame(bool bReconnect)
 {
 	//if (!bServerGameStarted) { return; }
 	bServerGameStarted = false;
+	bServerStartRequested = false;
 
 	NetServer_ClearPacketsQueue();
 

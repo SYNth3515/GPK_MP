@@ -286,6 +286,13 @@ void BI_FastCommand()
 	int tmpi;
 	string FComName = GetEventData();
 
+	// multiplayer: pchar / fader / SP sea state are not used, only the Board quick action exists
+	if (bNetClientConnected)
+	{
+		if (FComName == "Board") { NetClient_RequestBoarding(); }
+		return;
+	}
+
 	if( LAi_IsDead(pchar) ) {return;}
 
 	aref arFader;
@@ -298,7 +305,7 @@ void BI_FastCommand()
 		switch(FComName)
 		{
 		case "Moor":		bEC = true; Sea_LandLoad(); break;
-		case "Board":		bEC = true; Sea_AbordageLoad(SHIP_ABORDAGE,true); break;
+		case "Board":		bEC = true; if (bNetClientConnected) { NetClient_RequestBoarding(); } else { Sea_AbordageLoad(SHIP_ABORDAGE,true); } break;
 		case "LandTroops":	bEC = true; Sea_AbordageLoad(FORT_ABORDAGE,true); break;
 		case "Map":			bEC = true; Sea_MapLoad(); break; //  pchar.location = ""; тут нах не нужно
 		case "Reload":

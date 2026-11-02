@@ -17,6 +17,7 @@
 #include "GPK\Net\Client\OnStart.c"
 #include "GPK\Net\Client\OnWeather.c"
 #include "GPK\Net\Client\OnClient.c"
+#include "GPK\Net\Client\Admin.c"
 #include "GPK\Net\Client\ServerInfo.c"
 #include "GPK\Net\Client\PlayerInfo.c"
 
@@ -26,6 +27,7 @@
 #include "GPK\Net\Interfaces\BattleInterface\BattleInterface.c"
 
 int wClientID;
+bool bNetClientConnected = false;
 
 object NCBalls;
 object NCConsole;
@@ -63,6 +65,7 @@ void Net_ClientFirstInit()
 
 void Net_DeleteClient()
 {
+	bNetClientConnected = false;
 	DelEventHandler("ExitApplication", "NetClient_ExitApplication");
 	DelEventHandler("NetClient_OnNetMessage", "NetClient_OnNetMessage");
 	DelEventHandler("NetClient_Ping", "NetClient_Ping");

@@ -47,7 +47,9 @@ void NetClient_DeleteWeatherEnvironment()
 	NetClient_WhrDeleteAstronomyEnvironment();
 
 	DelEventHandler("NetClient_WhrOnCalcFogColor", "NetClient_WhrOnCalcFogColor");
+	DelEventHandler("WhrCalcFogColor", "NetClient_WhrOnCalcFogColor");
 	DelEventHandler("frame", "NetClient_WhrOnWindChange");
+	DelEventHandler("frame", "NetClient_UpdateSky");
 
 	bWeatherLoaded = false;
 }
@@ -62,9 +64,8 @@ aref NetClient_GetCurrentWeather()
 void NetClient_CreateWeatherEnvironment(int iMsg)
 {
 	iClientCurWeatherNum = 0;
-	Trace("COOP: cli weather id=" + sWeatherID);
-
 	string sWeatherID = NMGetString(iMsg);
+	Trace("COOP: cli weather id=" + sWeatherID);
 
 	// WIND SYNC: base wind from the server (written right after the weather id in NetServer_CreateWeatherEnvironment)
 	fClientWeatherAngle = NMGetFloat(iMsg);
@@ -97,7 +98,9 @@ void NetClient_CreateWeatherEnvironment(int iMsg)
 	// create main module Weather
 	DeleteAttribute(&NCWeather, "");
 	NCWeather.Server = false;
-	CreateEntity(&NCWeather, "NetWeather");
+	// COOP: when the admin changes the weather in the running game the entity stays alive (like Whr_UpdateWeather in the
+	// single player game), only its data is replaced
+	if (!isEntity(&NCWeather)) { CreateEntity(&NCWeather, "NetWeather"); }
 
 	aref aCurWeather = NetClient_GetCurrentWeather();
 
@@ -120,6 +123,13 @@ void NetClient_CreateWeatherEnvironment(int iMsg)
 	NCWeather.Fog.Color = Whr_GetColor(aCurWeather, sCurFog + ".Color");
 	NCWeather.Fog.IslandDensity = Whr_GetFloat(aCurWeather, sCurFog + ".IslandDensity");
 
+	// COOP: движковые классы (Grass в Location.dll и др.) спрашивают события EWhr_GetFogDensity, EWhr_GetWindAngle, EWhr_GetWindSpeed.
+	// Их обработчики из одиночки (Whr_GetFogDensity, Whr_GetWindAngle, Whr_GetWindSpeed) зарегистрированы на этапе компиляции и читают
+	// глобальную fFogDensity и атрибуты Weather.Wind, которые в мультиплеере пустые (туман 0, ветер по умолчанию). Подставляем мультиплеерные значения.
+	fFogDensity = stf(NCWeather.Fog.Density);
+	Weather.Wind.Angle = fClientWeatherAngle;
+	Weather.Wind.Speed = fClientWeatherSpeed;
+
 	NCWeather.Sun.Color = Whr_GetColor(aCurWeather,"Sun.Color");
 	NCWeather.Sun.HeightAngle = Whr_GetFloat(aCurWeather,"Sun.HeightAngle");
 	NCWeather.Sun.AzimuthAngle = Whr_GetFloat(aCurWeather,"Sun.AzimuthAngle");
@@ -141,11 +151,17 @@ void NetClient_CreateWeatherEnvironment(int iMsg)
 	NCWeather.isDone = "";
 
 	SetEventHandler("NetClient_WhrOnCalcFogColor", "NetClient_WhrOnCalcFogColor", 0);
+	// движковый класс Sky (WEATHER.dll) на каждый вертекс вызывает событие WhrCalcFogColor и падает на assert (SKY.cpp line 84),
+	// если у события нет обработчика; в одиночке его вешает Whr_OnCalcFogColor, здесь вешаем клиентский аналог
+	SetEventHandler("WhrCalcFogColor", "NetClient_WhrOnCalcFogColor", 0);
 
 	NetClient_WhrCreateRainEnvironment();
 	NetClient_WhrCreateSunGlowEnvironment();
 	NetClient_WhrCreateLightningEnvironment();
+	Trace("COOP: cli before sky");
 	NetClient_WhrCreateSkyEnvironment();
+	Trace("COOP: cli after sky");
+	SetEventHandler("frame", "NetClient_UpdateSky", 0);
 	NetClient_WhrCreateSeaEnvironment();
 	NetClient_WhrCreateAstronomyEnvironment();
 	//if (bWhrTornado) { NetClient_WhrCreateTornadoEnvironment(); }
@@ -188,6 +204,9 @@ int NetClient_WhrOnCalcFogColor()
 
 void NetClient_MoveWeatherToLayers(string sExecuteLayer, string sRealizeLayer)
 {
+	// COOP: this is also called when the weather is changed in the running game: never add the object to a layer twice
+	LayerDelObject(sExecuteLayer, &NCWeather);
+	LayerDelObject(sRealizeLayer, &NCWeather);
 	LayerAddObject(sExecuteLayer, &NCWeather, 1000000);
 	LayerAddObject(sRealizeLayer, &NCWeather, 65530);
 
@@ -232,6 +251,8 @@ void NetClient_WhrOnWindChange()
 
 	NCWeather.WindAngle = fAng;
 	NCWeather.WindSpeed = fSpd;
+	Weather.Wind.Angle = fAng;
+	Weather.Wind.Speed = fSpd;
 
 	Particles.windpower = 0.05 * Clampf(5.0 * fSpd / WIND_NORMAL_POWER);
 	Particles.winddirection.x = sin(fAng);

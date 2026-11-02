@@ -46,6 +46,7 @@ void NetClient_OnNetMessage()
 			case NC_PLAYERINFO:		NetClient_OnPlayerInfo(iMsg);					break;
 			case NC_STATISTICS:		NetClient_OnStatistics(iMsg);					break;
 			case NC_GAMEINFO:		NetClient_OnGameInfo(iMsg);						break;
+			case NC_COMMAND:		NetClient_OnCommand(iMsg);						break;
 		}
 	}
 }

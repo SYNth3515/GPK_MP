@@ -38,7 +38,7 @@ void NetServer_OnDisconnect(int wNetClientID, int iMsg)
 
 bool NetServer_IsLocalIP(int dwIP)
 {
-	int dw1 = and(dwIP, 255);
+	/*int dw1 = and(dwIP, 255);
 	int dw2 = and(shr(dwIP, 8), 255);
 	int dw3 = and(shr(dwIP, 16), 255);
 	int dw4 = shr(dwIP, 24);
@@ -50,7 +50,8 @@ bool NetServer_IsLocalIP(int dwIP)
 	if (dw1 == 127 && dw2 == 0 && dw2 == 0 && dw2 == 1) { return true; }
 	// maybe 169.254
 
-	return false;
+	return false;*/
+	return true;
 }
 
 void NetServer_OnConnect(int dwIP, int wPort, int iMsg)
@@ -190,6 +191,8 @@ void NetServer_OnConnect(int dwIP, int wPort, int iMsg)
 	rClient.StartReady = false;
 	rClient.BuyReady = false;
 	rClient.Dead = false;
+	rClient.Admin = false;		// COOP: slot may be reused, never inherit admin rights / mute
+	rClient.Muted = false;
 	rClient.UserData.Face = sFaceImage;
 	rClient.UserData.Flag = sFlagImage;
 	rClient.UserData.Sail = sSailImage;

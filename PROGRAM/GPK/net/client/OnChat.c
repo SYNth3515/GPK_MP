@@ -1,7 +1,31 @@
 int rgbGameMessage = 14610157;
 
+// COOP: lobby chat. The native NetSay entity is only meant for the battle, so while the lobby (Buy interface) is open
+// the messages are stored here and shown by the lobby itself. NCEvent_LobbyChat tells the lobby that a line was added.
+object NCLobbyChat;
+bool bNetLobbyChatActive = false;
+
+void NetClient_LobbyChatClear()
+{
+	DeleteAttribute(&NCLobbyChat, "");
+	NCLobbyChat.Num = 0;
+}
+
+void NetClient_LobbyChatAdd(string sLine)
+{
+	if (!CheckAttribute(&NCLobbyChat, "Num")) { NetClient_LobbyChatClear(); }
+
+	int iNum = sti(NCLobbyChat.Num);
+	string sAttr = "l" + iNum;
+	NCLobbyChat.Lines.(sAttr) = sLine;
+	NCLobbyChat.Num = iNum + 1;
+
+	Event("NCEvent_LobbyChat");
+}
+
 void NetClient_DeleteChatEnvironment()
 {
+	bNetLobbyChatActive = false;
 	DeleteClass(&NCSay);
 
 	DelEventHandler("Control Activation", "NetClient_ChatControlActivation");
@@ -9,6 +33,9 @@ void NetClient_DeleteChatEnvironment()
 
 void NetClient_CreateChatEnvironment()
 {
+	bNetLobbyChatActive = false;
+	NetClient_LobbyChatClear();
+
 	CreateEntity(&NCSay, "NetSay");
 	LayerAddObject("net_execute", &NCSay, -1);
 	LayerAddObject("net_realize", &NCSay, 65535);
@@ -27,6 +54,14 @@ void NetClient_OnSay(int iMsg)
 	string sMessage = NMGetString(iMsg);
 
 	ref rClient = NetClient_GetClient(wNetClientID);
+
+	// COOP: in the lobby the message goes to the lobby chat window, not to the battle chat entity
+	if (bNetLobbyChatActive)
+	{
+		string sLobbyNick = rClient.NickName;
+		NetClient_LobbyChatAdd(sLobbyNick + ": " + sMessage);
+		return;
+	}
 
 	NCSay.SenderName = rClient.NickName;
 	NCSay.Time = 30.0;
@@ -71,6 +106,31 @@ void NetClient_ChatAddGameMessage(string sMessage, int dwColor, int iMode, int w
 
 		Event(PARSE_STRING, "aslssss", &oRes, sParseString, 4, sNick1, sShip1, sNick2, sShip2);
 	}
+
+	NCSay.Color = dwColor;
+	NCSay.Time = 30.0;
+	NCSay.GameMessage = oRes.Str;
+}
+
+// Same as NetClient_ChatAddGameMessage, but with two numbers. Text parameters:
+// %1 nick and %2 ship of wID1, %3 nick and %4 ship of wID2, %5 = iNum1, %6 = iNum2
+void NetClient_ChatAddGameMessageNum(string sMessage, int dwColor, int wID1, int wID2, int iNum1, int iNum2)
+{
+	object oRes;
+	string sParseString = LanguageConvertString(iLangNetClient, sMessage);
+
+	oRes.Str = "";
+
+	ref rClient1 = NetClient_GetClient(wID1);
+	ref rClient2 = NetClient_GetClient(wID2);
+	string sNick1 = rClient1.NickName;
+	string sShip1 = rClient1.Ship.Name;
+	string sNick2 = rClient2.NickName;
+	string sShip2 = rClient2.Ship.Name;
+	string sNum1 = "" + iNum1;
+	string sNum2 = "" + iNum2;
+
+	Event(PARSE_STRING, "aslssssss", &oRes, sParseString, 6, sNick1, sShip1, sNick2, sShip2, sNum1, sNum2);
 
 	NCSay.Color = dwColor;
 	NCSay.Time = 30.0;

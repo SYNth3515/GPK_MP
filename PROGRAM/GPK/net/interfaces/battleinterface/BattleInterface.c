@@ -98,6 +98,10 @@ void NetClient_CreateBattleInterface()
 
 	LayerAddObject("Net_Execute",&ILogAndActions,-257);
 	LayerAddObject("Net_Realize",&ILogAndActions,-1);
+
+	// SP-style quick action panel (icon + text in the top right corner, Space = BIFastCommand)
+	CreateILogAndActions(LOG_FOR_SEA);
+	Log_SetActiveAction("Nothing");
 }
 
 void NetClient_DeleteBattleInterface()
@@ -329,6 +333,13 @@ void NetBI_InitializeCommands()
 	NetBInterface.Commands.Repair.texNum	= 0;
 	NetBInterface.Commands.Repair.event		= "BI_Repair";
 	NetBInterface.Commands.Repair.note		= LanguageConvertString(idLngFile, "sea_Repair");
+	//
+	NetBInterface.Commands.Board.enable		= false;
+	NetBInterface.Commands.Board.picNum		= 30;
+	NetBInterface.Commands.Board.selPicNum	= 14;
+	NetBInterface.Commands.Board.texNum		= 0;
+	NetBInterface.Commands.Board.event		= "BI_Board";
+	NetBInterface.Commands.Board.note		= LanguageConvertString(idLngFile, "sea_Board");
 
 	NetBInterface.charge.charge1.picNum		= 32; // balls
 	NetBInterface.charge.charge1.selPicNum	= 40;
@@ -366,6 +377,38 @@ void NetBI_InitBattleInterface()
 	NetBInterface.SelCharacter = -1;
 	NetBInterface.boardRadius = 50;
 	NetBInterface.freeDistance = MIN_ENEMY_DISTANCE_TO_DISABLE_MAP_ENTER;
+	// COOP: state bars over the ships (copied from the single player BattleInterface: relation flag + hull / sails / crew)
+	NetBInterface.ShipInfoImages.RelationTexture = "battle_interface\ship_arrows1.tga";
+	NetBInterface.ShipInfoImages.RelationOffset.x = 0.0;
+	NetBInterface.ShipInfoImages.RelationOffset.y = 0.3;
+	NetBInterface.ShipInfoImages.RelationOffset.z = 0.0;
+	NetBInterface.ShipInfoImages.RelationSize = "0.75,0.5";
+	NetBInterface.ShipInfoImages.RelationUV1 = "0.0,0.0,0.25,1.0"; // friend
+	NetBInterface.ShipInfoImages.RelationUV2 = "0.25,0.0,0.5,1.0"; // enemy
+	NetBInterface.ShipInfoImages.RelationUV3 = "0.5,0.0,0.75,1.0"; // neutral
+
+	NetBInterface.ShipInfoImages.ProgressTexture = "battle_interface\indicators.tga";
+	NetBInterface.ShipInfoImages.ProgressSize = "2.0,0.1";
+	NetBInterface.ShipInfoImages.ProgressBackOffset.x = 0.0;
+	NetBInterface.ShipInfoImages.ProgressBackOffset.y = 0.65;
+	NetBInterface.ShipInfoImages.ProgressBackOffset.z = 0.0;
+	NetBInterface.ShipInfoImages.ProgressBackSize = "2.0,0.3";
+	NetBInterface.ShipInfoImages.ProgressBackUV = "0.0,0.5,1.0,1.0";
+	NetBInterface.ShipInfoImages.HullOffset.x = 0.0;
+	NetBInterface.ShipInfoImages.HullOffset.y = 0.75;
+	NetBInterface.ShipInfoImages.HullOffset.z = 0.0;
+	NetBInterface.ShipInfoImages.HullUV = "0.0,0.333,1.0,0.5";
+	NetBInterface.ShipInfoImages.SailOffset.x = 0.0;
+	NetBInterface.ShipInfoImages.SailOffset.y = 0.65;
+	NetBInterface.ShipInfoImages.SailOffset.z = 0.0;
+	NetBInterface.ShipInfoImages.SailUV = "0.0,0.167,1.0,0.333";
+	NetBInterface.ShipInfoImages.CrewOffset.x = 0.0;
+	NetBInterface.ShipInfoImages.CrewOffset.y = 0.55;
+	NetBInterface.ShipInfoImages.CrewOffset.z = 0.0;
+	NetBInterface.ShipInfoImages.CrewUV = "0.0,0.0,1.0,0.166";
+
+	NetBInterface.ShifInfoVisible = true;
+
 	NetBInterface.blindSpeed = 0.003;
 	NetBInterface.MaxWind = 30.0;
 	NetBInterface.MaxShipSpeed = 20.0;
@@ -387,6 +430,9 @@ void NetBI_InitBattleInterface()
 	LayerAddObject("Net_Realize",&NetBInterface,-1);
 
 	SetEventHandler(BI_EVENT_GET_DATA,"NetBI_GetData",0);
+
+	// COOP: bars over the ships (hull, sails, crew + friend/enemy flag), always visible like with a good spyglass in single
+	SetEventHandler(BI_EVENT_CHECK_SHIPSTATE_SHOW,"NetBI_GetSSShow",0);
 
 	SetEventHandler("NCEvent_ShipCreate","NetBI_CreateShip",0);
 	SetEventHandler("NCEvent_ShipDelete","NetBI_DeleteShip",0);
@@ -417,6 +463,7 @@ void NetBI_ReleaseBattleInterface()
 	DeleteClass( &objShipPointer );
 
 	DelEventHandler(BI_EVENT_GET_DATA,"NetBI_GetData");
+	DelEventHandler(BI_EVENT_CHECK_SHIPSTATE_SHOW,"NetBI_GetSSShow");
 
 	DelEventHandler(SHIP_CREATE,"NetBI_CreateShip");
 	DelEventHandler(SHIP_DELETE,"NetBI_DeleteShip");
@@ -434,6 +481,16 @@ void NetBI_ReleaseBattleInterface()
 	DelEventHandler("DoSailHole","Net_ProcessSailDamage");
 
 	Log_MoveToSingleLayers();
+}
+
+int NetBI_SSShow;
+
+// single: BI_GetSSShow (spyglass dependent). In the net game the state bars are always shown.
+ref NetBI_GetSSShow()
+{
+	int wShipID = GetEventData();
+	NetBI_SSShow = true;
+	return &NetBI_SSShow;
 }
 
 ref Net_GetCooldownFactor()
@@ -511,6 +568,15 @@ void NetBI_CreateShipPrivate(int wNetClientID)
 		myShip = true;
 		shipRelation = BI_RELATION_FRIEND;
 	}
+	else
+	{
+		// team games: ships of our team are friends, everything else is an enemy (no neutral in the net game)
+		if (sti(NCServer.GameType) != NETGAME_DEATHMATCH)
+		{
+			ref rThisClient = NetClient_GetClient(wNetThisClient);
+			if (sti(rc.Team) == sti(rThisClient.Team)) { shipRelation = BI_RELATION_FRIEND; }
+		}
+	}
 
 	ref shipRef = Net_GetShipByIndex( sti(rc.ship.type) );
 
@@ -565,6 +631,7 @@ void NetBI_SetPossibleCommands()
 	NetBInterface.Commands.Charge.enable	= true;//CheckAttribute(mainCh,"Ship.Cannons.Charge.Type");
 	NetBInterface.Commands.Speed.enable		= true;
 	NetBInterface.Commands.Repair.enable	= true;
+	NetBInterface.Commands.Board.enable		= (NetClient_BoardTarget >= 0);
 }
 
 ref NetBI_GetCooldownFactor()
@@ -586,6 +653,9 @@ ref NetBI_CommandEndChecking()
 		NetBI_retComValue = BI_COMMODE_USER_ICONS;
 		break;
 	case "BI_Repair":
+		NetBI_retComValue = 0;
+		break;
+	case "BI_Board":
 		NetBI_retComValue = 0;
 		break;
 	}
@@ -647,6 +717,9 @@ void NetBI_LaunchCommand()
 		break;
 	case "BI_Repair":
 		NetClient_ShipStartRepair();
+		break;
+	case "BI_Board":
+		NetClient_RequestBoarding();
 		break;
 	}
 }

@@ -1,5 +1,20 @@
 int iClientShipPriorityExecute = 2;
 int iClientShipPriorityRealize = 31;
+int NetClient_BoardTarget = -1;
+bool NetClient_BoardWasAvailable = false;
+
+// ---------------------------------------------------------------------------------------------
+// COOP: sea battle voices / music like in single player
+// ---------------------------------------------------------------------------------------------
+#define NET_LOWHP_PERCENT		15.0		// below this % of max HP: "water in the hold" / "ship is falling apart" (single: 10%)
+
+bool NetClient_LowHPWarned = false;		// low HP warning already played (re-armed when HP goes back up)
+bool NetClient_BortArmL = false;		// left bort was seen not loaded -> "ready" voice is allowed
+bool NetClient_BortArmR = false;
+bool NetClient_BortReadyL = false;		// left/right bort became ready in the current 300 ms window
+bool NetClient_BortReadyR = false;
+bool NetClient_BortEventPosted = false;
+float NetClient_PrevCrew = -1.0;		// previous crew of this client (-1 = unknown)
 
 void NetClient_DeleteShipEnvironment()
 {
@@ -11,6 +26,10 @@ void NetClient_DeleteShipEnvironment()
 	DelEventHandler("NetClient_ShipUpdateSounds", "NetClient_ShipUpdateSounds");
 	DelEventHandler("NetClient_ShipGetCurrentTargetRelation", "NetClient_ShipGetCurrentTargetRelation");
 	DelEventHandler("Interface_Started", "NetClient_DropCurrentControls");
+	DelEventHandler("NetClient_BortReloadEvent", "NetClient_BortReloadEvent");
+	NetClient_BoardTarget = -1;
+	NetClient_BoardWasAvailable = false;
+	NetClient_ResetSeaVoices();
 
 	DeleteClass(&NCShipTracks);
 }
@@ -25,6 +44,10 @@ void NetClient_CreateShipEnvironment(int iMsg)
 	SetEventHandler("NetClient_ShipUpdateSounds", "NetClient_ShipUpdateSounds", 0);
 	SetEventHandler("NetClient_ShipGetCurrentTargetRelation", "NetClient_ShipGetCurrentTargetRelation", 0);
 	SetEventHandler("Interface_Started", "NetClient_DropCurrentControls", 0);
+	SetEventHandler("NetClient_BortReloadEvent", "NetClient_BortReloadEvent", 0);
+	NetClient_BoardTarget = -1;
+	NetClient_BoardWasAvailable = false;
+	NetClient_ResetSeaVoices();
 
 	NCShipTracks.Server = false;
 	CreateEntity(&NCShipTracks, "NetShipTracks");		
@@ -101,6 +124,10 @@ void NetClient_ShipControlActivation()
 			NetClient_ShipStartRepair();
 			bSend = false;
 		break;
+		case "Ship_Board":
+			NetClient_RequestBoarding();
+			bSend = false;
+		break;
 		case "Ship_SailUp":
 			NMAddByte(iSMsg, NSC_SHIP_SAILUP);
 			bSend = true;
@@ -135,10 +162,10 @@ void NetClient_ShipControlActivation()
 		case "Sea_CameraSwitch":
 			NetClient_CameraSwitch();
 		break;
-		case "hk_charge1": NetClient_ShipChangeCharge("Balls");	break;
-		case "hk_charge2": NetClient_ShipChangeCharge("Grapes"); break;
-		case "hk_charge3": NetClient_ShipChangeCharge("Knippels"); break;
-		case "hk_charge4": NetClient_ShipChangeCharge("Bombs"); break;
+		case "hk_charge1": NetClient_PlayChargeVoice(1); NetClient_ShipChangeCharge("Balls");	break;
+		case "hk_charge2": NetClient_PlayChargeVoice(2); NetClient_ShipChangeCharge("Grapes"); break;
+		case "hk_charge3": NetClient_PlayChargeVoice(3); NetClient_ShipChangeCharge("Knippels"); break;
+		case "hk_charge4": NetClient_PlayChargeVoice(4); NetClient_ShipChangeCharge("Bombs"); break;
 	}
 	if (bSend) { NetClient_SendMessage(iSMsg, false); }
 
@@ -242,6 +269,15 @@ void NetClient_OnShip(int iMsg)
 		case NSC_SHIP_SHIP_COLLISION:
 			NetClient_OnShipShipCollision(iMsg);
 		break;
+		case NSC_SHIP_BOARD_STATE:
+			NetClient_OnShipBoardState(iMsg);
+		break;
+		case NSC_SHIP_BOARD_VOLLEY:
+			NetClient_OnShipBoardVolley(iMsg);
+		break;
+		case NSC_SHIP_BOARD_RESULT:
+			NetClient_OnShipBoardResult(iMsg);
+		break;
 		case NSC_SHIP_ISLAND_COLLISION:
 			NetClient_OnShipIslandCollision(iMsg);
 		break;
@@ -279,6 +315,9 @@ void NetClient_OnShipBortsInfo(int iMsg)
 {
 	ref rClient = NetClient_GetThisClient();
 
+	float fRatioL = 1.0;
+	float fRatioR = 1.0;
+
 	rClient.Ship.Cannons.Borts = "";
 	for (int i=0; i<4; i++)
 	{
@@ -288,7 +327,12 @@ void NetClient_OnShipBortsInfo(int iMsg)
 		arBorts.(sCurBort).MaxFireDistance = NMGetWord(iMsg);
 		arBorts.(sCurBort).ChargeRatio = makefloat(NMGetByte(iMsg)) / 255.0;
 		arBorts.(sCurBort).DamageRatio = makefloat(NMGetByte(iMsg)) / 255.0;
+
+		if (i == 0) { fRatioL = stf(arBorts.(sCurBort).ChargeRatio); }
+		if (i == 1) { fRatioR = stf(arBorts.(sCurBort).ChargeRatio); }
 	}
+
+	NetClient_CheckBortsReady(fRatioL, fRatioR);
 }
 
 void NetClient_OnShipDead(int iMsg)
@@ -305,9 +349,17 @@ void NetClient_OnShipDead(int iMsg)
 	if (wDeadID == wClientID)
 	{
 		NetClient_SetDieCamera(wKillerID);
+
+		// single: death screen music (music_ship_dead)
+		FadeOutMusic(2);
+		PlayStereoOGG("music_ship_dead");
+		NetClient_LowHPWarned = false;
 	}
 
 	ref rDeadClient = NetClient_GetClient(wDeadID);
+
+	// single: ship_sink sound at the sinking ship
+	Play3DSound("ship_sink", stf(rDeadClient.Ship.Pos.x), stf(rDeadClient.Ship.Pos.y), stf(rDeadClient.Ship.Pos.z));
 
 	rDeadClient.Ship.Sink.Speed.x = fSinkSpeedX;
 	rDeadClient.Ship.Sink.Speed.y = fSinkSpeedY;
@@ -349,6 +401,20 @@ void NetClient_OnShipDead(int iMsg)
 		case NETKILL_BY_LIGHTNING:
 			NetClient_ChatAddGameMessage("Net_ShipDieFromLighting", rgbGameMessage, 1, wDeadID, DST_INVALID);
 		break;
+		case NETKILL_BY_BOARDING:
+			// own message id (add it to the ini, same 2 parameters as Net_ShipDieFromPlayer: winner, loser)
+			NetClient_ChatAddGameMessage("Net_ShipDieFromBoarding", rgbGameMessage, 2, wKillerID, wDeadID);
+			if (wKillerID == wClientID || wDeadID == wClientID) { PlayStereoSound(NET_SOUND_ABORDAGE); }
+			// the whole crew of the defeated ship died with it, the sinking ship must not show any crew
+			rDeadClient.Ship.Crew.Quantity = 0;
+		break;
+	}
+
+	if (wDeadID == wClientID)
+	{
+		NetClient_BoardTarget = -1;
+		if (NetClient_BoardWasAvailable) { Log_SetActiveAction("Nothing"); }
+		NetClient_BoardWasAvailable = false;
 	}
 
 	rDeadClient.Dead = true;
@@ -379,6 +445,9 @@ void NetClient_OnShipMastFall(int iMsg)
 	}
 
 	rClient.MastFall = iMastNum;
+
+	// single: mast_fall sound
+	Play3DSound("mast_fall", stf(rClient.Ship.Pos.x), stf(rClient.Ship.Pos.y), stf(rClient.Ship.Pos.z));
 }
 
 void NetClient_OnShipInfo(int iMsg)
@@ -425,8 +494,22 @@ void NetClient_OnShipInfo(int iMsg)
 		iCurrentRepairTime = NMGetWord(iMsg);
 	//}
 
+	// COOP: sail state in percent (server value), see NetClient_OnShipInfo below
+	int iSailPercent = NMGetByte(iMsg);
+
 	rClient.Ship.HP = fHP;
 	rClient.Ship.Crew.Quantity = fCrew;
+
+	// Ship.SP is kept in units of the ship base SP (like single: SP / ship.SP = sail state), so the bars over the ships
+	// and Net_GetSailPercent() show the real percent
+	ref rSPShip = Net_GetShipByIndex(sti(rClient.Ship.Type));
+	rClient.Ship.SP = makefloat(iSailPercent) * stf(rSPShip.SP) / 100.0;
+
+	if (wOurClientID == wClientID)
+	{
+		NetClient_CheckLowHP(fHP, stf(rClient.Ship.MaxHP));
+		NetClient_CheckMinCrew(fCrew, rClient);
+	}
 
 	rClient.Ship.NewPos.x = x;
 	rClient.Ship.NewPos.y = y;
@@ -594,4 +677,185 @@ void NetClient_ShipChangeCharge(string sNewCharge)
 	NMAddString(iSMSg, sNewCharge, 32);
 	NetClient_SendMessage(iSMSg, false);
 	NMDelete(iSMsg);
+}
+
+// The server checks distance / angle / speed / skills / perks (rules of single player) and tells us
+// which enemy ship can be boarded right now. Here we only show / hide the quick action (Space).
+void NetClient_OnShipBoardState(int iMsg)
+{
+	int iHasTarget = NMGetByte(iMsg);
+	int wTarget = NMGetClientID(iMsg);
+
+	NetClient_BoardTarget = -1;
+	if (iHasTarget != 0) { NetClient_BoardTarget = wTarget; }
+
+	bool bAvailable = (NetClient_BoardTarget >= 0);
+
+	if (bAvailable && !NetClient_BoardWasAvailable)
+	{
+		Log_SetActiveAction("Board");
+		PlaySound("interface\\_GTBoard0.wav");
+	}
+	if (!bAvailable && NetClient_BoardWasAvailable)
+	{
+		Log_SetActiveAction("Nothing");
+	}
+
+	NetClient_BoardWasAvailable = bAvailable;
+}
+
+// Text in the single player log (top corner, the place where "Time x2" and the other ship notices appear).
+// sKey is a text id from NetSection.txt, %1 and %2 are replaced by the numbers.
+void NetClient_LogMessageNum(string sKey, int iNum1, int iNum2)
+{
+	object oRes;
+	string sText = LanguageConvertString(iLangNetClient, sKey);
+	string sNum1 = "" + iNum1;
+	string sNum2 = "" + iNum2;
+
+	oRes.Str = "";
+	Event(PARSE_STRING, "aslss", &oRes, sText, 2, sNum1, sNum2);
+	Log_SetStringToLog(oRes.Str);
+}
+
+// Musket volley before the boarding. Only the two captains of the boarding get it, from their point of view.
+void NetClient_OnShipBoardVolley(int iMsg)
+{
+	int iOurShot = NMGetByte(iMsg);
+	int iEnemyShot = NMGetByte(iMsg);
+	int iKilledByUs = NMGetWord(iMsg);
+	int iKilledByEnemy = NMGetWord(iMsg);
+
+	PlaySound(NET_SOUND_MUSKETSHOT);
+	PlaySound("interface\_GTBoard2.wav");	// single: boarding starts
+
+	// texts: Net_BoardMusketVolleyOur (our volley killed %1 enemy sailors) / Net_BoardMusketVolleyEnemy (enemy volley killed %1 of ours)
+	if (iOurShot != 0) { NetClient_LogMessageNum("Net_BoardMusketVolleyOur", iKilledByUs, 0); }
+	if (iEnemyShot != 0) { NetClient_LogMessageNum("Net_BoardMusketVolleyEnemy", iKilledByEnemy, 0); }
+}
+
+// Crew lost in the boarding fight itself (without the musket volley): %1 - our crew, %2 - enemy crew. A separate line.
+void NetClient_OnShipBoardResult(int iMsg)
+{
+	int iOurLost = NMGetWord(iMsg);
+	int iEnemyLost = NMGetWord(iMsg);
+
+	NetClient_LogMessageNum("Net_BoardCasualties", iOurLost, iEnemyLost);
+}
+
+void NetClient_RequestBoarding()
+{
+	if (NetClient_BoardTarget < 0) { return; }
+	int iSMsg = NMCreate();
+	NMAddClientID(iSMsg, wClientID);
+	NMAddByte(iSMsg, NC_SHIP);
+	NMAddByte(iSMsg, NSC_SHIP_BOARD_REQUEST);
+	NMAddClientID(iSMsg, NetClient_BoardTarget);
+	NetClient_SendMessage(iSMsg, true);
+	NMDelete(iSMsg);
+}
+
+
+// =============================================================================================
+// COOP: sea battle voices / music like in single player
+// =============================================================================================
+void NetClient_ResetSeaVoices()
+{
+	NetClient_LowHPWarned = false;
+	NetClient_BortArmL = false;
+	NetClient_BortArmR = false;
+	NetClient_BortReadyL = false;
+	NetClient_BortReadyR = false;
+	NetClient_BortEventPosted = false;
+	NetClient_PrevCrew = -1.0;
+}
+
+bool NetClient_IsThisShipDead()
+{
+	ref rMe = NetClient_GetThisClient();
+	return (sti(rMe.Dead) != 0);
+}
+
+// "Load balls / grapes / knippels / bombs, aye captain" (hot keys 1-4; the command menu plays them by itself)
+void NetClient_PlayChargeVoice(int iType)
+{
+	if (NetClient_IsThisShipDead()) { return; }
+
+	switch (iType)
+	{
+		case 1: PlaySound("interface\_balls.wav"); break;
+		case 2: PlaySound("interface\_grapes.wav"); break;
+		case 3: PlaySound("interface\_chain.wav"); break;
+		case 4: PlaySound("interface\_bombs.wav"); break;
+	}
+}
+
+// "Left / right side is ready to fire" (single: Ship_OnBortReloaded + Ship_BortReloadEvent).
+// Called on every borts info message of this client. A bort must be seen "not loaded" first, so there is no
+// voice at the start of the game. When both sides get ready at once nothing is played (as in single).
+void NetClient_CheckBortsReady(float fRatioL, float fRatioR)
+{
+	if (NetClient_IsThisShipDead()) { NetClient_BortArmL = false; NetClient_BortArmR = false; return; }
+
+	if (fRatioL < 0.9) { NetClient_BortArmL = true; }
+	if (fRatioR < 0.9) { NetClient_BortArmR = true; }
+
+	bool bNewReady = false;
+	if (NetClient_BortArmL && fRatioL >= 0.99) { NetClient_BortArmL = false; NetClient_BortReadyL = true; bNewReady = true; }
+	if (NetClient_BortArmR && fRatioR >= 0.99) { NetClient_BortArmR = false; NetClient_BortReadyR = true; bNewReady = true; }
+
+	if (bNewReady && !NetClient_BortEventPosted)
+	{
+		NetClient_BortEventPosted = true;
+		PostEvent("NetClient_BortReloadEvent", 300);
+	}
+}
+
+void NetClient_BortReloadEvent()
+{
+	NetClient_BortEventPosted = false;
+
+	if (!NetClient_IsThisShipDead())
+	{
+		if (NetClient_BortReadyL && !NetClient_BortReadyR) { PlaySound("interface\_GunReadyL.wav"); }
+		if (NetClient_BortReadyR && !NetClient_BortReadyL) { PlaySound("interface\_GunReadyR.wav"); }
+	}
+
+	NetClient_BortReadyL = false;
+	NetClient_BortReadyR = false;
+}
+
+// "Water in the hold!" / "The ship is falling apart!" - once, when HP drops below NET_LOWHP_PERCENT
+// (single: Interface\_Abandon1.wav or _Abandon2.wav at 10% HP, played again only after HP went back up)
+void NetClient_CheckLowHP(float fHP, float fMaxHP)
+{
+	if (fMaxHP <= 0.0) { return; }
+
+	float fPercent = 100.0 * fHP / fMaxHP;
+	if (fHP > 0.0 && fPercent < NET_LOWHP_PERCENT)
+	{
+		if (!NetClient_LowHPWarned)
+		{
+			NetClient_LowHPWarned = true;
+			if (rand(1) == 0) { PlaySound("interface\_Abandon1.wav"); }
+			else { PlaySound("interface\_Abandon2.wav"); }
+		}
+	}
+	else
+	{
+		NetClient_LowHPWarned = false;
+	}
+}
+
+// single: sound when the crew falls below the minimum crew of the ship (OBJECTS\SHIPCHARGE\_Damage1.wav)
+void NetClient_CheckMinCrew(float fCrew, ref rClient)
+{
+	ref rShip = Net_GetShipByIndex(sti(rClient.Ship.Type));
+	float fMinCrew = stf(rShip.MinCrew);
+
+	if (NetClient_PrevCrew >= fMinCrew && fCrew < fMinCrew && fCrew > 0.0)
+	{
+		PlaySound("OBJECTS\SHIPCHARGE\_Damage1.wav");
+	}
+	NetClient_PrevCrew = fCrew;
 }
