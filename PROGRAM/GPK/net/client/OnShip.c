@@ -27,9 +27,11 @@ void NetClient_DeleteShipEnvironment()
 	DelEventHandler("NetClient_ShipGetCurrentTargetRelation", "NetClient_ShipGetCurrentTargetRelation");
 	DelEventHandler("Interface_Started", "NetClient_DropCurrentControls");
 	DelEventHandler("NetClient_BortReloadEvent", "NetClient_BortReloadEvent");
+	DelEventHandler("NetClient_BranderDisarm", "NetClient_BranderDisarm");
 	NetClient_BoardTarget = -1;
 	NetClient_BoardWasAvailable = false;
 	NetClient_ResetSeaVoices();
+	NetClient_MinesClear();
 
 	DeleteClass(&NCShipTracks);
 }
@@ -45,6 +47,7 @@ void NetClient_CreateShipEnvironment(int iMsg)
 	SetEventHandler("NetClient_ShipGetCurrentTargetRelation", "NetClient_ShipGetCurrentTargetRelation", 0);
 	SetEventHandler("Interface_Started", "NetClient_DropCurrentControls", 0);
 	SetEventHandler("NetClient_BortReloadEvent", "NetClient_BortReloadEvent", 0);
+	SetEventHandler("NetClient_BranderDisarm", "NetClient_BranderDisarm", 0);
 	NetClient_BoardTarget = -1;
 	NetClient_BoardWasAvailable = false;
 	NetClient_ResetSeaVoices();
@@ -160,7 +163,15 @@ void NetClient_ShipControlActivation()
 			}
 		break;
 		case "Sea_CameraSwitch":
+			bNetTelescopeOn = false;	// COOP v3: camera switch turns the telescope off
 			NetClient_CameraSwitch();
+		break;
+		// COOP v3: telescope state from the controls (does not depend on the engine event MSG_TELESCOPE_REQUEST)
+		case "TelescopeIn":
+			if (sti(NCDeckCamera.On)) { bNetTelescopeOn = true; PostEvent("NetClient_SpyFortUpdate", 1); }
+		break;
+		case "TelescopeOut":
+			bNetTelescopeOn = false;
 		break;
 		case "hk_charge1": NetClient_PlayChargeVoice(1); NetClient_ShipChangeCharge("Balls");	break;
 		case "hk_charge2": NetClient_PlayChargeVoice(2); NetClient_ShipChangeCharge("Grapes"); break;
@@ -278,8 +289,41 @@ void NetClient_OnShip(int iMsg)
 		case NSC_SHIP_BOARD_RESULT:
 			NetClient_OnShipBoardResult(iMsg);
 		break;
+		case NSC_SHIP_MINE_ADD:
+			NetClient_OnShipMineAdd(iMsg);
+		break;
+		case NSC_SHIP_MINE_DEL:
+			NetClient_OnShipMineDel(iMsg);
+		break;
+		case NSC_SHIP_MINE_BOOM:
+			NetClient_OnShipMineBoom(iMsg);
+		break;
+		case NSC_SHIP_BRANDER_BOOM:
+			NetClient_OnShipBranderBoom(iMsg);
+		break;
+		case NSC_SHIP_SPLASH:
+			NetClient_OnShipSplash(iMsg);
+		break;
+		case NSC_SHIP_LOAD_INFO:
+			NetClient_OnShipLoadInfo(iMsg);
+		break;
+		case NSC_SHIP_ACTION_DENIED:
+			NetClient_OnShipActionDenied(iMsg);
+		break;
 		case NSC_SHIP_ISLAND_COLLISION:
 			NetClient_OnShipIslandCollision(iMsg);
+		break;
+		case NSC_SHIP_WRECKED:
+			NetClient_OnShipWrecked(iMsg);
+		break;
+		case NSC_SHIP_RESPAWN:
+			NetClient_OnShipRespawn(iMsg);
+		break;
+		case NSC_SHIP_PERK_STATE:
+			NetClient_OnPerkState(iMsg);
+		break;
+		case NSC_SHIP_PERK_DENIED:
+			NetClient_OnPerkDenied(iMsg);
 		break;
 	}
 }
@@ -346,6 +390,15 @@ void NetClient_OnShipDead(int iMsg)
 	float fSinkSpeedY = NMGetFloat(iMsg);
 	float fSinkSpeedZ = NMGetFloat(iMsg);
 
+	// COOP: in the lobby of a running game (no sea, no ships here) only remember it
+	if (!bNetClientInGame || !COOP_CliSlotLive(wDeadID))
+	{
+		ref rDeadLobby = NetClient_GetClient(wDeadID);
+		rDeadLobby.Dead = true;
+		rDeadLobby.ShipState = 2;
+		return;
+	}
+
 	if (wDeadID == wClientID)
 	{
 		NetClient_SetDieCamera(wKillerID);
@@ -381,13 +434,38 @@ void NetClient_OnShipDead(int iMsg)
 		rClient.Stat.Kills.(sKill).ShipType = rDeadClient.Ship.Type;
 	}
 
+	NetClient_AnnounceKill(iKillStatus, wKillerID, wDeadID);
+
+	// the whole crew goes down with the ship (any kill reason), the sinking ship must not show any crew
+	rDeadClient.Ship.Crew.Quantity = 0;
+
+	if (wDeadID == wClientID)
+	{
+		NetClient_BoardTarget = -1;
+		if (NetClient_BoardWasAvailable) { Log_SetActiveAction("Nothing"); }
+		NetClient_BoardWasAvailable = false;
+	}
+
+	rDeadClient.Dead = true;
+	rDeadClient.ShipState = 2;
+	
+	Event("NCEvent_ShipDead");
+}
+
+// kill feed line in the chat (sinking and respawn mode)
+void NetClient_AnnounceKill(int iKillStatus, int wKillerID, int wDeadID)
+{
+	ref rDeadClient = NetClient_GetClient(wDeadID);
 	switch (iKillStatus)
 	{
 		case NETKILL_BY_BALL:
 			// if (bCriticalHit)
 			//	NetClient_ChatAddGameMessage("Net_ShipDieFromCriticalHit", rgbGameMessage, 2, wKillerID, wDeadID);
 			// else
-			NetClient_ChatAddGameMessage("Net_ShipDieFromPlayer", rgbGameMessage, 2, wKillerID, wDeadID);
+			if (NetClient_IsCLient(wKillerID) || wKillerID == NET_FORTCLIENT)
+				{ NetClient_ChatAddGameMessage("Net_ShipDieFromPlayer", rgbGameMessage, 2, wKillerID, wDeadID); }
+			else
+				{ NetClient_ChatAddGameMessage("Net_ShipDieFromExplosion", rgbGameMessage, 1, wDeadID, DST_INVALID); }
 		break;
 		case NETKILL_BY_ISLAND:
 			NetClient_ChatAddGameMessage("Net_ShipDieFromCollisionIsland", rgbGameMessage, 1, wDeadID, DST_INVALID);
@@ -401,6 +479,21 @@ void NetClient_OnShipDead(int iMsg)
 		case NETKILL_BY_LIGHTNING:
 			NetClient_ChatAddGameMessage("Net_ShipDieFromLighting", rgbGameMessage, 1, wDeadID, DST_INVALID);
 		break;
+		case NETKILL_BY_MINE:
+			NetClient_ChatAddSystemLine(NetClient_KillText(iKillStatus, wKillerID, wDeadID));
+		break;
+		case NETKILL_BY_OWN_MINE:
+			NetClient_ChatAddSystemLine(NetClient_KillText(iKillStatus, wKillerID, wDeadID));
+		break;
+		case NETKILL_BY_BRANDER:
+			NetClient_ChatAddSystemLine(NetClient_KillText(iKillStatus, wKillerID, wDeadID));
+		break;
+		case NETKILL_BY_OWN_BRANDER:
+			NetClient_ChatAddSystemLine(NetClient_KillText(iKillStatus, wKillerID, wDeadID));
+		break;
+		case NETKILL_BY_FORT:
+			NetClient_ChatAddSystemLine(NetClient_KillText(iKillStatus, wKillerID, wDeadID));
+		break;
 		case NETKILL_BY_BOARDING:
 			// own message id (add it to the ini, same 2 parameters as Net_ShipDieFromPlayer: winner, loser)
 			NetClient_ChatAddGameMessage("Net_ShipDieFromBoarding", rgbGameMessage, 2, wKillerID, wDeadID);
@@ -409,17 +502,6 @@ void NetClient_OnShipDead(int iMsg)
 			rDeadClient.Ship.Crew.Quantity = 0;
 		break;
 	}
-
-	if (wDeadID == wClientID)
-	{
-		NetClient_BoardTarget = -1;
-		if (NetClient_BoardWasAvailable) { Log_SetActiveAction("Nothing"); }
-		NetClient_BoardWasAvailable = false;
-	}
-
-	rDeadClient.Dead = true;
-	
-	Event("NCEvent_ShipDead");
 }
 
 void NetClient_OnShipMastFall(int iMsg)
@@ -496,6 +578,14 @@ void NetClient_OnShipInfo(int iMsg)
 
 	// COOP: sail state in percent (server value), see NetClient_OnShipInfo below
 	int iSailPercent = NMGetByte(iMsg);
+
+	// COOP: score (F1) and state of the ship: 0 afloat, 1 wrecked (respawn), 2 sunk
+	rClient.Stat.Frags = NMGetWord(iMsg);
+	rClient.Stat.Deaths = NMGetWord(iMsg);
+	rClient.ShipState = NMGetByte(iMsg);
+
+	// COOP: cannons really standing on the ship (see server\OnShip.c), used by the spyglass
+	rClient.Ship.CannonsInstalled = NMGetWord(iMsg);
 
 	rClient.Ship.HP = fHP;
 	rClient.Ship.Crew.Quantity = fCrew;
@@ -773,6 +863,7 @@ void NetClient_ResetSeaVoices()
 bool NetClient_IsThisShipDead()
 {
 	ref rMe = NetClient_GetThisClient();
+	if (CheckAttribute(rMe, "Wrecked") && sti(rMe.Wrecked)) { return true; }		// COOP: respawn mode
 	return (sti(rMe.Dead) != 0);
 }
 
@@ -858,4 +949,203 @@ void NetClient_CheckMinCrew(float fCrew, ref rClient)
 		PlaySound("OBJECTS\SHIPCHARGE\_Damage1.wav");
 	}
 	NetClient_PrevCrew = fCrew;
+}
+
+
+// =============================================================================================
+// COOP: respawn mode. A wrecked ship stays afloat on this machine (a ship of a client is never deleted / sunk here,
+// see client\Time.c), burns and does not move; then the server puts it to a new place with full hull.
+// =============================================================================================
+void NetClient_OnShipWrecked(int iMsg)
+{
+	int wDeadID = NMGetClientID(iMsg);
+	int iKillStatus = NMGetByte(iMsg);
+	int wKillerID = NMGetClientID(iMsg);
+	int iDetonate = NMGetByte(iMsg);
+	int iSeconds = NMGetByte(iMsg);
+
+	ref rDead = NetClient_GetClient(wDeadID);
+	rDead.Wrecked = true;
+	rDead.ShipState = 1;
+	rDead.Ship.Crew.Quantity = 0;
+
+	if (!bNetClientInGame || !COOP_CliSlotLive(wDeadID)) { return; }
+
+	NetClient_AnnounceKill(iKillStatus, wKillerID, wDeadID);
+
+	if (CheckAttribute(rDead, "CoopReady") && sti(rDead.CoopReady))
+	{
+		// explosions on the deck (no "small booms" afterwards: they repeat while the ship is above the water)
+		if (iDetonate != 0) { NetClient_ShipDetonate(rDead, false); }
+		else { NetClient_ShipSeriousBoom(stf(rDead.Ship.Pos.x), stf(rDead.Ship.Pos.y) + 2.0, stf(rDead.Ship.Pos.z)); }
+	}
+
+	if (wDeadID == wClientID)
+	{
+		NetClient_BoardTarget = -1;
+		if (NetClient_BoardWasAvailable) { Log_SetActiveAction("Nothing"); }
+		NetClient_BoardWasAvailable = false;
+		NetClient_LowHPWarned = false;
+		NetClient_LogMessageNum("Net_RespawnIn", iSeconds, 0);
+	}
+
+	Event("NCEvent_ShipDead");
+}
+
+void NetClient_OnShipRespawn(int iMsg)
+{
+	int i;
+	int wID = NMGetClientID(iMsg);
+	float fMaxHP = NMGetFloat(iMsg);
+	int iCrew = NMGetWord(iMsg);
+
+	ref rC = NetClient_GetClient(wID);
+	for (i=0; i<iNetGoodsNum; i++)
+	{
+		ref rGood = Net_GetGoodByIndex(i);
+		string sGoodName = rGood.Name;
+		rC.Ship.Goods.(sGoodName) = NMGetWord(iMsg);
+	}
+	int iCharge = NMGetByte(iMsg);
+	float x = NMGetFloat(iMsg);
+	float z = NMGetFloat(iMsg);
+	float ay = NMGetFloat(iMsg);
+
+	rC.Wrecked = false;
+	rC.ShipState = 0;
+	rC.Dead = false;
+	rC.Ship.HP = fMaxHP;
+	rC.Ship.MaxHP = fMaxHP;
+	rC.Ship.Crew.Quantity = iCrew;
+	rC.Ship.Cannons.Charge.Type = iCharge;
+	if (sti(rC.Ship.Type) >= 0)
+	{
+		ref rBase = Net_GetShipByIndex(sti(rC.Ship.Type));
+		rC.Ship.SP = stf(rBase.SP);
+	}
+	rC.Ship.NewPos.x = x;
+	rC.Ship.NewPos.z = z;
+
+	if (!bNetClientInGame || !COOP_CliSlotLive(wID)) { return; }
+	if (!CheckAttribute(rC, "CoopReady") || !sti(rC.CoopReady)) { return; }
+
+	// the new place at once (the next ship info packets go on from here)
+	SendMessage(rC, "llffffff", MSG_SHIP_CURVES, iClientServerTime, x, ay, z, 0.0, 0.0, 0.0);
+
+	if (wID == wClientID)
+	{
+		NetClient_ResetSeaVoices();
+		NetClient_LogMessageNum("Net_Respawned", 0, 0);
+		PlaySound("interface\_EvShip0.wav");
+	}
+
+	RefreshBattleInterface();
+}
+
+// =============================================================================================
+// COOP: active perks of single player (the "All active perks" switch of the server)
+// =============================================================================================
+string NetClient_PerkName(int iPerk)
+{
+	if (iPerk < 0 || iPerk >= NET_APERK_NUM) { return ""; }
+	return GetConvertStr(sNetActivePerkName[iPerk], "AbilityDescribe.txt");
+}
+
+// sKey: text of NetSection.txt, %1 = name of the perk, %2 = number
+void NetClient_PerkLog(string sKey, int iPerk, int iNum)
+{
+	object oRes;
+	string sText = LanguageConvertString(iLangNetClient, sKey);
+	string sName = NetClient_PerkName(iPerk);
+	string sNum = "" + iNum;
+	oRes.Str = "";
+	Event(PARSE_STRING, "aslss", &oRes, sText, 2, sName, sNum);
+	Log_SetStringToLog(oRes.Str);
+}
+
+bool NetClient_ActivePerkReady(int iPerk)
+{
+	if (!sti(NCServer.ActivePerks)) { return false; }
+	string sP = "p" + iPerk;
+	if (!CheckAttribute(&NCPerks, sP + ".Ready")) { return true; }
+	return iClientServerTime >= sti(NCPerks.(sP).Ready);
+}
+
+int NetClient_ActivePerkWait(int iPerk)
+{
+	string sP = "p" + iPerk;
+	if (!CheckAttribute(&NCPerks, sP + ".Ready")) { return 0; }
+	int iWait = (sti(NCPerks.(sP).Ready) - iClientServerTime + 999) / 1000;
+	if (iWait < 0) { iWait = 0; }
+	return iWait;
+}
+
+void NetClient_UseActivePerk(int iPerk)
+{
+	if (!sti(NCServer.ActivePerks)) { return; }
+	if (iPerk < 0 || iPerk >= NET_APERK_NUM) { return; }
+	if (NetClient_IsThisShipDead()) { return; }
+
+	if (!NetClient_ActivePerkReady(iPerk))
+	{
+		NetClient_PerkLog("Net_PerkWait", iPerk, NetClient_ActivePerkWait(iPerk));
+		return;
+	}
+
+	int iSMsg = NMCreate();
+	NMAddClientID(iSMsg, wClientID);
+	NMAddByte(iSMsg, NC_SHIP);
+	NMAddByte(iSMsg, NSC_SHIP_PERK_USE);
+	NMAddByte(iSMsg, iPerk);
+	NetClient_SendMessage(iSMsg, true);
+	NMDelete(iSMsg);
+}
+
+void NetClient_OnPerkState(int iMsg)
+{
+	int iPerk = NMGetByte(iMsg);
+	int iUntil = NMGetDword(iMsg);
+	int iReady = NMGetDword(iMsg);
+
+	string sP = "p" + iPerk;
+	NCPerks.(sP).Until = iUntil;
+	NCPerks.(sP).Ready = iReady;
+
+	if (!bNetClientInGame) { return; }
+
+	// just activated: messages when it is over and when it can be used again
+	if (iUntil > iClientServerTime)
+	{
+		NetClient_PerkLog("Net_PerkOn", iPerk, (iUntil - iClientServerTime + 999) / 1000);
+		PostEvent("NetClient_PerkNotify", iUntil - iClientServerTime, "lll", iPerk, 0, iUntil);
+		if (iReady > iUntil) { PostEvent("NetClient_PerkNotify", iReady - iClientServerTime, "lll", iPerk, 1, iReady); }
+	}
+}
+
+void NetClient_OnPerkDenied(int iMsg)
+{
+	int iPerk = NMGetByte(iMsg);
+	int iSeconds = NMGetWord(iMsg);
+	NetClient_PerkLog("Net_PerkWait", iPerk, iSeconds);
+}
+
+// iKind: 0 = the perk is over, 1 = it can be used again (iStamp: ignored if the perk was used again since then)
+void NetClient_PerkNotify()
+{
+	int iPerk = GetEventData();
+	int iKind = GetEventData();
+	int iStamp = GetEventData();
+
+	if (!bNetClientInGame) { return; }
+	string sP = "p" + iPerk;
+	if (iKind == 0)
+	{
+		if (!CheckAttribute(&NCPerks, sP + ".Until") || sti(NCPerks.(sP).Until) != iStamp) { return; }
+		NetClient_PerkLog("Net_PerkOff", iPerk, 0);
+	}
+	else
+	{
+		if (!CheckAttribute(&NCPerks, sP + ".Ready") || sti(NCPerks.(sP).Ready) != iStamp) { return; }
+		NetClient_PerkLog("Net_PerkReady", iPerk, 0);
+	}
 }

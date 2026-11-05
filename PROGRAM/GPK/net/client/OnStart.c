@@ -42,16 +42,23 @@ void NetClient_Heartbeat()
 	iCoopHb = iCoopHb + 1;
 	ref rCoopMe = NetClient_GetClient(wClientID);
 	Trace("COOP: hb " + iCoopHb + " cam=" + Camera.Pos.x + "," + Camera.Pos.y + "," + Camera.Pos.z + " camAy=" + Camera.Ang.y + " ship=" + rCoopMe.Ship.Pos.x + "," + rCoopMe.Ship.Pos.y + "," + rCoopMe.Ship.Pos.z);
+	if (bNetTelescopeOn) { PostEvent("NetClient_SpyFortUpdate", 1); }	// COOP v3.1: backup driver of the fort check
 	PostEvent("NetClient_Heartbeat", 500);
 }
 
 
 void NetClient_OnEndGame()
 {
+	bNetClientInGame = false;
+	DeleteAttribute(&NCPerks, "");
+	DelEventHandler("NetClient_PerkNotify", "NetClient_PerkNotify");
+
 	for (int i=0; i<NET_MAXCLIENTS; i++)
 	{
-		if (!sti(NCClients[i].Use)) { continue; }
+		// COOP: ships of players who left the game (Use = 0) are alive entities too: delete them with the rest of the sea
+		if (!sti(NCClients[i].Use) && !COOP_CliSlotLive(i)) { continue; }
 		DeleteClass(&NCClients[i]);
+		DeleteAttribute(&NCClients[i], "CoopGame");
 	}
 
 	NetClient_DeleteWeatherEnvironment();
@@ -169,6 +176,10 @@ void NetClient_OnStartGame(int iMsg)
 			Event("NCEvent_StartGame_GetBuyInfo");
 		break;
 		case NSC_STARTGAME_ENVIRONMENT:
+			bNetClientInGame = true;
+			NCServer.GameRunning = true;
+			DeleteAttribute(&NCPerks, "");
+			SetEventHandler("NetClient_PerkNotify", "NetClient_PerkNotify", 0);
 			Event("NCEvent_StartGame");
 
 			Trace("COOP: cli NetClient_CreateWeatherEnvironment");
@@ -227,6 +238,18 @@ void NetClient_OnGameOver(int iMsg)
 	int iGameMode = NMGetByte(iMsg);
 	int iWinnerID = NMGetClientID(iMsg);
 	int iWinnerTeam = NMGetByte(iMsg);
+	int iDraw = NMGetByte(iMsg);
+
+	// COOP: draw - the last two ships of a deathmatch / team battle sank together, nobody won
+	if (iDraw != 0)
+	{
+		if (!bNetClientInGame) { return; }
+		string sDrawText = "Ничья! Последние два корабля пошли ко дну одновременно.";
+		NetClient_ChatAddSystemLine(sDrawText);
+		Log_SetStringToLog(sDrawText);
+		Log_SetStringToLog(LanguageConvertString(iLangNetClient, "NetGO_GameGoesOn"));
+		return;
+	}
 
 	string sTeam = "";
 
@@ -251,9 +274,30 @@ void NetClient_OnGameOver(int iMsg)
 		break;
 	}
 
-	NetClient_PlayGameOverMusic(iGameMode, iWinnerID, iWinnerTeam);
+	// COOP: the game is NOT closed: the result is shown in the chat and in the log, everybody keeps playing
+	// (a player leaves when he wants: Esc -> leave the game). The end game screen is not opened any more.
+	if (!bNetClientInGame) { return; }
 
-	LaunchNetEndGameScreen();
+	object oGoOn;
+	oGoOn.Str = "";
+	string sGoOnParam = sTeam;
+	string sGoOnKey = "NetGO_Team";
+	if (iGameMode == NETGAME_DEATHMATCH)
+	{
+		ref rWinner = NetClient_GetClient(iWinnerID);
+		sGoOnParam = rWinner.NickName;
+		sGoOnKey = "NetGO_DeathMatch";
+	}
+	Event(PARSE_STRING, "asls", &oGoOn, LanguageConvertString(iLangNetClient, sGoOnKey), 1, sGoOnParam);
+
+	NCSay.Color = rgbGameMessage;
+	NCSay.Time = 30.0;
+	NCSay.GameMessage = oGoOn.Str;
+	NetClient_ChatHistoryAdd(oGoOn.Str);
+	Log_SetStringToLog(oGoOn.Str);
+	Log_SetStringToLog(LanguageConvertString(iLangNetClient, "NetGO_GameGoesOn"));
+
+	NetClient_PlayGameOverMusic(iGameMode, iWinnerID, iWinnerTeam);
 }
 
 

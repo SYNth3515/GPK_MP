@@ -1,5 +1,5 @@
 // ship upgrades
-object NetShipHullUpgrades[3], NetShipSailUpgrade[3];
+object NetShipHullUpgrades[3], NetShipSailUpgrade[4];
 
 void Net_InitUpgrades()
 {
@@ -33,4 +33,10 @@ void Net_InitUpgrades()
 	NetShipSailUpgrade[2].dmgtosails = 10.0;
 	NetShipSailUpgrade[2].speedrate = 5.0;
 	NetShipSailUpgrade[2].turnrate = 5.0;
+
+	// Flying Dutchman sails: cosmetic only, no performance bonuses.
+	NetShipSailUpgrade[3].str = "flyingdutchman";
+	NetShipSailUpgrade[3].dmgtosails = 0.0;
+	NetShipSailUpgrade[3].speedrate = 0.0;
+	NetShipSailUpgrade[3].turnrate = 0.0;
 }

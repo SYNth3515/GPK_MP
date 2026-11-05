@@ -1,4 +1,4 @@
-object NetGoods[6];
+object NetGoods[8];
 int iNetGoodsNum = 0;
 
 ref Net_GetGoodByName(string sGood) 
@@ -18,6 +18,16 @@ int Net_GetGoodIndex(string sName)
 	return -1; 
 }
 
+// weight (cwt) of iGoodNum pieces of a good, same as GetGoodWeightByType() in single player
+int Net_GetGoodWeight(int iGoodIndex, int iGoodNum)
+{
+	if (iGoodNum <= 0) { return 0; }
+	int iWUnits = sti(NetGoods[iGoodIndex].WUnits);
+	if (iWUnits < 1) { iWUnits = 1; }
+	int iUnitQuantity = (iGoodNum + iWUnits - 1) / iWUnits;
+	return makeint(iUnitQuantity * stf(NetGoods[iGoodIndex].Weight) + 0.05);
+}
+
 int Net_GetGoodCost(int iGoodIndex, int iGoodNum)
 {
 	return (sti(NetGoods[iGoodIndex].Cost) * iGoodNum) / sti(NetGoods[iGoodIndex].Units);
@@ -33,7 +43,8 @@ void Net_InitGoods()
 	rG.Name = "Balls";
 	rG.Index = n;
 	rG.Cost = 100;
-	rG.Weight = 3;
+	rG.Weight = 2;			// weight for WUnits pieces (single player value)
+	rG.WUnits = 20;
 	rG.Units = 100;
 	rG.SpeedV0 = 1.0;
 	rG.DamageHull = 8.0;
@@ -46,7 +57,8 @@ void Net_InitGoods()
 	rG.Name = "Grapes";
 	rG.Index = n;
 	rG.Cost = 150;
-	rG.Weight = 2;
+	rG.Weight = 1;
+	rG.WUnits = 20;
 	rG.Units = 100;
 	rG.SpeedV0 = 0.7;
 	rG.DamageHull = 1.5;
@@ -59,7 +71,8 @@ void Net_InitGoods()
 	rG.Name = "Knippels";
 	rG.Index = n;
 	rG.Cost = 200;
-	rG.Weight = 5;
+	rG.Weight = 2;
+	rG.WUnits = 20;
 	rG.Units = 100;
 	rG.SpeedV0 = 0.9;
 	rG.DamageHull = 2.0;
@@ -72,7 +85,8 @@ void Net_InitGoods()
 	rG.Name = "Bombs";
 	rG.Index = n;
 	rG.Cost = 500;
-	rG.Weight = 3;
+	rG.Weight = 1;
+	rG.WUnits = 20;
 	rG.Units = 100;
 	rG.SpeedV0 = 0.8;
 	rG.DamageHull = 17.0;
@@ -86,6 +100,7 @@ void Net_InitGoods()
 	rG.Index = n;
 	rG.Cost = 1500;
 	rG.Weight = 3;
+	rG.WUnits = 1;
 	rG.Units = 10;
 
 	// SAILCLOTH
@@ -94,8 +109,21 @@ void Net_InitGoods()
 	rG.Name = "Sailcloth";
 	rG.Index = n;
 	rG.Cost = 2000;
-	rG.Weight = 3;
+	rG.Weight = 2;
+	rG.WUnits = 1;
 	rG.Units = 10;
+
+	// POWDER: 1 piece is used for every cannon shot (like single player: Cannon_LoadBall takes 1 ball + 1 powder),
+	// a mine takes NET_MINE_POWDER, a brander explosion is stronger the more powder is in the hold.
+	// Always keep it the LAST good: indexes of the other goods are used in the lobby ini.
+	n++;
+	makeref(rG, NetGoods[n]);
+	rG.Name = "Powder";
+	rG.Index = n;
+	rG.Cost = 60;
+	rG.Weight = 1;
+	rG.WUnits = 20;
+	rG.Units = 100;
 
 	iNetGoodsNum = n + 1;
 }

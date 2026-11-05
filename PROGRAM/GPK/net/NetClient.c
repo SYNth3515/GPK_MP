@@ -13,6 +13,7 @@
 #include "GPK\Net\Client\OnBall.c"
 #include "GPK\Net\Client\OnChat.c"
 #include "GPK\Net\Client\OnShip.c"
+#include "GPK\Net\Client\OnLoad.c"
 #include "GPK\Net\Client\OnPing.c"
 #include "GPK\Net\Client\OnStart.c"
 #include "GPK\Net\Client\OnWeather.c"
@@ -28,6 +29,7 @@
 
 int wClientID;
 bool bNetClientConnected = false;
+bool bNetClientInGame = false;		// COOP: the environment of the game is created (false in the lobby, also while a game runs)
 
 object NCBalls;
 object NCConsole;
@@ -38,6 +40,7 @@ object NCShipTracks;
 object NCLightPillar;
 
 object NCServer;
+object NCPerks;		// COOP: state of our active perks (p<N>.Until / p<N>.Ready, server time)
 
 object NCClients[NET_TOTALCLIENTS];
 object NCProfiles;
@@ -65,7 +68,22 @@ void Net_ClientFirstInit()
 
 void Net_DeleteClient()
 {
+	// COOP: tell the server that we leave (the running game parks our ship for a reconnect at once, without waiting for
+	// the ping timeout). Sent directly and twice: the queue of the client is deleted right after this.
+	if (bNetClientConnected && IsEntity(&NetClient))
+	{
+		for (int iBye=0; iBye<2; iBye++)
+		{
+			int iByeMsg = NMCreate();
+			NMAddClientID(iByeMsg, wClientID);
+			NMAddByte(iByeMsg, NC_DISCONNECT);
+			NetClient_SendMessageDirect(iByeMsg);
+			NMDelete(iByeMsg);
+		}
+	}
+
 	bNetClientConnected = false;
+	bNetClientInGame = false;
 	DelEventHandler("ExitApplication", "NetClient_ExitApplication");
 	DelEventHandler("NetClient_OnNetMessage", "NetClient_OnNetMessage");
 	DelEventHandler("NetClient_Ping", "NetClient_Ping");
@@ -102,6 +120,10 @@ void Net_CreateClient()
 		NCClients[i].Stat.Accuracy = 0;
 
 		NCClients[i].Stat.Kills = "";
+		NCClients[i].Stat.Frags = 0;		// COOP: ships sunk (server value, F1 table)
+		NCClients[i].Stat.Deaths = 0;		// COOP: own ship lost
+		NCClients[i].Wrecked = false;		// COOP: respawn mode, the ship waits for the respawn
+		NCClients[i].ShipState = 0;		// COOP: 0 afloat, 1 wrecked, 2 sunk
 
 		NCClients[i].Skills.Repair.Active = 0;
 		NCClients[i].Skills.Repair.TotalCooldownTime = 0;
@@ -138,6 +160,13 @@ void Net_CreateClient()
 	NCServer.NumTeams = 4;
 	NCServer.IslandID = "";
 	NCServer.WeatherID = "";
+	NCServer.GameRunning = false;		// COOP: values of the common server info
+	NCServer.Respawn = false;
+	NCServer.NoBoarding = false;
+	NCServer.PassivePerks = false;
+	NCServer.ActivePerks = false;
+	DeleteAttribute(&NCPerks, "");
+	bNetClientInGame = false;
 
 	NetClient.ClientLastPacketIndex = 0;
 

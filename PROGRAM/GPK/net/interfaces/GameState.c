@@ -64,7 +64,11 @@ void UpdateTable()
 
 		DeleteAttribute(&tmpData, "");
 
-		if( rClient.Use == "1" )
+		// COOP: players in the lobby of the running game have no ship yet, ships of players who left are shown too
+		bool bShown = (rClient.Use == "1");
+		if (!COOP_CliSlotLive(n) || sti(rClient.Ship.Type) < 0) { bShown = false; }
+		if (!bShown && COOP_CliSlotLive(n) && sti(rClient.Ship.Type) >= 0 && CheckAttribute(rClient, "NickName") && rClient.NickName != "") { bShown = true; }
+		if( bShown )
 		{
 			//-----
 			tmpData.facetexture = rClient.UserData.Face.Texture;
@@ -89,7 +93,23 @@ void UpdateTable()
 				tmpData.score.(sKill).shiptype = rClient.Stat.Kills.(sKill).ShipType;
 			}
 
-			tmpData.winstate = "In action";
+			// COOP: respawn mode: score = ships sunk / own ship lost (server values, right for players who joined later too)
+			if (sti(NCServer.Respawn))
+			{
+				DeleteAttribute(&tmpData, "score");
+				tmpData.scoretext = "Потоплено: " + sti(rClient.Stat.Frags) + "\nПотерь: " + sti(rClient.Stat.Deaths);
+			}
+
+			tmpData.winstate = "В бою";
+			if (CheckAttribute(rClient, "ShipState"))
+			{
+				switch (sti(rClient.ShipState))
+				{
+					case 1: tmpData.winstate = "Ремонт"; break;
+					case 2: tmpData.winstate = "Потоплен"; break;
+				}
+			}
+			if (rClient.Use != "1") { tmpData.winstate = "Вышел"; }
 
 			AddToTable( sti(rClient.ID), &tmpData );
 		}
@@ -218,6 +238,13 @@ void AddToTable(int wClientID, aref arData)
 		GameInterface.TABLE_LIST.(row).height = 32;
 	} else {
 		GameInterface.TABLE_LIST.(row).height = 2 + 30 * q;
+	}
+	// COOP: respawn mode: the score is two numbers (a list of every sunk ship would grow without end)
+	if (CheckAttribute(arData, "scoretext"))
+	{
+		sScore = arData.scoretext;
+		GameInterface.TABLE_LIST.(row).td6.textoffset = "4,3";
+		GameInterface.TABLE_LIST.(row).height = 32;
 	}
 	GameInterface.TABLE_LIST.(row).td6.str = sScore;
 

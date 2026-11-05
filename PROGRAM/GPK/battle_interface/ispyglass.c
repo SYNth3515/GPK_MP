@@ -5,11 +5,28 @@
 
 object objISpyGlass;
 
+// COOP: in the net game every captain looks through the best spyglass of the single player (zoom 15, all the data shown)
+#define NET_SPYGLASS_ID		"spyglass5"
+
+// COOP v3: state of the net spyglass (fort in the view is found by the script: the engine sends SetTelescopeInfo for ships only)
+bool bNetTelescopeOn = false;	// the telescope is switched on (Telescope_Request)
+bool bSpyFortShown = false;		// the panel shows the fort now
+int iSpyFortGen = 0;				// generation of the timer NetClient_SpyFortTick
+
+bool ISpyGlass_IsNet()
+{
+	if (!CheckAttribute(&objISpyGlass, "bNet")) { return false; }
+	return sti(objISpyGlass.bNet) != 0;
+}
+
 void InterfaceSpyGlassInit(bool bNet)
 {
+	// the net flag first: FillISpyGlassParameters / TelescopeInitParameters choose the best spyglass by it
+	if( bNet ) { objISpyGlass.bNet = 1; } else { objISpyGlass.bNet = 0; }
 	FillISpyGlassParameters();
 	CreateEntity(&objISpyGlass,"ispyglass");
 	DeleteAttribute(&objISpyGlass,"parameters");
+	if( bNet ) { objISpyGlass.bNet = 1; } else { objISpyGlass.bNet = 0; }
 	TelescopeInitParameters(&Telescope);
 	if( bNet ) {
 		objISpyGlass.bNet = 1;
@@ -17,27 +34,41 @@ void InterfaceSpyGlassInit(bool bNet)
 		LayerAddObject("net_realize",&objISpyGlass,-1);
 		SetEventHandler("SetTelescopeInfo","Net_SetSpyGlassData",0);
 		SetEventHandler("MSG_TELESCOPE_REQUEST", "Telescope_Request", 0);
+		// COOP v3: look at the fort (timer)
+		bNetTelescopeOn = false;
+		bSpyFortShown = false;
+		iSpyFortGen++;
+		SetEventHandler("NetClient_SpyFortTick", "NetClient_SpyFortTick", 0);
+		SetEventHandler("NetClient_SpyFortUpdate", "NetClient_SpyFortUpdate", 0);
+		PostEvent("NetClient_SpyFortTick", 500, "l", iSpyFortGen);
+		Trace("COOP: spyglass v3 init (net), best spyglass " + NET_SPYGLASS_ID);
 	} else {
 		objISpyGlass.bNet = 0;
 		LayerAddObject(SEA_EXECUTE,&objISpyGlass,-1);
 		LayerAddObject(SEA_REALIZE,&objISpyGlass,-1);
 		SetEventHandler("SetTelescopeInfo","SetSpyGlassData",0);
 	}
-	SetEventHandler("ReleaseTelescopeInfo","ResetSpyGlassData",0);
+	SetEventHandler("ReleaseTelescopeInfo","ResetSpyGlassDataEvent",0);
 	SetEventHandler("BI_VISIBLE","CheckInterfaceVisible",0);
 }
 
 void InterfaceSpyGlassRelease()
 {
 	DelEventHandler("BI_VISIBLE","CheckInterfaceVisible");
-	DelEventHandler("ReleaseTelescopeInfo","ResetSpyGlassData");
+	DelEventHandler("ReleaseTelescopeInfo","ResetSpyGlassDataEvent");
 	if( CheckAttribute(&objISpyGlass,"bNet") && sti(objISpyGlass.bNet) ) {
 		DelEventHandler("MSG_TELESCOPE_REQUEST", "Telescope_Request");
+		DelEventHandler("NetClient_SpyFortTick", "NetClient_SpyFortTick");
+		DelEventHandler("NetClient_SpyFortUpdate", "NetClient_SpyFortUpdate");
+		iSpyFortGen++;
+		bNetTelescopeOn = false;
+		bSpyFortShown = false;
 		DelEventHandler("SetTelescopeInfo","Net_SetSpyGlassData");
 	} else {
 		DelEventHandler("SetTelescopeInfo","SetSpyGlassData");
 	}
 	DeleteClass(&objISpyGlass);
+	objISpyGlass.bNet = 0;	// COOP: a single game after a net game must not see the net flag
 }
 
 void CheckInterfaceVisible()
@@ -348,77 +379,20 @@ void SetSpyGlassData()
 	// boal <--
 }
 
-void Net_SetSpyGlassData()
-{
-	int wNetClientID = GetEventData();
-	//wNetClientID = NetClient_GetThisClientID();
-	if(wNetClientID<0) return;
-
-	string sTextureName = "battle_interface\ship_icons1.tga";
-	float uvLeft = 0;
-	float uvTop = 0;
-	float uvRight = 0.125;
-	float uvBottom = 0.25;
-
-	ref chref = NetClient_GetClient(wNetClientID);
-	int nShipIdx = sti(chref.ship.type);
-
-	int shipNation = -1;//TranslateNationCode( sti(chref.nation) );
-
-	// смотрим на форт
-
-	// смотрим на корабль
-	int shipCannons = Net_GetIntactCannonsNum(wNetClientID);
-	int shipMaxCannons = Net_GetShipCannonsNum(nShipIdx);
-	string shipName =  chref.Ship.Name;
-	string shipType = XI_ConvertString(NetShips[nShipIdx].Name);//XI_ConvertString(GetShipTypeName(chref));
-
-	Net_GetTextureUVForShip(nShipIdx, &uvLeft, &uvTop, &uvRight, &uvBottom);
-
-	int shipHull = Net_GetHullPercent(chref);
-	int shipSail = Net_GetSailPercent(chref);
-	int shipCrew = GetCrewQuantity(chref);
-	int shipSpeed = stf(chref.Ship.speed.z) * stf(NetBInterface.ShipSpeedScaler);
-
-	int shipCharge = -1;
-	int tmpCharge = sti(chref.Ship.Cannons.Charge.Type);
-	switch(tmpCharge)
-	{
-	case GOOD_BALLS: shipCharge=0; break;
-	case GOOD_GRAPES: shipCharge=3; break;
-	case GOOD_KNIPPELS: shipCharge=2; break;
-	case GOOD_BOMBS: shipCharge=1; break;
-	}
-
-	int nSailState = 1;
-	float fSailSt = NetClient_ShipGetSailState(wNetClientID);
-	if( fSailSt<0.3 ) {nSailState = 0;}
-	else {
-		if( fSailSt<0.6 ) {nSailState = 1;}
-		else {nSailState = 2;}
-	}
-	int nFace = chref.UserData.Face.Texture;
-	int nFencingSkill = sti(chref.Skill.Defence);
-	int nCannonSkill = sti(chref.Skill.Cannons);
-	int nAccuracySkill = sti(chref.Skill.Accuracy);
-	int nNavigationSkill = sti(chref.Skill.Sailing);
-	int nBoardingSkill = sti(chref.Skill.Repair);
-	string sCaptainName = chref.NickName;
-	
-	string sNetUserFaceTex = sUserFacesPath + chref.UserData.Face + ".tga";
-
-	SendMessage(&objISpyGlass,"lsslllflllllllllllss",MSG_ISG_UPDATE,
-		shipName,shipType, shipHull,shipSail,shipCrew, shipSpeed, shipCannons,shipMaxCannons,
-		shipCharge,shipNation, nSailState,-1,
-		nFencingSkill,nCannonSkill,nAccuracySkill,nNavigationSkill,nBoardingSkill,
-		sCaptainName,sNetUserFaceTex);
-	SendMessage(&objISpyGlass,"lsffff",MSG_ISG_SET_SHIPICON, sTextureName, uvLeft,uvTop,uvRight,uvBottom);
-	SendMessage(&objISpyGlass,"ll",MSG_ISG_VISIBLE,true);
-}
+// Net_SetSpyGlassData() (event SetTelescopeInfo of the net game) lives in net\interfaces\battleinterface\BattleInterface.c
 
 void ResetSpyGlassData()
 {
 	SendMessage(&objISpyGlass,"ll",MSG_ISG_VISIBLE,false);
+}
+
+// event ReleaseTelescopeInfo (the engine has no ship in the view): in the net game the panel of the fort stays
+void ResetSpyGlassDataEvent()
+{
+	// COOP v3.1: the engine says there is no ship in the view: look for the fort (works while the telescope is on)
+	if (ISpyGlass_IsNet() && bNetTelescopeOn) { PostEvent("NetClient_SpyFortUpdate", 1); }
+	if (bSpyFortShown) { return; }
+	ResetSpyGlassData();
 }
 
 void FillISpyGlassParameters()
@@ -430,6 +404,7 @@ void FillISpyGlassParameters()
 	{
 	    sTexture = pchar.equip.spyglass;
 	}
+	if (ISpyGlass_IsNet()) { sTexture = NET_SPYGLASS_ID; }	// COOP: the best spyglass in the net game
 	//log_info(pchar.equip.spyglass);
 	objISpyGlass.lens.texture = "battle_interface\\spyglass\\" + sTexture + ".tga";
 	objISpyGlass.lens.pos = showWindow.left+","+showWindow.top+"," + showWindow.right+","+showWindow.bottom;
@@ -600,11 +575,27 @@ void FillISpyGlassParameters()
 	objISpyGlass.sailuvarray.uv0 = "0.5,0.25,0.625,0.375"; // down
 	objISpyGlass.sailuvarray.uv1 = "0.375,0.25,0.5,0.375"; // middle
 	objISpyGlass.sailuvarray.uv2 = "0.25,0.25,0.375,0.375"; // up
+
+	// COOP: boarding (Grappling) skill, left of the carpentry (Repair) icon. The entity has no 6th skill field, so:
+	//  - the icon is the 'nation' icon (there are no nations in the net game; Net_SpyGlassShow passes nation 0 = this uv),
+	//  - the number is the 'crew' text (Net_SpyGlassShow passes the skill as the crew; the crew itself goes to the caption line).
+	if( IsNetActive() ) {
+		objISpyGlass.info.nation.texture = "interfaces\\icons_spec.tga";
+		objISpyGlass.info.nation.pos = RecalculateHIconScaled(488)+","+(ntop+RecalculateVIconScaled(42)) + "," + RecalculateHIconScaled(536)+","+(ntop+RecalculateVIconScaled(90));
+		objISpyGlass.nationuvarray.uv0 = "0.75,0.125,0.875,0.25";	// icons_spec.tga: grappling skill icon
+		objISpyGlass.text.crew.pos = RecalculateHIconScaled(512)+","+(ntop+RecalculateVIconScaled(26));
+	}
 }
 
 void TelescopeInitParameters(ref fTelescope)
 {
 	aref arItmScope;
+	if( ISpyGlass_IsNet() )
+	{
+		// COOP: the net game does not depend on Items[] / equipment of pchar: parameters of spyglass5 of the single player
+		SendMessage(&objISpyGlass, "lsfll", MSG_TELESCOPE_SET_TYPE, "eye_BestTub.tga", 15.0, 500, 150);
+		return;
+	}
 	if( Items_FindItem(GetCharacterEquipByGroup(pchar,SPYGLASS_ITEM_TYPE),&arItmScope)>=0 )
 	{	setTelescopeInitParameters(arItmScope);
 	}

@@ -8,6 +8,13 @@ int iMapListSelected = 0;
 bool bFavWindowActive = false;
 bool bNeedServerPassword = false;
 int iTryConnectDeltaTime = 0;
+bool bFGAutoRefresh = false;
+
+bool bFGInitDone = false;
+bool bMasterConnecting = false;
+bool bFGConnectPending = false;	// P2P: waiting for the host to open its NAT before the connect request is sent
+#define FG_PUNCH_DELAY		700		// ms between the punch request and the connect request
+int iMasterTryCount = 0;
 
 int iGetInetServersFrameTime = 0;
 int iNumInternetServerToLoad = 0;
@@ -18,6 +25,10 @@ void InitInterface(string iniName)
 	// init some clients data, maybe need place it in another fuction
 	NetClient.ClientLastPacketIndex = 0;
 	// init some clients data, maybe need place it in another fuction
+
+	bFGInitDone = false;
+	bMasterConnecting = false;
+	iMasterTryCount = 0;
 
 	DeleteAttribute(&NCFavorites, "");
 	Net_LoadFile(false, &NCFavorites, "Favorites.nsv");
@@ -39,6 +50,8 @@ void InitInterface(string iniName)
 	SetEventHandler("OnNeedPasswordCancel", "FG_ClientNeedPasswordCancel", 0);
 
 	SetEventHandler("frame", "FG_OnFrame", 0);
+	SetEventHandler("FG_InitialRefresh", "FG_InitialRefresh", 0);
+	SetEventHandler("FG_AutoRefresh", "FG_AutoRefresh", 0);
 
 	SetEventHandler("OnCreateGame", "FG_OnCreateGame", 0);
 	SetEventHandler("OnJoinGame", "FG_OnJoinGame", 0);
@@ -54,6 +67,7 @@ void InitInterface(string iniName)
 	SetEventHandler("OnRefresh", "FG_OnRefresh", 0);
 	SetEventHandler("OnPlayerSettings", "FG_OnPlayerSettings", 0);
 	SetEventHandler("OnAddFavorites", "FG_OnAddFavorites", 0);
+	SetEventHandler("OnRemoveFavoriteSelected", "FG_OnRemoveFavoriteSelected", 0);
 
 	SetEventHandler("TableSelectChange", "FG_TableSelectChangeEvent", 0);	
 	SetEventHandler("TableActivate", "FG_OnTableDoubleClick", 0);
@@ -62,8 +76,7 @@ void InitInterface(string iniName)
 	SetEventHandler("TabClick_Inet", "FG_TabInet", 0);
 	SetEventHandler("TabClick_Favorites", "FG_TabFavorites", 0);
 
-	SetEventHandler("DecCredit", "FG_CreditLeft", 0);
-	SetEventHandler("AddCredit", "FG_CreditRight", 0);
+	SetEventHandler("eSlideChange", "FG_SlideChange", 0);
 
 	SetEventHandler("DecMaxShipClass", "FG_ShipClassLeft", 0);
 	SetEventHandler("AddMaxShipClass", "FG_ShipClassRight", 0);
@@ -87,6 +100,8 @@ void InitInterface(string iniName)
 	iCurrentInternetServer = -1;
 	iCurrentFavoriteServer = -1;
 
+	// Open the Favorites tab by default whenever the network browser is entered.
+	iCurrentServersList = NET_FG_FAVORITE;
 	FindCurrentServers();
 
 	switch (iCurrentServersList)
@@ -115,11 +130,13 @@ void InitInterface(string iniName)
 	Table_UpdateWindow("TABLE_MAPLIST");
 
 	StringCollection_SetText("STRINGS_PROFILE", 2, "#" + NetClient.NickName);
+	FG_UpdateProfileFace();
 	
 	// 
 	StringCollection_SetTextValue("STRINGS_FILTERS_VALUE", 1, iFG_MaxShipClass);
-	StringCollection_SetTextValue("STRINGS_FILTERS_VALUE", 2, iFG_Credit);
 	StringCollection_SetTextValue("STRINGS_FILTERS_VALUE", 3, iFG_Ping);
+
+	FG_SetCredit();
 
 	// set state for check buttons
 	CheckButton_SetState("CHECKBUTTONS_WO_PASSWORD", 1, bFG_WOPassword);
@@ -166,6 +183,19 @@ void InitInterface(string iniName)
 
 	// MAGIC FIX
 	DeleteParticles();
+
+	// no network activity during init: first refresh runs a bit later
+	bFGInitDone = true;
+	PostEvent("FG_InitialRefresh", 300);
+}
+
+void FG_InitialRefresh()
+{
+    bFGAutoRefresh = true;
+
+    FG_OnRefresh();
+
+    PostEvent("FG_AutoRefresh", 5000);
 }
 
 void FG_SetTableHeaders(string sTable)
@@ -177,6 +207,23 @@ void FG_SetTableHeaders(string sTable)
 	GameInterface.(sTable).hr.td5.str = XI_ConvertString("capFG_TableServerType");
 	GameInterface.(sTable).hr.td6.str = XI_ConvertString("capFG_TableServerPlayers");
 	GameInterface.(sTable).hr.td7.str = XI_ConvertString("capFG_TableServerPing");
+}
+
+void FG_AutoRefresh()
+{
+    if (!bFGAutoRefresh || !bFGInitDone)
+    {
+        return;
+    }
+
+    // Не начинаем новый запрос, пока идёт получение списка
+    // интернет-серверов.
+    if (!bMasterConnecting)
+    {
+        FG_OnRefresh();
+    }
+
+    PostEvent("FG_AutoRefresh", 5000);
 }
 
 void FindCurrentServers()
@@ -206,10 +253,24 @@ void FG_ConnectToMasterServer()
 
 void FG_MasterServerTryConnectTimer()
 {
-	// try connect again if 5 seconds no response
-	FG_ConnectToMasterServer();
+	if (!bMasterConnecting) { return; }
 
+	iMasterTryCount++;
+	if (iMasterTryCount >= 3)
+	{
+		// master server does not answer - give up, do not block the interface
+		FG_MasterServerGiveUp();
+		return;
+	}
+
+	FG_ConnectToMasterServer();
 	PostEvent("FG_MasterServerTryConnectTimer", 1000);
+}
+
+void FG_MasterServerGiveUp()
+{
+	bMasterConnecting = false;
+	DelEventHandler("FG_MasterServerTryConnectTimer", "FG_MasterServerTryConnectTimer");
 }
 
 void FG_MasterServerOnConnect()
@@ -296,6 +357,8 @@ void FG_FindInternetServersClose()
 
 	DelEventHandler("frame", "FG_MasterServer_GetServersFrameTimer");
 
+	bMasterConnecting = false;
+
 	XI_WindowShow("WND_INETSERVERSLOADING", false);
 	XI_WindowDisable("WND_INETSERVERSLOADING", true);
 
@@ -309,16 +372,12 @@ void FG_MasterServerCancel()
 
 void FG_FindInternetServers()
 {
-	XI_WindowDisable("WND_LANSERVER", true);
-	XI_WindowDisable("WND_INETSERVER", true);
-	XI_WindowDisable("WND_FAVSERVER", true);
-	XI_WindowDisable("WND_NETFINDGAME", true);
-
-	XI_WindowShow("WND_INETSERVERSLOADING", true);
-	XI_WindowDisable("WND_INETSERVERSLOADING", false);
+	// non-blocking: no modal loading window, the list fills in as servers answer
+	if (bMasterConnecting) { return; }
+	bMasterConnecting = true;
+	iMasterTryCount = 0;
 
 	SetEventHandler("FG_MasterServerTryConnectTimer", "FG_MasterServerTryConnectTimer", 0);
-	SetEventHandler("OnInetServerLoadingCancel", "FG_MasterServerCancel", 0);
 	PostEvent("FG_MasterServerTryConnectTimer", 1000);
 
 	FG_ConnectToMasterServer();
@@ -357,7 +416,7 @@ void SelectServer(ref rServer, int iSelected)
 			GameInterface.TABLE_INETSERVER.select = iSelected + 1;
 			Table_UpdateWindow("TABLE_INETSERVER");
 		break;
-		case NET_FG_FAVORITE:	
+		case NET_FG_FAVORITE:
 			GameInterface.TABLE_FAVSERVER.select = iSelected + 1;
 			Table_UpdateWindow("TABLE_FAVSERVER");
 		break;
@@ -397,6 +456,15 @@ void FG_TableSelectChange(string sControl, int iSelected)
 			}
 		break;
 		case "TABLE_FAVSERVER":
+			if (iCurrentFavoriteServer != iSelected)
+			{
+				iCurrentFavoriteServer = iSelected;
+				if (iSelected >= 0 && iSelected < iNumFavServersList)
+				{
+					aref arFavorite = GetAttributeN(&NCFavorites, FavServersList[iSelected]);
+					SelectServer(&arFavorite, iSelected);
+				}
+			}
 		break;
 		case "TABLE_MAPLIST":
 			iMapListSelected = iSelected;
@@ -543,6 +611,7 @@ void FG_TabLocal()
 
 	FG_WindowShow(NET_FG_LAN, false);
 	FG_FilterChange();
+	if (bFGInitDone) { FG_OnRefresh(); }
 }
 
 void FG_TabInet()
@@ -553,21 +622,7 @@ void FG_TabInet()
 
 	FG_WindowShow(NET_FG_INTERNET, false);
 	FG_FilterChange();
-
-	// check if first time
-	if (iNumInternetServers == 0)
-	{
-		FG_FindInternetServers();
-	}
-	else
-	{
-		// check if list not updated - getting info from servers
-		if (iNumInternetServersList == 0)
-		{
-			//iCurrentInternetServer2GetInfo = 0;
-			Event("FG_GetInfoFromInternetServer");
-		}
-	}
+	if (bFGInitDone) { FG_OnRefresh(); }
 }
 
 void FG_GetInfoFromInternetServer()
@@ -586,6 +641,7 @@ void FG_TabFavorites()
 
 	FG_WindowShow(NET_FG_FAVORITE, false);
 	FG_FilterChange();
+	if (bFGInitDone) { FG_OnRefresh(); }
 }
 
 void IDoExit(int exitCode)
@@ -619,17 +675,26 @@ void IDoExit(int exitCode)
 	DelEventHandler("OnAddFavCancel", "FG_AddFavOnCancel");
 
 	DelEventHandler("frame", "FG_OnFrame");
+	DelEventHandler("FG_InitialRefresh", "FG_InitialRefresh");
+	DelEventHandler("FG_AutoRefresh", "FG_AutoRefresh");
+	DelEventHandler("FG_DoTryConnect", "FG_DoTryConnect");
+	bFGConnectPending = false;
+
+	bFGAutoRefresh = false;
+	DelEventHandler("FG_MasterServerTryConnectTimer", "FG_MasterServerTryConnectTimer");
+	DelEventHandler("frame", "FG_MasterServer_GetServersFrameTimer");
+	bMasterConnecting = false;
 
 	DelEventHandler("OnRefresh", "FG_OnRefresh");
 	DelEventHandler("OnFilter", "FG_OnPlayerSettings");
 	DelEventHandler("OnAddFavorites", "FG_OnAddFavorites");
+	DelEventHandler("OnRemoveFavoriteSelected", "FG_OnRemoveFavoriteSelected");
 
 	DelEventHandler("TabClick_Local", "FG_TabLocal");
 	DelEventHandler("TabClick_Inet", "FG_TabInet");
 	DelEventHandler("TabClick_Favorites", "FG_TabFavorites");
 
-	DelEventHandler("DecCredit", "FG_CreditLeft");
-	DelEventHandler("AddCredit", "FG_CreditRight");
+	DelEventHandler("eSlideChange", "FG_SlideChange");
 
 	DelEventHandler("DecMaxShipClass", "FG_ShipClassLeft");
 	DelEventHandler("AddMaxShipClass", "FG_ShipClassRight");
@@ -711,72 +776,96 @@ bool IsFilterOk(ref rServer)
 
 void FG_FilterChange()
 {
-	int i;
+    int i;
 
-	Table_Clear("TABLE_LANSERVER", false, true, false);
-	Table_Clear("TABLE_INETSERVER", false, true, false);
-	Table_Clear("TABLE_FAVSERVER", false, true, false);
+    Table_Clear("TABLE_LANSERVER", false, true, false);
+    Table_Clear("TABLE_INETSERVER", false, true, false);
+    Table_Clear("TABLE_FAVSERVER", false, true, false);
 
-	FG_SelectEmptyServer();
+    FG_SelectEmptyServer();
 
-	iCurrentLanServer = -1;
-	iCurrentInternetServer = -1;
-	iCurrentFavoriteServer = -1;
+    iCurrentLanServer = -1;
+    iCurrentInternetServer = -1;
+    iCurrentFavoriteServer = -1;
 
-	iNumLanServersList = 0;
-	iNumInternetServersList = 0;
-	iNumFavServersList = 0;
+    iNumLanServersList = 0;
+    iNumInternetServersList = 0;
+    iNumFavServersList = 0;
 
-	GameInterface.TABLE_LANSERVER.select = -1;
-	GameInterface.TABLE_INETSERVER.select = -1;
-	GameInterface.TABLE_FAVSERVER.select = -1;
+    GameInterface.TABLE_LANSERVER.select = -1;
+    GameInterface.TABLE_INETSERVER.select = -1;
+    GameInterface.TABLE_FAVSERVER.select = -1;
 
-	switch (iCurrentServersList)
-	{
-		case NET_FG_LAN:		
-			for (i=0; i<iNumLanServers; i++)
-			{
-				if (AddServerToList("TABLE_LANSERVER", &LanServers[i], iNumLanServersList))
-				{
-					LanServersList[iNumLanServersList] = i;
-					iNumLanServersList++;
-				}
-			}
-			for (i=0; i<iNumLanServersList; i++)
-			{
-				if (LanServers[ LanServersList[i] ].IP == sCurrentIP && LanServers[ LanServersList[i] ].Port == sCurrentPort)
-				{
-					SelectServer(&LanServers[ LanServersList[i] ], i);
-					break;
-				}
-			}
-			Table_UpdateWindow("TABLE_LANSERVER");
-		break;
-		case NET_FG_INTERNET:	
-			for (i=0; i<iNumInternetServers; i++)
-			{
-				if (AddServerToList("TABLE_INETSERVER", &InternetServers[i], iNumInternetServersList))
-				{
-					InternetServersList[iNumInternetServersList] = i;
-					iNumInternetServersList++;
-				}
-			}
-			Table_UpdateWindow("TABLE_INETSERVER");
-		break;
-		case NET_FG_FAVORITE:
-			int iNumFavorites = GetAttributesNum(&NCFavorites);
-			for (i=0; i<iNumFavorites; i++)
-			{
-				aref arServer = GetAttributeN(&NCFavorites, i);
-				if (AddServerToList("TABLE_FAVSERVER", &arServer, iNumFavServersList))
-				{
-					FavServersList[iNumFavServersList] = i;
-					iNumFavServersList++;
-				}
-			}
-			Table_UpdateWindow("TABLE_FAVSERVER");
-		break;
-	}
+    switch (iCurrentServersList)
+    {
+        case NET_FG_LAN:
+            for (i = 0; i < iNumLanServers; i++)
+            {
+                if (AddServerToList("TABLE_LANSERVER", &LanServers[i], iNumLanServersList))
+                {
+                    LanServersList[iNumLanServersList] = i;
+                    iNumLanServersList++;
+                }
+            }
+
+            for (i = 0; i < iNumLanServersList; i++)
+            {
+                if (LanServers[LanServersList[i]].IP == sCurrentIP &&
+                    LanServers[LanServersList[i]].Port == sCurrentPort)
+                {
+                    SelectServer(&LanServers[LanServersList[i]], i);
+                    break;
+                }
+            }
+
+            Table_UpdateWindow("TABLE_LANSERVER");
+        break;
+
+        case NET_FG_INTERNET:
+            for (i = 0; i < iNumInternetServers; i++)
+            {
+                if (AddServerToList("TABLE_INETSERVER", &InternetServers[i], iNumInternetServersList))
+                {
+                    InternetServersList[iNumInternetServersList] = i;
+                    iNumInternetServersList++;
+                }
+            }
+
+            Table_UpdateWindow("TABLE_INETSERVER");
+        break;
+
+        case NET_FG_FAVORITE:
+            int iNumFavorites = GetAttributesNum(&NCFavorites);
+
+            for (i = 0; i < iNumFavorites; i++)
+            {
+                aref arServer = GetAttributeN(&NCFavorites, i);
+
+                if (AddServerToList("TABLE_FAVSERVER", &arServer, iNumFavServersList))
+                {
+                    FavServersList[iNumFavServersList] = i;
+                    iNumFavServersList++;
+                }
+            }
+
+            if (sCurrentIP != "")
+            {
+                for (i = 0; i < iNumFavServersList; i++)
+                {
+                    aref arFavSel = GetAttributeN(&NCFavorites, FavServersList[i]);
+
+                    if (arFavSel.IP == sCurrentIP && arFavSel.Port == sCurrentPort)
+                    {
+                        iCurrentFavoriteServer = i;
+                        SelectServer(&arFavSel, i);
+                        break;
+                    }
+                }
+            }
+
+            Table_UpdateWindow("TABLE_FAVSERVER");
+        break;
+    }
 }
 
 int FG_IsShift(int iShift, int iNoShift, int iAlt)
@@ -786,19 +875,36 @@ int FG_IsShift(int iShift, int iNoShift, int iAlt)
 	return iNoShift;
 }
 
-void FG_CreditLeft()
+void FG_SetCredit()
 {
-	iFG_Credit = iFG_Credit - 1000 * FG_IsShift(10, 1, 100);
-	if (iFG_Credit < 5000) { iFG_Credit = 5000; }
-	StringCollection_SetTextValue("STRINGS_FILTERS_VALUE", 2, iFG_Credit);
-	FG_FilterChange();
+    if (iFG_Credit < 1000) { iFG_Credit = 1000; }
+    if (iFG_Credit > 1000000) { iFG_Credit = 1000000; }
+
+    StringCollection_SetTextValue("STRINGS_FILTERS_VALUE", 2, iFG_Credit);
+
+    float fCredit = (iFG_Credit - 1000.0) / 999000.0;
+
+    GameInterface.nodes.SBAR_CREDIT.value = fCredit;
+
+    SendMessage(&GameInterface, "lslf",
+        MSG_INTERFACE_MSG_TO_NODE, "SBAR_CREDIT", 0, fCredit);
 }
 
-void FG_CreditRight()
+void FG_SlideChange()
 {
-	iFG_Credit = iFG_Credit + 1000 * FG_IsShift(10, 1, 100);
-	StringCollection_SetTextValue("STRINGS_FILTERS_VALUE", 2, iFG_Credit);
-	FG_FilterChange();
+    string sNodeName = GetEventData();
+    int nVal = GetEventData();
+    float fVal = GetEventData();
+
+    if (sNodeName != "SBAR_CREDIT") { return; }
+
+    if (fVal < 0.0) { fVal = 0.0; }
+    if (fVal > 1.0) { fVal = 1.0; }
+
+    iFG_Credit = 1000 + makeint(fVal * 999000.0);
+
+    FG_SetCredit();
+    FG_FilterChange();
 }
 
 void FG_ShipClassLeft()
@@ -849,6 +955,7 @@ void FG_OnRefresh()
 			// if we have first ask
 		break;
 		case NET_FG_FAVORITE:
+			FG_PingFavorites();
 		break;
 	}
 
@@ -934,10 +1041,35 @@ void FG_AddFavOnDelete()
 {
 	// delete record from favorites
 	string sAddress = GameInterface.EDITBOX_SERVERIP.str;
-	DeleteAttribute(NCFavorites, sAddress);
+	string sLink = "";
+	for (int i=0; i<strlen(sAddress); i++)
+	{
+		string sChar = GetSymbol(&sAddress, i);
+		if (sChar == ".") { sChar = "_"; }
+		sLink = sLink + sChar;
+	}
+	DeleteAttribute(&NCFavorites, sLink);
 
 	if (iCurrentServersList == NET_FG_FAVORITE) { FG_FilterChange(); }
 	FG_AddFavOnCancel();
+}
+
+void FG_OnRemoveFavoriteSelected()
+{
+	// Remove the selected favorite by its real attribute name.
+	// GetAttributeN() returns a reference; its attribute name is the key
+	// stored in NCFavorites (the first item is index 0 as well).
+	if (iCurrentServersList != NET_FG_FAVORITE) return;
+	if (iCurrentFavoriteServer < 0 || iCurrentFavoriteServer >= iNumFavServersList) return;
+
+	aref arFavorite = GetAttributeN(&NCFavorites, FavServersList[iCurrentFavoriteServer]);
+	string sFavoriteKey = GetAttributeName(arFavorite);
+	if (sFavoriteKey == "") return;
+
+	DeleteAttribute(&NCFavorites, sFavoriteKey);
+
+	iCurrentFavoriteServer = -1;
+	FG_FilterChange();
 }
 
 void FG_ShowMainWindow()
@@ -954,6 +1086,7 @@ void FG_ShowMainWindow()
 
 void FG_AddFavOnCancel()
 {
+	bFavWindowActive = false;
 	XI_WindowShow("WND_ADDFAVORITES", false);
 	XI_WindowDisable("WND_ADDFAVORITES", true);
 
@@ -989,7 +1122,16 @@ void FG_OnAddFavorites()
 			Button_SetEnable("BTN_ADDFAV_DELETE", false);	
 		break;
 		case NET_FG_FAVORITE:
-			//Button_SetEnable("BTN_ADDFAV_DELETE", iCurrentFavoriteServer >= 0);
+			if (iCurrentFavoriteServer >= 0 && iCurrentFavoriteServer < iNumFavServersList)
+			{
+				aref arFavorite = GetAttributeN(&NCFavorites, FavServersList[iCurrentFavoriteServer]);
+				sValue = arFavorite.IP + ":" + arFavorite.Port;
+				Button_SetEnable("BTN_ADDFAV_DELETE", true);
+			}
+			else
+			{
+				Button_SetEnable("BTN_ADDFAV_DELETE", false);
+			}
 		break;
 	}
 
@@ -1026,7 +1168,18 @@ void FG_OnConnectOk()
 
 	FG_ParseIPPort(GameInterface.EDITBOX_CONNECT_IP.str, &sCurrentIP, &sCurrentPort);
 
-	NetClient_TryConnect(sCurrentIP, sti(sCurrentPort));
+	// P2P: ask the master server to tell the host about us (opens the NAT of the host), then connect. LAN addresses connect at once
+	if (FG_IsPrivateIP(sCurrentIP))
+	{
+		NetClient_TryConnect(sCurrentIP, sti(sCurrentPort));
+	}
+	else
+	{
+		bFGConnectPending = true;
+		FG_RequestPunch(sCurrentIP, sti(sCurrentPort));
+		SetEventHandler("FG_DoTryConnect", "FG_DoTryConnect", 0);
+		PostEvent("FG_DoTryConnect", FG_PUNCH_DELAY);
+	}
 
 	XI_WindowShow("WND_CONNECT", false);
 	XI_WindowDisable("WND_CONNECT", true);
@@ -1064,6 +1217,9 @@ void FG_OnTryConnectFrame()
 
 void FG_OnTryConnectCancel()
 {
+	bFGConnectPending = false;
+	DelEventHandler("FG_DoTryConnect", "FG_DoTryConnect");
+
 	XI_WindowShow("WND_TRYCONNECT", false);
 	XI_WindowDisable("WND_TRYCONNECT", true);
 
@@ -1167,7 +1323,7 @@ bool AddServerToList(string sTableName, ref rServer, int iIndex)
 	arTable.td2.str = rServer.Name;
 	arTable.td3.str = "";
 	arTable.td4.str = rServer.IP + ":" + rServer.Port;
-	arTable.td5.str = XI_ConvertString("txtCS_" + NetModes[sti(rServer.GameType)].Name));
+	arTable.td5.str = XI_ConvertString("txtCS_" + NetModes[sti(rServer.GameType)].Name);
 	arTable.td6.str = rServer.NumClients + " / " + rServer.MaxClients;
 	arTable.td7.str = rServer.Ping;
 
@@ -1217,4 +1373,159 @@ void NetInterface_AddInternetServerToList(string sName, string sIP, int wPort, b
 	}
 	iNumInternetServers++;
 	Table_UpdateWindow("TABLE_INETSERVER");
+}
+
+// Find player avatar in custom faces or standard portraits.
+string FG_GetProfileFacePath(string sFaceName)
+{
+	if (sFaceName == "") return "";
+
+	object oFaceFiles;
+	int iFaceCount = NFFindFiles(
+		&oFaceFiles,
+		"resource\textures\NET\FACES\",
+		sFaceName + ".tga.tx",
+		false
+	);
+
+	// Custom multiplayer avatars.
+	if (iFaceCount > 0)
+	{
+		return "NET\FACES\" + sFaceName + ".tga";
+	}
+
+	object oPortraitFiles;
+	int iPortraitCount = NFFindFiles(
+		&oPortraitFiles,
+		"resource\textures\INTERFACES\PORTRAITS\256\",
+		sFaceName + ".tga.tx",
+		false
+	);
+
+	// Standard single-player portraits.
+	if (iPortraitCount > 0)
+	{
+		return "INTERFACES\PORTRAITS\256\" + sFaceName + ".tga";
+	}
+
+	Trace("FindGame: avatar not found: " + sFaceName);
+	return "";
+}
+
+void FG_UpdateProfileFace()
+{
+	string sFacePath = FG_GetProfileFacePath(NetClient.FaceImage);
+
+	if (sFacePath == "")
+	{
+		Picture_SetPicture("PROFILE_FACE_PICTURE", "");
+		return;
+	}
+
+	Picture_SetPicture("PROFILE_FACE_PICTURE", sFacePath);
+
+	Trace("FindGame: loading profile avatar: " + sFacePath);
+}
+
+// converts "a.b.c.d" to the in_addr integer form used by NetClient_SendMessageDirectToIP
+int FG_IPStringToInt(string sIP)
+{
+	int iResult = 0;
+	int iMul = 1;
+	int iPos = 0;
+	for (int iOct=0; iOct<4; iOct++)
+	{
+		int iEnd = findSubStr(&sIP, ".", iPos);
+		if (iEnd < 0) { iEnd = strlen(&sIP); }
+		int iValue = sti(strcut(sIP, iPos, iEnd - 1));
+		iResult = iResult + iValue * iMul;
+		iMul = iMul * 256;
+		iPos = iEnd + 1;
+	}
+	return iResult;
+}
+
+// P2P: private / loopback address - no NAT between us, no punching needed
+bool FG_IsPrivateIP(string sIP)
+{
+	if (findSubStr(&sIP, "192.168.", 0) == 0) { return true; }
+	if (findSubStr(&sIP, "10.", 0) == 0) { return true; }
+	if (findSubStr(&sIP, "127.", 0) == 0) { return true; }
+	if (findSubStr(&sIP, "172.", 0) == 0)
+	{
+		int iEnd = findSubStr(&sIP, ".", 4);
+		if (iEnd > 4)
+		{
+			int iSecond = sti(strcut(sIP, 4, iEnd - 1));
+			if (iSecond >= 16 && iSecond <= 31) { return true; }
+		}
+	}
+	return false;
+}
+
+// P2P: tell the master server that we are going to connect to sIP:wPort; it forwards our address to the host
+void FG_RequestPunch(string sIP, int wPort)
+{
+	int iSMsg = NMCreate();
+	NMAddByte(iSMsg, NC_MASTERSERVER);
+	NMAddByte(iSMsg, NSC_MASTERSERVER_PUNCH);
+	NMAddDword(iSMsg, FG_IPStringToInt(sIP));
+	NMAddWord(iSMsg, ntohs(wPort));
+	NetClient_SendMasterServerMessage(sMasterServerAddress, iMasterServerPort, iSMsg);
+	NMDelete(iSMsg);
+	Trace("P2P: punch request sent to master for " + sIP + ":" + wPort);
+}
+
+// P2P: delayed connect request (the host has opened its NAT by now)
+void FG_DoTryConnect()
+{
+	DelEventHandler("FG_DoTryConnect", "FG_DoTryConnect");
+	if (!bFGConnectPending) { return; }
+	bFGConnectPending = false;
+	Trace("P2P: connect request sent to " + sCurrentIP + ":" + sCurrentPort);
+	NetClient_TryConnect(sCurrentIP, sti(sCurrentPort));
+}
+
+// send a broadcast-style ping directly to every favorite; replies update the entry
+void FG_PingFavorites()
+{
+	int iNum = GetAttributesNum(&NCFavorites);
+	for (int i=0; i<iNum; i++)
+	{
+		aref arFav = GetAttributeN(&NCFavorites, i);
+		arFav.Ping = 9999;
+
+		int iSMsg = NMCreate();
+		NMAddClientID(iSMsg, DST_INVALID);
+		NMAddByte(iSMsg, NC_BROADCAST);
+		NMAddByte(iSMsg, NSC_BROADCAST_FAVORITE);
+		NMAddDword(iSMsg, Net_GetTickCount());
+		NetClient_SendMessageDirectToIP(FG_IPStringToInt(arFav.IP), sti(arFav.Port), iSMsg);
+		NMDelete(iSMsg);
+	}
+	FG_FilterChange();
+}
+
+// called from NetClient_OnBroadcast when a favorite server answers
+void NetInterface_UpdateFavoriteServer(string sName, string sIP, int wPort, bool bSecure, int iGameType, int iCredit, int iMaxClass, string sWeatherID, string sIslandID, int iNumClients, int iMaxClients, int iPing)
+{
+	int iNum = GetAttributesNum(&NCFavorites);
+	for (int i=0; i<iNum; i++)
+	{
+		aref arFav = GetAttributeN(&NCFavorites, i);
+		if (arFav.IP == sIP && sti(arFav.Port) == wPort)
+		{
+			arFav.Name = sName;
+			arFav.Secure = bSecure;
+			arFav.GameType = iGameType;
+			arFav.Credit = iCredit;
+			arFav.MaxClass = iMaxClass;
+			arFav.WeatherID = sWeatherID;
+			arFav.IslandID = sIslandID;
+			arFav.NumClients = iNumClients;
+			arFav.MaxClients = iMaxClients;
+			arFav.Ping = iPing;
+		}
+	}
+	if (iCurrentServersList == NET_FG_FAVORITE) { FG_FilterChange(); }
 }

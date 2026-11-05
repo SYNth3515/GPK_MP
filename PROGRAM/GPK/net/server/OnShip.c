@@ -21,6 +21,10 @@ void NetServer_DeleteShipEnvironment()
 	DelEventHandler("NetServer_OnShipHullHit", "NetServer_OnShipHullHit");
 	DelEventHandler("NetServer_ShipFireDamage", "NetServer_ShipFireDamage");
 	DelEventHandler("NetServer_OnShipRepair", "NetServer_OnShipRepair");
+	DelEventHandler("NetServer_MinesTick", "NetServer_MinesTick");
+	DelEventHandler("NetServer_BranderBoom", "NetServer_BranderBoom");
+	DelEventHandler("NetServer_RespawnEvent", "NetServer_RespawnEvent");
+	DelEventHandler("NetServer_PerkTick", "NetServer_PerkTick");
 
 	// collision
 	DelEventHandler("NetServer_Ship2ShipCollision", "NetServer_Ship2ShipCollision");
@@ -34,6 +38,12 @@ void NetServer_CreateShipEnvironment(int iSMsg)
 	SetEventHandler("NetServer_OnShipHullHit", "NetServer_OnShipHullHit", 0);
 	SetEventHandler("NetServer_ShipFireDamage", "NetServer_ShipFireDamage", 0);
 	SetEventHandler("NetServer_OnShipRepair", "NetServer_OnShipRepair", 0);
+	SetEventHandler("NetServer_MinesTick", "NetServer_MinesTick", 0);
+	SetEventHandler("NetServer_BranderBoom", "NetServer_BranderBoom", 0);
+	SetEventHandler("NetServer_RespawnEvent", "NetServer_RespawnEvent", 0);
+	SetEventHandler("NetServer_PerkTick", "NetServer_PerkTick", 0);
+	NetServer_MinesClear();
+	PostEvent("NetServer_MinesTick", 500);
 
 	// collision
 	SetEventHandler("NetServer_Ship2ShipCollision", "NetServer_Ship2ShipCollision", 0);
@@ -45,6 +55,11 @@ void NetServer_OnShip(int wNetClientID, int iMsg)
 	int iSubCode = NMGetByte(iMsg);
 
 	ref rClient = NetServer_GetClient(wNetClientID);
+
+	// COOP: a ship that is not in the game (lobby player), or a wrecked / sinking ship does not obey the captain any more
+	if (wNetClientID < 0 || wNetClientID >= NET_MAXCLIENTS) { return; }
+	if (!NetServer_HasShip(wNetClientID)) { return; }
+	if (NetServer_IsClientDead(rClient) && iSubCode != NSC_SHIP_LOAD_REQUEST) { return; }
 
 	int iOldSailState = makeint(stf(rClient.Ship.SailState) * 2.0);
 	int iOldTurnState = makeint(stf(rClient.Ship.TurnState) * 2.0);
@@ -112,6 +127,27 @@ void NetServer_OnShip(int wNetClientID, int iMsg)
 		case NSC_SHIP_BOARD_REQUEST:
 			NetServer_TryBoardPlayer(wNetClientID, NMGetClientID(iMsg));
 		break;
+		case NSC_SHIP_DROP_MINE:
+			NetServer_ShipDropMine(wNetClientID);
+		break;
+		case NSC_SHIP_BRANDER:
+			NetServer_ShipBrander(wNetClientID);
+		break;
+		case NSC_SHIP_BRANDER_ARM:
+			NetServer_ShipBranderArm(wNetClientID);
+		break;
+		case NSC_SHIP_JETTISON:
+			NetServer_ShipJettison(wNetClientID, iMsg);
+		break;
+		case NSC_SHIP_LOAD_REQUEST:
+			NetServer_ShipSendLoadInfo(wNetClientID);
+		break;
+		case NSC_SHIP_CANNONS_SET:
+			NetServer_ShipCannonsSet(wNetClientID, iMsg);
+		break;
+		case NSC_SHIP_PERK_USE:
+			NetServer_UseActivePerk(wNetClientID, NMGetByte(iMsg));
+		break;
 	}
 
 	rClient.Ship.SailState = Clampf(stf(rClient.Ship.SailState));
@@ -166,6 +202,7 @@ bool NetServer_BoardSlotReady(int wClientID)
 	if (wClientID < 0 || wClientID >= NET_MAXCLIENTS) { return false; }
 	ref rC = NetServer_GetClient(wClientID);
 	if (!CheckAttribute(rC, "Use") || !sti(rC.Use)) { return false; }
+	if (!NetServer_HasShip(wClientID)) { return false; }		// COOP: a lobby player in the running game has no ship
 	if (!CheckAttribute(rC, "Ship.HP")) { return false; }
 	if (!CheckAttribute(rC, "Ship.Pos.x") || !CheckAttribute(rC, "Ship.Pos.z")) { return false; }
 	if (!CheckAttribute(rC, "Ship.Crew.Quantity")) { return false; }
@@ -319,7 +356,8 @@ void NetServer_UpdateBoardState(int wClientID)
 	if (iTick + 1 < NET_BOARD_STATE_TICKS) { return; }
 	rClient.BoardTick = 0;
 
-	int iTarget = NetServer_FindBoardTarget(wClientID);
+	int iTarget = -1;
+	if (!sti(NetServer.NoBoarding)) { iTarget = NetServer_FindBoardTarget(wClientID); }		// COOP: boarding can be switched off
 
 	int iSent = -1;
 	if (CheckAttribute(rClient, "BoardSent")) { iSent = sti(rClient.BoardSent); }
@@ -367,6 +405,7 @@ void NetServer_TryBoardPlayer(int wAttackerID, int wTargetID)
 	int iWinnerLost;
 	int iLoserLost;
 
+	if (sti(NetServer.NoBoarding)) { return; }		// COOP: boarding is switched off on the Create game screen
 	if (!NetServer_IsBoardable(wAttackerID, wTargetID)) { return; }
 
 	rAttacker = NetServer_GetClient(wAttackerID);
@@ -374,6 +413,16 @@ void NetServer_TryBoardPlayer(int wAttackerID, int wTargetID)
 
 	// distance / angle / speed / skills / perks, checked on the server (do not trust the client)
 	if (!NetServer_CheckBoardPair(rAttacker, rTarget, true)) { return; }
+
+	// the target already pressed the brander once (armed) or it is about to explode: no boarding, the brander goes off
+	if (NetServer_BranderIsActive(rTarget)) { return; }
+	if (NetServer_BranderIsArmed(rTarget))
+	{
+		Trace("COOP: boarding attacker=" + wAttackerID + " target=" + wTargetID + " -> target brander is armed, it goes off");
+		NetServer_ShipBrander(wTargetID);
+		if (NetServer_BranderIsActive(rTarget)) { return; }
+		// the brander was refused (not enough powder): the boarding goes on as usual
+	}
 
 	fAttackCrew = stf(rAttacker.Ship.Crew.Quantity);
 	fDefendCrew = stf(rTarget.Ship.Crew.Quantity);
@@ -419,6 +468,11 @@ void NetServer_TryBoardPlayer(int wAttackerID, int wTargetID)
 	// they are the same for both ships there, so they do not change who wins)
 	fAttackPower = 0.1 + NetServer_GetGrappling(rAttacker) * fAttackCrew;
 	fDefendPower = 0.1 + NetServer_GetGrappling(rTarget) * fDefendCrew;
+
+	// small random spread (+1..5% for each side, rolled separately): with about equal forces the result is random,
+	// with a clear advantage the stronger side still wins. The losses are counted from these powers, so they spread too.
+	fAttackPower = fAttackPower * (1.0 + NET_BOARD_RAND_MIN + Random() * (NET_BOARD_RAND_MAX - NET_BOARD_RAND_MIN));
+	fDefendPower = fDefendPower * (1.0 + NET_BOARD_RAND_MIN + Random() * (NET_BOARD_RAND_MAX - NET_BOARD_RAND_MIN));
 
 	if (fAttackPower >= fDefendPower)
 	{
@@ -623,21 +677,28 @@ void NetServer_OnShipRepair()
 
 	int wOurClientID = GetEventData();
 	ref	rOurClient = NetServer_GetCLient(wOurClientID);
+	if (NetServer_IsClientDead(rOurClient)) { rOurClient.Skills.Repair.Active = 0; return; }		// COOP: wrecked / sunk
 	ref rBaseShip = Net_GetShipByIndex(sti(rOurClient.Ship.Type));
 	int iActiveSeconds = sti(rOurClient.Skills.Repair.Active) - 1;
 	int iSkillRepair = sti(rOurClient.Skills.Repair);
 
 	// restore HP
 	float fPercentHPRestore = Bring2Range(0.0, 0.5, 0.1, 1.0, iSkillRepair / NETSKILL_MAX) / 30.0;
+	int iPlanksPerTick = 20;
+	if (NetServer_PassivePerksFor(wOurClientID))
+	{
+		fPercentHPRestore = fPercentHPRestore * 1.1;		// COOP: passive perk Carpenter (repair skill x1.1)
+		iPlanksPerTick = 18;								// COOP: passive perk Builder (materials x0.9)
+	}
 	float fMaxHP = stf(rOurClient.Ship.MaxHP);
 	float fCurHP = stf(rOurClient.Ship.HP);
 	if (fCurHP < fMaxHP)
 	{
 		// check for enough planks
 		int iPlanksNum = sti(rOurClient.Ship.Goods.Planks);
-		if (iPlanksNum >= 20)
+		if (iPlanksNum >= iPlanksPerTick)
 		{
-			rOurClient.Ship.Goods.Planks = iPlanksNum - 20;
+			rOurClient.Ship.Goods.Planks = iPlanksNum - iPlanksPerTick;
 
 			fCurHP = fCurHP + fPercentHPRestore * fMaxHP;
 			if (fCurHP > fMaxHP) { fCurHP = fMaxHP; }
@@ -689,10 +750,12 @@ void NetServer_OnShipHullHit()
 
 	// Cannon damage multiply
 	ref rCannon = Net_GetCannonByIndex(sti(rBallClient.Ship.Cannons.Type));
-	float fCannonDamageMultiply = stf(rCannon.DamageMultiply);
+	float fCannonDamageMultiply = stf(rCannon.DamageMultiply);		// COOP: missing (thrown / not bought) cannons do not fire at all (server\OnBall.c)
 
-	//if (sti(rBallClient.Perks.CriticalShoot) && rand(19)==10) { bSeriousBoom = true; }		// +5%
-	//if (sti(rBallClient.Perks.CannonProfessional) && rand(9)==4) { bSeriousBoom = true; }		// +10%
+	// COOP: passive perks CriticalShoot (+5%) and CannonProfessional (+10%) of the shooter (sea_ai\AIShip.c)
+	bool bShooterPerks = NetServer_PassivePerksFor(wBallClientID);
+	if (bShooterPerks && rand(19) == 10) { bSeriousBoom = true; }
+	if (bShooterPerks && rand(9) == 4) { bSeriousBoom = true; }
 
 	switch (rBall.Name)
 	{
@@ -712,11 +775,13 @@ void NetServer_OnShipHullHit()
 		break;
 	}
 
-	//if (sti(rOurClient.Perks.ShipDefenseProfessional)) { bSeriousBoom = false; }				// no seriouse boom
+	// COOP: passive perk ShipDefenseProfessional of the target: 70% of the critical hits do not happen
+	if (bSeriousBoom && NetServer_PassivePerksFor(wOurClientID) && rand(1000) < 700) { bSeriousBoom = false; }
 
 	if (!bDead)
 	{
-		float fCrewDamage = stf(rBall.DamageCrew) * fCannonDamageMultiply;// * NetServer_IsPerkUse(rBallClient.Perks.CrewDamageUp, 1.0, 1.15);
+		float fCrewDamage = stf(rBall.DamageCrew) * fCannonDamageMultiply;
+		if (bShooterPerks) { fCrewDamage = fCrewDamage * 1.15; }		// COOP: passive perk CrewDamageUp
 		//float fRigDamage = stf(rBall.DamageRig) * fCannonDamageMultiply * AIShip_isPerksUse(aBallClient.Perks.SailsDamageUp, 1.0, 1.15);
 
 		if (bSeriousBoom)
@@ -760,7 +825,7 @@ void NetServer_OnShipHullHit()
 		NMAddDword(iSMsg, iRandStartTime + iServerTime);
 		NMAddFloat(iSMsg, fTotalFireTime);
 
-		PostEvent("NetServer_ShipFireDamage", iRandStartTime, "lllf", wOurClientID, wBallClientID, iFirePlaceIndex, fTotalFireTime);
+		PostEvent("NetServer_ShipFireDamage", iRandStartTime, "llllf", wOurClientID, wBallClientID, iFirePlaceIndex, NetServer_GetShipLife(wOurClientID), fTotalFireTime);
 	}
 	else
 	{
@@ -775,6 +840,12 @@ void NetServer_OnShipHullHit()
 	if (bSeriousBoom == true) 
 	{ 
 		fTmpCannonDamage = fTmpCannonDamage * 4.0;
+
+		// COOP: single player (boal 27.09.05): a critical hit into a ship that carries too much powder blows the whole stock up
+		if (!NetServer_IsClientDead(rOurClient) && NetServer_PowderOverloaded(rOurClient) && rand(99) < NET_POWDER_DETONATE_CHANCE)
+		{
+			NetServer_PowderExplosion(wOurClientID, wBallClientID);
+		}
 	}	
 
 	//SendMessage(&AISea, "laffff", AI_MESSAGE_CANNONS_BOOM_CHECK, rOurClient, fTmpCannonDamage, x, y, z);
@@ -789,9 +860,13 @@ void NetServer_ShipFireDamage()
 	int wBallClientID = GetEventData();
 
 	int iFirePlaceIndex = GetEventData();
+	int iFireLife = GetEventData();
 	float fTotalFireTime = GetEventData();
 
 	ref rOurClient = NetServer_GetClient(wOurClientID);
+	// COOP: the fire of a ship that was wrecked and came back (respawn) / of a slot of another game burns out
+	if (NetServer_IsClientDead(rOurClient)) { return; }
+	if (iFireLife != NetServer_GetShipLife(wOurClientID)) { return; }
 	ref rShip = Net_GetShipByIndex(sti(rOurClient.Ship.Type));
 	float fHP = (8 - stf(rShip.Class)) * (0.5 + frnd() * 0.5);
 	int iTime = 1000 + rand(500);
@@ -801,7 +876,7 @@ void NetServer_ShipFireDamage()
 
 	if (fTotalFireTime > 0.0)
 	{
-		PostEvent("NetServer_ShipFireDamage", iTime, "lllf", wOurClientID, wBallClientID, iFirePlaceIndex, fTotalFireTime);
+		PostEvent("NetServer_ShipFireDamage", iTime, "llllf", wOurClientID, wBallClientID, iFirePlaceIndex, iFireLife, fTotalFireTime);
 	}
 }
 
@@ -816,16 +891,28 @@ void NetServer_ShipApplyHullHitpoints(ref rOurClient, float fHP, int iKillStatus
 
 	if (fHP <= 0.0) { return; }
 
+	// COOP: a respawned ship is safe for a moment
+	if (CheckAttribute(rOurClient, "SpawnProtect") && iServerTime < sti(rOurClient.SpawnProtect)) { return; }
+
 	if (wBallClientID != DST_INVALID)
 	{
 		rBallClient = NetServer_GetClient(wBallClientID);
 	}
+
+	// COOP: passive perks like Ship_ApplyHullHitpoints of single player: CannonProfessional of the attacker +30%,
+	// ShipDefenseProfessional of the target -35% (they include HullDamageUp and Basic / AdvancedBattleState)
+	if (wBallClientID != DST_INVALID && wBallClientID != sti(rOurClient.ID) && NetServer_PassivePerksFor(wBallClientID)) { fPlus = 0.3; }
+	if (NetServer_PassivePerksFor(sti(rOurClient.ID))) { fMinus = 0.35; }
 
 	float fDamageHP = fHP * (1.0 + fPlus - fMinus);
 	fCurHP = stf(rOurClient.Ship.HP) - fDamageHP;
 	if (fCurHP <= 0.0)
 	{
 		fCurHP = 0.0;
+		// COOP: with respawn the ship does not sink (it is wrecked and comes back), its hull keeps 1 point
+		if (sti(NetServer.Respawn) && sti(rOurClient.ID) < NET_MAXCLIENTS) { fCurHP = 1.0; rOurClient.Ship.HP = 1.0; }
+		// COOP: the fort has its own kill line
+		if (iKillStatus == NETKILL_BY_BALL && wBallClientID == NET_FORTCLIENT) { iKillStatus = NETKILL_BY_FORT; }
 		NetServer_SetClientDead(rOurClient, iKillStatus, wBallClientID);
 	}
 
@@ -843,6 +930,13 @@ void NetServer_SetClientDead(ref rOurClient, int iKillStatus, int wKillerClientI
 {
 	ref rKillerClient;
 	ref rBaseShip, rKillerBaseShip;
+
+	// COOP: respawn mode: the ship is wrecked for a while and comes back (server\OnShip.c: NetServer_SetClientWrecked)
+	if (sti(NetServer.Respawn) && sti(rOurClient.ID) < NET_MAXCLIENTS)
+	{
+		NetServer_SetClientWrecked(rOurClient, iKillStatus, wKillerClientID);
+		return;
+	}
 
 	int iSMsg = NMCreate();
 	NMAddByte(iSMsg, NC_SHIP);
@@ -869,10 +963,13 @@ void NetServer_SetClientDead(ref rOurClient, int iKillStatus, int wKillerClientI
 	float z = stf(rOurClient.Ship.Pos.z);
 
 	rOurClient.Ship.HP = 0.0;
+	rOurClient.Ship.Crew.Quantity = 0;		// COOP: the crew goes down with the ship
 	rOurClient.Killer.Status = iKillStatus;
 	rOurClient.Killer.ClientID = wKillerClientID;
 
 	rOurClient.Stat.Wreck = 1;
+	rOurClient.Stat.Deaths = sti(rOurClient.Stat.Deaths) + 1;
+	rOurClient.Life = NetServer_GetShipLife(sti(rOurClient.ID)) + 1;	// COOP: pending fire / perk events of this ship stop
 
 	if (bKillerClient) 
 	{ 
@@ -886,12 +983,17 @@ void NetServer_SetClientDead(ref rOurClient, int iKillStatus, int wKillerClientI
 		switch (iKillStatus)
 		{
 			case NETKILL_BY_BALL: if (rand(2) == 1) { bDetonate = true; } break;
+			case NETKILL_BY_FORT: if (rand(2) == 1) { bDetonate = true; } break;
+			case NETKILL_BY_MINE: if (rand(2) == 1) { bDetonate = true; } break;
+			case NETKILL_BY_OWN_MINE: if (rand(2) == 1) { bDetonate = true; } break;
+			case NETKILL_BY_BRANDER: if (rand(2) == 1) { bDetonate = true; } break;
 			case NETKILL_BY_ISLAND: if (rand(20) == 10) { bDetonate = true; } break;
 			case NETKILL_BY_TOUCH_DEAD: if (rand(20) == 10) { bDetonate = true; } break;
 			case NETKILL_BY_TOUCH_ALIVE: if (rand(20) == 10) { bDetonate = true; } break;
 		}
 	}
 
+	if (CheckAttribute(rOurClient, "ForceDetonate")) { bDetonate = true; DeleteAttribute(rOurClient, "ForceDetonate"); }
 	NMAddByte(iSMsg, bDetonate); // detonate ship
 
 	// set attributes for sinking effect
@@ -916,6 +1018,7 @@ void NetServer_ShipApplyCrewHitpoints(ref rOurClient, float fCrewHP, int wBallCl
 {
 	ref rBaseShip = Net_GetShipByIndex(sti(rOurClient.Ship.Type));
 	float fMultiply = Bring2Range(1.0, 0.2, 0.0, 1.0, stf(rOurClient.Skills.Defence) / NETSKILL_MAX);
+	if (NetServer_PassivePerksFor(sti(rOurClient.ID))) { fMultiply = fMultiply * 0.8; }		// COOP: passive perk Doctor2 (includes Doctor1)
 	float fNewCrewQuantity = stf(rOurClient.Ship.Crew.Quantity) - fCrewHP * fMultiply;
 	float f5Percent = stf(rBaseShip.MinCrew) * 0.05;
 	if (fNewCrewQuantity < f5Percent) { fNewCrewQuantity = f5Percent; }
@@ -939,7 +1042,8 @@ void NetServer_ShipUpdateParameters()
 		float fMaxSpeedY = stf(rShip.TurnRate) * stf(rClient.Ship.TurnRateModifier) / 444.444;		// cool magic number :))
 		float fSpeedFromHP = 0.7 + (stf(rClient.Ship.HP) / stf(rClient.Ship.MaxHP)) / 3.34;
 		float fCurrentSpeedZ = stf(rClient.Ship.Speed.z);
-		float fLoad = 0.1;
+		float fLoad = NetServer_ShipLoadRatio(rClient);
+		NetServer_PowderTrack(rClient);
 
 	// Calc min crew ratio
 		float fCrewMin = stf(rShip.MinCrew);
@@ -958,12 +1062,17 @@ void NetServer_ShipUpdateParameters()
 		//float fSpeedPerk = NetServer_IsPerkUse(rClient.Perks.ShipSpeedUp, 1.0, 1.15); 
 		//fSpeedPerk = NetServer_IsPerkUse(rClient.Perks.SailingProfessional, fSpeedPerk, 1.20); 
 
-		float	fTRFromWeight = Clampf(1.0 - stf(rShip.TurnDependWeight) * fLoad);
+		float	fTRFromWeight = Clampf(1.03 - NET_TURN_WEIGHT_MULT * stf(rShip.TurnDependWeight) * fLoad);
+		float	fSpeedFromWeight = Clampf(1.03 - stf(rShip.SpeedDependWeight) * fLoad);
+		float	fSpeedFromPeople = 0.85 + 0.15 * Clampf(fCrewCur / (fCrewMax + 0.001));
 		float	fTRFromSpeed = 1.0 - stf(rShip.TurnDependSpeed) * (1.0 - Clampf(fCurrentSpeedZ / fMaxSpeedZ));
 		float	fTRFromPeople = Bring2Range(0.1, 1.0, 0.0, 1.0, fMinRatio);
 		float	fTRFromSailDamage = Bring2Range(0.1, 1.0, 0.1, 100.0, stf(rClient.Ship.SP));
 
-		rClient.Ship.MaxSpeedZ = fGameSpeed * fMaxSpeedZ * fWindPower * fTRFromWeight * fTRFromSailDamage * fTRFromSkill * fSpeedFromHp;// * fSpeedPerk;
+		// COOP: passive perk SailingProfessional (includes ShipSpeedUp): x1.20, like SpeedBySkill of single player
+		float fSpeedPerk = 1.0;
+		if (NetServer_PassivePerksFor(wOurClientID)) { fSpeedPerk = 1.20; }
+		rClient.Ship.MaxSpeedZ = fGameSpeed * fMaxSpeedZ * fWindPower * fSpeedFromWeight * fSpeedFromPeople * fTRFromSailDamage * fTRFromSkill * fSpeedFromHp * fSpeedPerk;
 
 		/*if (fWindDotShip < -0.70)
 		{
@@ -984,7 +1093,11 @@ void NetServer_ShipUpdateParameters()
 		//float fTurnPerk = NetServer_IsPerkUse(rClient.Perks.ShipTurnRateUp, 1.0, 1.15); 
 		//fTurnPerk = NetServer_IsPerkUse(rClient.Perks.SailingProfessional, fTurnPerk, 1.20); 
 		//float fFastTurn180 = NetServer_IsPerkUse(rClient.Perks.Turn180, 1.0, 8.0); 
-		rClient.Ship.MaxSpeedY = fGameSpeed * 2.0 * fTRResult * fMaxSpeedY;// * fTurnPerk * fFastTurn180;
+		// COOP: passive perk SailingProfessional (includes ShipTurnRateUp) x1.20, active perk Turn180 x4 (TurnBySkill of single player)
+		float fTurnPerk = 1.0;
+		if (NetServer_PassivePerksFor(wOurClientID)) { fTurnPerk = 1.20; }
+		if (NetServer_ActivePerkIsOn(wOurClientID, NET_APERK_TURN180)) { fTurnPerk = fTurnPerk * 4.0; }
+		rClient.Ship.MaxSpeedY = fGameSpeed * 2.0 * fTRResult * fMaxSpeedY * fTurnPerk;
 
 	//rClient.Ship.MaxSpeedZ = 30.0;
 	//rClient.Ship.MaxSpeedY = 2.6;
@@ -1046,6 +1159,16 @@ void NetServer_ShipUpdateParameters()
 	if (iSailPercent > 100) { iSailPercent = 100; }
 	NMAddByte(iSMsg, iSailPercent);
 
+	// COOP: score for the F1 table (ships sunk / deaths), also right for players who joined later
+	NMAddWord(iSMsg, sti(rClient.Stat.Sunk));
+	NMAddWord(iSMsg, sti(rClient.Stat.Deaths));
+	int iShipState = 0;										// 0 afloat, 1 wrecked (respawn), 2 sunk
+	if (NetServer_IsClientDead(rClient)) { iShipState = 2; if (sti(NetServer.Respawn)) { iShipState = 1; } }
+	NMAddByte(iSMsg, iShipState);
+
+	// COOP: cannons really standing on the ship (cannons bought in the lobby), for the spyglass of the others
+	NMAddWord(iSMsg, NetServer_ShipCannonsNum(rClient));
+
 	NetServer_SendMessage(DST_ALL, iSMsg, false);
 	NMDelete(iSMsg);
 
@@ -1060,8 +1183,16 @@ void NetServer_ShipUpdateParameters()
 		aref arBorts; makearef(arBorts, rClient.Ship.Cannons.Borts);
 
 		string sCurBort = sNetBortNames[i];
+		// COOP: a bort without cannons is shown empty (nothing to load there)
+		float fBortCharge = stf(arBorts.(sCurBort).ChargeRatio);
+		if (NetServer_ShipCannonsNum(rClient) <= 0) { fBortCharge = 0.0; }
+		int iUiBort = 2;		// sNetBortNames: cannonl, cannonr, cannonf, cannonb
+		if (i == 1) { iUiBort = 3; }
+		if (i == 2) { iUiBort = 0; }
+		if (i == 3) { iUiBort = 1; }
+		if (Net_GetBortMax(sti(rClient.Ship.Type), iUiBort) > 0 && NetServer_BortHave(rClient, iUiBort) <= 0) { fBortCharge = 0.0; }
 		NMAddWord(iSMsg, makeint(stf(arBorts.(sCurBort).MaxFireDistance))); 
-		NMAddByte(iSMsg, makeint(stf(arBorts.(sCurBort).ChargeRatio) * 255.0)); 
+		NMAddByte(iSMsg, makeint(fBortCharge * 255.0)); 
 		NMAddByte(iSMsg, makeint(stf(arBorts.(sCurBort).DamageRatio) * 255.0)); 
 	}
 	NetServer_SendMessage(wOurClientID, iSMsg, false);
@@ -1080,8 +1211,13 @@ void NetServer_CalculateReloadTime(ref rClient)
 
 	float fCannonSkill = stf(rClient.Skills.Cannons) / NETSKILL_MAX;
 
-	float fMultiply = (6.0 - NetServer_GetSpeedModifier()) / 5.0; // NetServer_IsPerkUse(rClient.Perks.FastReload, 1.0, 0.8); 
-	//fMultiply = NetServer_IsPerkUse(rClient.Perks.ImmediateReload, fMultiply, 0.5); 
+	float fMultiply = (6.0 - NetServer_GetSpeedModifier()) / 5.0;
+	// COOP: passive perk FastReload x0.9, active perk ImmediateReload x0.5 (instead of it), like AICannon.c of single player
+	if (sti(rClient.ID) < NET_MAXCLIENTS)
+	{
+		if (NetServer_ActivePerkIsOn(sti(rClient.ID), NET_APERK_IMMEDIATERELOAD)) { fMultiply = fMultiply * 0.5; }
+		else { if (NetServer_PassivePerksFor(sti(rClient.ID))) { fMultiply = fMultiply * 0.9; } }
+	}
 	//if (!bArcadeCannonsReload) { fMultiply = fMultiply * 12.0; }
 
 	float fCrewQ = sti(rClient.Ship.Crew.Quantity);
@@ -1142,5 +1278,393 @@ void NetServer_CannonRecalculateParameters(ref rClient)
 	ref	rCannon = Net_GetCannonByIndex(sti(rClient.Ship.Cannons.Type));
 	ref	rBall = Net_GetGoodByIndex(sti(rClient.Ship.Cannons.Charge.Type));
 
-	rClient.Ship.Cannons.SpeedV0 = stf(rCannon.SpeedV0) * stf(rBall.SpeedV0);// * NetServer_IsPerkUse(rClient.Perks.LongRangeShoot, 1.0, 1.15);
+	rClient.Ship.Cannons.SpeedV0 = stf(rCannon.SpeedV0) * stf(rBall.SpeedV0);
+	if (sti(rClient.ID) < NET_MAXCLIENTS && NetServer_PassivePerksFor(sti(rClient.ID))) { rClient.Ship.Cannons.SpeedV0 = stf(rClient.Ship.Cannons.SpeedV0) * 1.15; }	// COOP: passive perk LongRangeShoot
+}
+
+
+// ================================================================================================
+// COOP: perks of single player for every captain (switches of the Create game screen)
+// ================================================================================================
+
+// all passive sea perks (server\..\common\Perks.c has the list): only player ships, the fort has none
+bool NetServer_PassivePerksFor(int wClientID)
+{
+	if (!sti(NetServer.PassivePerks)) { return false; }
+	if (wClientID < 0 || wClientID >= NET_MAXCLIENTS) { return false; }
+	return true;
+}
+
+int NetServer_GetShipLife(int wClientID)
+{
+	if (wClientID < 0 || wClientID >= NET_TOTALCLIENTS) { return 0; }
+	if (!CheckAttribute(&NSClients[wClientID], "Life")) { return 0; }
+	return sti(NSClients[wClientID].Life);
+}
+
+bool NetServer_ActivePerkIsOn(int wClientID, int iPerk)
+{
+	if (!sti(NetServer.ActivePerks)) { return false; }
+	if (wClientID < 0 || wClientID >= NET_MAXCLIENTS) { return false; }
+	string sAttr = "APerk.p" + iPerk + ".Until";
+	if (!CheckAttribute(&NSClients[wClientID], sAttr)) { return false; }
+	string sP = "p" + iPerk;
+	return iServerTime < sti(NSClients[wClientID].APerk.(sP).Until);
+}
+
+void NetServer_SendPerkState(int wClientID, int iPerk)
+{
+	if (!NetServer_IsInGame(wClientID)) { return; }
+	string sP = "p" + iPerk;
+	int iUntil = 0;
+	int iReady = 0;
+	if (CheckAttribute(&NSClients[wClientID], "APerk." + sP + ".Until")) { iUntil = sti(NSClients[wClientID].APerk.(sP).Until); }
+	if (CheckAttribute(&NSClients[wClientID], "APerk." + sP + ".Ready")) { iReady = sti(NSClients[wClientID].APerk.(sP).Ready); }
+
+	int iSMsg = NMCreate();
+	NMAddByte(iSMsg, NC_SHIP);
+	NMAddByte(iSMsg, NSC_SHIP_PERK_STATE);
+	NMAddByte(iSMsg, iPerk);
+	NMAddDword(iSMsg, iUntil);
+	NMAddDword(iSMsg, iReady);
+	NetServer_SendMessage(wClientID, iSMsg, true);
+	NMDelete(iSMsg);
+}
+
+void NetServer_SendAllPerkStates(int wClientID)
+{
+	if (!sti(NetServer.ActivePerks)) { return; }
+	for (int i=0; i<NET_APERK_NUM; i++) { NetServer_SendPerkState(wClientID, i); }
+}
+
+// client pressed an active perk in the command menu
+void NetServer_UseActivePerk(int wClientID, int iPerk)
+{
+	if (!sti(NetServer.ActivePerks)) { return; }
+	if (iPerk < 0 || iPerk >= NET_APERK_NUM) { return; }
+	if (!NetServer_ShipIsAlive(wClientID)) { return; }
+
+	ref rClient = NetServer_GetClient(wClientID);
+	string sP = "p" + iPerk;
+
+	int iReady = 0;
+	if (CheckAttribute(rClient, "APerk." + sP + ".Ready")) { iReady = sti(rClient.APerk.(sP).Ready); }
+	if (iServerTime < iReady)
+	{
+		int iSMsg = NMCreate();
+		NMAddByte(iSMsg, NC_SHIP);
+		NMAddByte(iSMsg, NSC_SHIP_PERK_DENIED);
+		NMAddByte(iSMsg, iPerk);
+		NMAddWord(iSMsg, (iReady - iServerTime + 999) / 1000);
+		NetServer_SendMessage(wClientID, iSMsg, true);
+		NMDelete(iSMsg);
+		return;
+	}
+
+	rClient.APerk.(sP).Until = iServerTime + Net_GetActivePerkDuration(iPerk) * 1000;
+	rClient.APerk.(sP).Ready = iServerTime + Net_GetActivePerkDelay(iPerk) * 1000;
+	rClient.APerk.(sP).Life = NetServer_GetShipLife(wClientID);
+	Trace("COOP: active perk " + sNetActivePerkName[iPerk] + " client=" + wClientID);
+
+	switch (iPerk)
+	{
+		case NET_APERK_IMMEDIATERELOAD:
+			NetServer_CalculateReloadTime(rClient);
+			// back to the normal reload time when the perk is over
+			PostEvent("NetServer_PerkTick", Net_GetActivePerkDuration(iPerk) * 1000 + 50, "lll", wClientID, iPerk, NetServer_GetShipLife(wClientID));
+		break;
+		case NET_APERK_LIGHTREPAIR:
+			PostEvent("NetServer_PerkTick", 1000, "lll", wClientID, iPerk, NetServer_GetShipLife(wClientID));
+		break;
+		case NET_APERK_INSTANTREPAIR:
+			PostEvent("NetServer_PerkTick", 1000, "lll", wClientID, iPerk, NetServer_GetShipLife(wClientID));
+		break;
+	}
+
+	NetServer_SendPerkState(wClientID, iPerk);
+}
+
+// planks for 1% of the hull (GetHullPPP of single player, Builder x0.9)
+float NetServer_HullPlanksPerPercent(ref rClient)
+{
+	ref rShip = Net_GetShipByIndex(sti(rClient.Ship.Type));
+	float fRet = 8.0 - stf(rShip.Class);
+	float fHP = stf(rShip.HP) / 700.0;
+	if (fHP > fRet) { fRet = fHP; }
+	if (NetServer_PassivePerksFor(sti(rClient.ID))) { fRet = fRet * 0.9; }
+	return fRet;
+}
+
+// sailcloth for 1% of the sails (GetSailSPP of single player, Builder x0.9)
+float NetServer_SailClothPerPercent(ref rClient)
+{
+	ref rShip = Net_GetShipByIndex(sti(rClient.Ship.Type));
+	float fRet = 8.0 - stf(rShip.Class);
+	if (NetServer_PassivePerksFor(sti(rClient.ID))) { fRet = fRet * 0.9; }
+	return fRet;
+}
+
+// one second of LightRepair (no materials, up to 10%, 1% a second) / InstantRepair (up to 65%, 5% a second, materials),
+// numbers from battle_interface\utils.c of single player
+void NetServer_PerkRepairStep(ref rClient, float fUpTo, float fStep, bool bMaterials)
+{
+	float fMaxHP = stf(rClient.Ship.MaxHP);
+	if (fMaxHP < 1.0) { fMaxHP = 1.0; }
+	float fHullPct = 100.0 * stf(rClient.Ship.HP) / fMaxHP;
+	if (fHullPct < fUpTo)
+	{
+		float fRepH = fUpTo - fHullPct;
+		if (fRepH > fStep) { fRepH = fStep; }
+		if (bMaterials)
+		{
+			float fPPP = NetServer_HullPlanksPerPercent(rClient);
+			int iPlanks = sti(rClient.Ship.Goods.Planks);
+			if (fPPP > 0.0 && fRepH * fPPP > makefloat(iPlanks)) { fRepH = makefloat(iPlanks) / fPPP; }
+			int iUsed = makeint(fRepH * fPPP + 0.5);
+			if (iUsed > iPlanks) { iUsed = iPlanks; }
+			rClient.Ship.Goods.Planks = iPlanks - iUsed;
+		}
+		if (fRepH > 0.0)
+		{
+			float fNewHP = stf(rClient.Ship.HP) + fRepH * fMaxHP / 100.0;
+			if (fNewHP > fMaxHP) { fNewHP = fMaxHP; }
+			rClient.Ship.HP = fNewHP;
+		}
+	}
+
+	float fSailPct = 100.0;
+	if (CheckAttribute(rClient, "Ship.SP")) { fSailPct = stf(rClient.Ship.SP); }
+	if (fSailPct < fUpTo)
+	{
+		float fRepS = fUpTo - fSailPct;
+		if (fRepS > fStep) { fRepS = fStep; }
+		if (bMaterials)
+		{
+			float fSPP = NetServer_SailClothPerPercent(rClient);
+			int iCloth = sti(rClient.Ship.Goods.Sailcloth);
+			if (fSPP > 0.0 && fRepS * fSPP > makefloat(iCloth)) { fRepS = makefloat(iCloth) / fSPP; }
+			if (fRepS > 0.0)
+			{
+				float fDone = NetServer_ShipSailRepairBy(rClient, fRepS);
+				int iClothUsed = makeint(fDone * fSPP + 0.5);
+				if (iClothUsed > iCloth) { iClothUsed = iCloth; }
+				rClient.Ship.Goods.Sailcloth = iCloth - iClothUsed;
+			}
+		}
+		else
+		{
+			NetServer_ShipSailRepairBy(rClient, fRepS);
+		}
+	}
+}
+
+// timer of the active perks: LightRepair / InstantRepair once a second, end of ImmediateReload
+void NetServer_PerkTick()
+{
+	int wClientID = GetEventData();
+	int iPerk = GetEventData();
+	int iLife = GetEventData();
+
+	if (wClientID < 0 || wClientID >= NET_MAXCLIENTS) { return; }
+	if (iLife != NetServer_GetShipLife(wClientID)) { return; }		// wrecked / sunk since then
+	ref rClient = NetServer_GetClient(wClientID);
+	if (NetServer_IsClientDead(rClient)) { return; }
+
+	switch (iPerk)
+	{
+		case NET_APERK_IMMEDIATERELOAD:
+			NetServer_CalculateReloadTime(rClient);
+		break;
+		case NET_APERK_LIGHTREPAIR:
+			if (!NetServer_ActivePerkIsOn(wClientID, iPerk)) { return; }
+			NetServer_PerkRepairStep(rClient, 10.0, 1.0, false);
+			PostEvent("NetServer_PerkTick", 1000, "lll", wClientID, iPerk, iLife);
+		break;
+		case NET_APERK_INSTANTREPAIR:
+			if (!NetServer_ActivePerkIsOn(wClientID, iPerk)) { return; }
+			NetServer_PerkRepairStep(rClient, 65.0, 5.0, true);		// 65% = InstantRepairRATE of single player
+			PostEvent("NetServer_PerkTick", 1000, "lll", wClientID, iPerk, iLife);
+		break;
+	}
+}
+
+// ================================================================================================
+// COOP: respawn (CS-like). The ship is not sunk: it is "wrecked" (stops, burns, takes no damage, does not obey),
+// after NET_RESPAWN_DELAY it comes back at a spawn point with the loadout bought in the lobby. Score: Stat.Sunk / Stat.Deaths.
+// ================================================================================================
+void NetServer_SetClientWrecked(ref rOurClient, int iKillStatus, int wKillerClientID)
+{
+	int wDeadID = sti(rOurClient.ID);
+	if (NetServer_IsClientDead(rOurClient)) { return; }
+
+	// score: a kill for the killer (not for a suicide / brander / island), a death for the victim
+	if (NetServer_IsClient(wKillerClientID) && wKillerClientID != wDeadID && wKillerClientID < NET_MAXCLIENTS)
+	{
+		ref rKiller = NetServer_GetClient(wKillerClientID);
+		rKiller.Stat.Sunk = sti(rKiller.Stat.Sunk) + 1;
+		ref rKillerBase = Net_GetShipByIndex(sti(rKiller.Ship.Type));
+		ref rDeadBase = Net_GetShipByIndex(sti(rOurClient.Ship.Type));
+		NetServer_AddClientExp(rKiller, 2 * MakeInt(stf(rOurClient.Ship.MaxHP) * stf(rKillerBase.Class) / stf(rDeadBase.Class)));
+	}
+	rOurClient.Stat.Deaths = sti(rOurClient.Stat.Deaths) + 1;
+	rOurClient.Stat.Wreck = sti(rOurClient.Stat.Wreck) + 1;
+
+	rOurClient.Killer.Status = iKillStatus;
+	rOurClient.Killer.ClientID = wKillerClientID;
+
+	bool bDetonate = (rand(2) == 1);
+	if (CheckAttribute(rOurClient, "ForceDetonate")) { bDetonate = true; DeleteAttribute(rOurClient, "ForceDetonate"); }
+
+	// the wreck: no crew, no control, no repair / perks, 1 point of hull (a hull of 0 could start the sinking of the engine)
+	// net.dll: when the "Dead" attribute becomes non-zero the ship entity of the server starts sinking and needs Ship.Sink.Speed
+	// (Assert pASinkSpeed, ship.cpp line 508 - the host crashed). Zero speeds: the wreck stays afloat; the respawn deletes
+	// Ship.Sink and creates the entity again (NetServer_PlaceShipEntity)
+	rOurClient.Ship.Sink.Speed.x = 0.0;
+	rOurClient.Ship.Sink.Speed.y = 0.0;
+	rOurClient.Ship.Sink.Speed.z = 0.0;
+	rOurClient.Dead = true;
+	rOurClient.Life = NetServer_GetShipLife(wDeadID) + 1;
+	rOurClient.Ship.HP = 1.0;
+	rOurClient.Ship.Crew.Quantity = 0;
+	rOurClient.Ship.SailState = 0.0;
+	rOurClient.Ship.TurnLeft = 0;
+	rOurClient.Ship.TurnRight = 0;
+	rOurClient.Ship.TurnState = 0.0;
+	rOurClient.Skills.Repair.Active = 0;
+	rOurClient.Ship.BranderActive = 0;
+	rOurClient.Ship.BranderArmUntil = 0;
+	DeleteAttribute(rOurClient, "SpawnProtect");
+	for (int i=0; i<NET_APERK_NUM; i++)
+	{
+		string sP = "p" + i;
+		if (CheckAttribute(rOurClient, "APerk." + sP + ".Until")) { rOurClient.APerk.(sP).Until = 0; }
+	}
+	NetServer_CalculateReloadTime(rOurClient);
+
+	int iSeconds = NetServer_GetRespawnTime();
+
+	int iSMsg = NMCreate();
+	NMAddByte(iSMsg, NC_SHIP);
+	NMAddByte(iSMsg, NSC_SHIP_WRECKED);
+	NMAddClientID(iSMsg, wDeadID);
+	NMAddByte(iSMsg, iKillStatus);
+	NMAddClientID(iSMsg, wKillerClientID);
+	NMAddByte(iSMsg, bDetonate);
+	NMAddByte(iSMsg, iSeconds);
+	NetServer_SendToInGame(iSMsg);
+	NMDelete(iSMsg);
+
+	Trace("COOP: ship " + wDeadID + " wrecked by " + wKillerClientID + ", respawn in " + iSeconds + " s");
+
+	PostEvent("NetServer_RespawnEvent", iSeconds * 1000, "lll", wDeadID, NetServer_GetShipLife(wDeadID), sti(NetServer.Round));
+}
+
+// COOP: seconds between the death and the respawn (slider of the Create game screen, 10..180)
+int NetServer_GetRespawnTime()
+{
+	int iSec = NET_RESPAWN_DELAY / 1000;
+	if (CheckAttribute(&NetServer, "RespawnTime")) { iSec = sti(NetServer.RespawnTime); }
+	if (iSec < NET_RESPAWN_TIME_MIN) { iSec = NET_RESPAWN_TIME_MIN; }
+	if (iSec > NET_RESPAWN_TIME_MAX) { iSec = NET_RESPAWN_TIME_MAX; }
+	return iSec;
+}
+
+void NetServer_RespawnEvent()
+{
+	int wID = GetEventData();
+	int iLife = GetEventData();
+	int iRound = GetEventData();
+
+	if (!bServerGameStarted) { return; }
+	if (iRound != sti(NetServer.Round)) { return; }
+	if (wID < 0 || wID >= NET_MAXCLIENTS) { return; }
+	if (iLife != NetServer_GetShipLife(wID)) { return; }
+	if (!NetServer_HasShip(wID)) { return; }
+	if (!sti(NSClients[wID].Dead)) { return; }
+
+	// the player has left: the wreck waits, he gets the ship back when he reconnects (NetServer_LateJoin)
+	if (!sti(NSClients[wID].Use)) { return; }
+
+	NetServer_RespawnShip(wID);
+}
+
+// gives the ship back: full hull and sails, the bought crew / goods / charge, a new place
+void NetServer_RespawnShip(int wID)
+{
+	int j;
+	ref rC = NetServer_GetClient(wID);
+	if (!NetServer_HasShip(wID)) { return; }
+
+	rC.Life = NetServer_GetShipLife(wID) + 1;
+	rC.Dead = false;
+	DeleteAttribute(rC, "Killer");
+	DeleteAttribute(rC, "Ship.Sink");
+	DeleteAttribute(rC, "Ship.sails");		// sail damage of the old ship (the new entity has whole sails)
+	DeleteAttribute(rC, "Ship.masts");
+	DeleteAttribute(rC, "Ship.GoodsHeld");
+	DeleteAttribute(rC, "Ship.AmmoLast");
+
+	rC.Ship.HP = stf(rC.Ship.MaxHP);
+	rC.Ship.SP = 100.0;
+	rC.Ship.Crew.Quantity = sti(rC.Ship.Start.Crew);
+	rC.Ship.Cannons.Charge.Type = sti(rC.Ship.Start.Charge);
+	for (j=0; j<Net_GetGoodsNum(); j++)
+	{
+		ref rGood = Net_GetGoodByIndex(j);
+		string sGood = rGood.Name;
+		rC.Ship.Goods.(sGood) = sti(rC.Ship.Start.Goods.(sGood));
+	}
+	rC.Ship.CannonsDumped = 0;
+	DeleteAttribute(rC, "Ship.Bort");
+	DeleteAttribute(rC, "Ship.ShotAcc");
+	if (CheckAttribute(rC, "Ship.Start.Bort"))		// COOP: cannons on the borts as bought in the lobby
+	{
+		for (j=0; j<NET_BORT_NUM; j++)
+		{
+			string sSB = Net_BortLetter(j);
+			rC.Ship.Bort.(sSB) = sti(rC.Ship.Start.Bort.(sSB));
+		}
+		NetServer_SyncCannonsDumped(rC);
+	}
+	rC.Ship.MinesDropped = 0;
+	rC.Ship.MineCooldown = 0;
+	rC.Ship.BranderActive = 0;
+	rC.Ship.BranderArmUntil = 0;
+	rC.Ship.TurnLeft = 0;
+	rC.Ship.TurnRight = 0;
+	rC.Ship.TurnState = 0.0;
+	rC.Ship.SailState = 0.0;
+	rC.Skills.Repair.Active = 0;
+	rC.Skills.Repair.Cooldown = iServerTime - NET_REPAIR_COOLDOWN * 1000;
+	rC.BoardSent = -1;
+	rC.SpawnProtect = iServerTime + NET_RESPAWN_PROTECT;
+
+	NetServer_CannonRecalculateParameters(rC);
+	NetServer_CalculateFireTime(rC);
+	NetServer_CalculateReloadTime(rC);
+
+	NetServer_PickSpawn(wID);
+	NetServer_PlaceShipEntity(wID, stf(NSSpawn.x), stf(NSSpawn.z), stf(NSSpawn.ay));
+
+	int iSMsg = NMCreate();
+	NMAddByte(iSMsg, NC_SHIP);
+	NMAddByte(iSMsg, NSC_SHIP_RESPAWN);
+	NMAddClientID(iSMsg, wID);
+	NMAddFloat(iSMsg, stf(rC.Ship.MaxHP));
+	NMAddWord(iSMsg, sti(rC.Ship.Crew.Quantity));
+	for (j=0; j<iNetGoodsNum; j++)
+	{
+		ref rGood2 = Net_GetGoodByIndex(j);
+		string sGood2 = rGood2.Name;
+		NMAddWord(iSMsg, sti(rC.Ship.Goods.(sGood2)));
+	}
+	NMAddByte(iSMsg, sti(rC.Ship.Cannons.Charge.Type));
+	NMAddFloat(iSMsg, stf(rC.Ship.Pos.x));
+	NMAddFloat(iSMsg, stf(rC.Ship.Pos.z));
+	NMAddFloat(iSMsg, stf(rC.Ship.Ang.y));
+	NetServer_SendToInGame(iSMsg);
+	NMDelete(iSMsg);
+
+	NetServer_SendAllPerkStates(wID);
+	Trace("COOP: ship " + wID + " respawned at x=" + rC.Ship.Pos.x + " z=" + rC.Ship.Pos.z);
 }

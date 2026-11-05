@@ -6,6 +6,8 @@ void InitInterface(string iniName)
 	GameInterface.title = "titleNetPlayerSettings";
 
 	EnumerateIcons("resource\textures\" + sUserFacesPath, "*.tga.tx", "FACESLIST", 0);
+	PS_AppendDefaultFaceIcon();
+	PS_AppendPortraitIcons();
 	EnumerateIcons("resource\textures\" + sUserSailsPath, "*.tga.tx", "SAILSLIST", 0);
 	EnumerateIcons("resource\textures\" + sUserFlagsPath, "*.tga.tx", "FLAGSLIST", 0);
 
@@ -32,57 +34,172 @@ void InitInterface(string iniName)
 	PS_FillProfilesTable();
 }
 
+// Ensure the built-in faceless avatar is available even if the file enumerator omits it.
+void PS_AppendDefaultFaceIcon()
+{
+	object oDefaultFace;
+	string sDefaultName = "_emptyface_";
+	int i;
+	int iCount = NFFindFiles(&oDefaultFace, "resource\textures\" + sUserFacesPath, "_emptyface_.tga.tx", false);
+	if (iCount <= 0) return;
+	for (i=0; i<sti(GameInterface.FACESLIST.ListSize); i++)
+	{
+		string sRow = "pic" + (i + 1);
+		if (GameInterface.FACESLIST.(sRow).FileName.Name == sDefaultName) return;
+	}
+	string sSource = "f0";
+	string sTarget = "pic" + (sti(GameInterface.FACESLIST.ListSize) + 1);
+	GameInterface.FACESLIST.(sTarget).name1 = oDefaultFace.(sSource).FilePath;
+	GameInterface.FACESLIST.(sTarget).FileName = oDefaultFace.(sSource).FileName;
+	GameInterface.FACESLIST.(sTarget).FileName.Name = oDefaultFace.(sSource).Name;
+	GameInterface.FACESLIST.(sTarget).FileName.Ext = oDefaultFace.(sSource).Ext;
+	GameInterface.FACESLIST.ListSize = sti(GameInterface.FACESLIST.ListSize) + 1;
+}
+
+// Add every single-player character portrait to the multiplayer avatar list.
+// Keep the existing custom/user avatars and append the standard face_*.tga.tx set.
+void PS_AppendPortraitIcons()
+{
+	object oPortraits;
+	string sDirectory = "resource\textures\interfaces\portraits\256\";
+	int iCount = NFFindFiles(&oPortraits, sDirectory, "face_*.tga.tx", false);
+	int iStart = sti(GameInterface.FACESLIST.ListSize);
+	for (int i=0; i<iCount; i++)
+	{
+		string sSource = "f" + i;
+		string sTarget = "pic" + (iStart + i + 1);
+		GameInterface.FACESLIST.(sTarget).name1 = oPortraits.(sSource).FilePath;
+		GameInterface.FACESLIST.(sTarget).FileName = oPortraits.(sSource).FileName;
+		GameInterface.FACESLIST.(sTarget).FileName.Name = oPortraits.(sSource).Name;
+		GameInterface.FACESLIST.(sTarget).FileName.Ext = oPortraits.(sSource).Ext;
+	}
+	GameInterface.FACESLIST.ListSize = iStart + iCount;
+	Trace("PlayerSettings: added single-player portraits: " + iCount);
+}
+
 void PS_FillProfilesTable()
 {
-	Table_Clear("TABLE_PROFILES", false, true, false);
+    Table_Clear("TABLE_PROFILES", false, true, false);
 
-	int iCurProfileIndex = -1;
-	string sCurProfileName = ""
-	if (CheckAttribute(&NCProfiles, "CurProfile")) { sCurProfileName = NCProfiles.CurProfile; }
+    string sCurProfileName = "";
 
-	// fill profiles table
-	if (CheckAttribute(&NCProfiles, "Profiles"))
-	{
-		aref arProfiles;	makearef(arProfiles, NCProfiles.Profiles);
-		int iNumProfiles = GetAttributesNum(arProfiles);
-		for (int i=0; i<iNumProfiles; i++)
-		{
-			aref arProfile; arProfile = GetAttributeN(arProfiles, i);
-			string sAttr = "tr" + (i + 1);
-			GameInterface.TABLE_PROFILES.(sAttr).td1.str = arProfile.Name;
-			if (arProfile.Name == sCurProfileName) { iCurProfileIndex = i; }
-		}
-	}
+    // First priority: the last profile selected by the player.
+    if (CheckAttribute(&NCProfiles, "LastProfile.NickName"))
+    {
+        sCurProfileName = NCProfiles.LastProfile.NickName;
+    }
 
-	Table_UpdateWindow("TABLE_PROFILES");
+    // Fallback: current profile name.
+    if (sCurProfileName == "" && CheckAttribute(&NCProfiles, "CurProfile"))
+    {
+        sCurProfileName = NCProfiles.CurProfile;
+    }
 
-	// select current profile
-	//if (iCurProfileIndex >= 0) { Event("TableSelectChange", "sl", "TABLE_PROFILES", iCurProfileIndex); }
+    // Fallback: current network nickname.
+    if (sCurProfileName == "" && CheckAttribute(&NetClient, "NickName"))
+    {
+        sCurProfileName = NetClient.NickName;
+    }
+
+    int iCurProfileIndex = -1;
+
+    if (CheckAttribute(&NCProfiles, "Profiles"))
+    {
+        aref arProfiles;
+        makearef(arProfiles, NCProfiles.Profiles);
+
+        int iNumProfiles = GetAttributesNum(arProfiles);
+
+        for (int i = 0; i < iNumProfiles; i++)
+        {
+            aref arProfile;
+            arProfile = GetAttributeN(arProfiles, i);
+
+            string sAttr = "tr" + (i + 1);
+            GameInterface.TABLE_PROFILES.(sAttr).td1.str = arProfile.Name;
+
+            if (arProfile.Name == sCurProfileName)
+            {
+                iCurProfileIndex = i;
+            }
+        }
+    }
+
+    Table_UpdateWindow("TABLE_PROFILES");
+
+        // Select current profile before updating the table.
+    if (iCurProfileIndex >= 0)
+    {
+        int iSelected = iCurProfileIndex + 1;
+
+        GameInterface.TABLE_PROFILES.select = iSelected;
+
+        // Keep the selected row visible.
+        if (iSelected > 22)
+        {
+            GameInterface.TABLE_PROFILES.top = iSelected - 22;
+        }
+        else
+        {
+            GameInterface.TABLE_PROFILES.top = 0;
+        }
+
+        Trace("PlayerSettings: table selection = " + iSelected);
+        Trace("PlayerSettings: current profile = " + sCurProfileName);
+    }
+    else
+    {
+        GameInterface.TABLE_PROFILES.select = 0;
+        GameInterface.TABLE_PROFILES.top = 0;
+
+        Trace("PlayerSettings: current profile not found: " + sCurProfileName);
+    }
+
+    Table_UpdateWindow("TABLE_PROFILES");
+
+    // Load profile settings into interface controls.
+    if (iCurProfileIndex >= 0)
+    {
+        PS_LoadProfile(iCurProfileIndex + 1);
+    }
+}
+
+void PS_LoadProfile(int iSelected)
+{
+    if (iSelected < 1) return;
+
+    aref arProfiles;
+    makearef(arProfiles, NCProfiles.Profiles);
+
+    aref arProfile;
+    arProfile = GetAttributeN(arProfiles, iSelected - 1);
+
+    GameInterface.EDITBOX_PLAYERNAME.str = arProfile.Name;
+    GameInterface.EDITBOX_PLAYERPASSWORD.str = arProfile.Password;
+    GameInterface.EDITBOX_PLAYERSHIPNAME.str = arProfile.ShipName;
+
+    // Sail color.
+    ScrollImage_SetPosition("COLORSLIST", sti(arProfile.ColorSail));
+
+    // Avatar.
+    ScrollImage_SetPosition("FACESLIST",
+        PS_FindIndex("FACESLIST", arProfile.ImageFace));
+
+    // Flag.
+    ScrollImage_SetPosition("FLAGSLIST",
+        PS_FindIndex("FLAGSLIST", arProfile.ImageFlag));
+
+    // Sails.
+    ScrollImage_SetPosition("SAILSLIST",
+        PS_FindIndex("SAILSLIST", arProfile.ImageSail));
 }
 
 void PS_TableSelectChange()
 {
-	string sControl = GetEventData();
-	int iSelected = GetEventData();
+    string sControl = GetEventData();
+    int iSelected = GetEventData();
 
-	aref arProfiles;	makearef(arProfiles, NCProfiles.Profiles);
-	aref arProfile;		arProfile = GetAttributeN(arProfiles, iSelected - 1);
-
-	GameInterface.EDITBOX_PLAYERNAME.str = arProfile.Name;
-	GameInterface.EDITBOX_PLAYERPASSWORD.str = arProfile.Password;
-	GameInterface.EDITBOX_PLAYERSHIPNAME.str = arProfile.ShipName;
-
-	// select saved sail color
-	ScrollImage_SetPosition("COLORSLIST", sti(arProfile.ColorSail));
-
-	// select saved face
-	ScrollImage_SetPosition("FACESLIST", PS_FindIndex("FACESLIST", arProfile.ImageFace));
-
-	// select saved flag
-	ScrollImage_SetPosition("FLAGSLIST", PS_FindIndex("FLAGSLIST", arProfile.ImageFlag));
-
-	// select sail
-	ScrollImage_SetPosition("SAILSLIST", PS_FindIndex("SAILSLIST", arProfile.ImageSail));
+    PS_LoadProfile(iSelected);
 }
 
 int PS_FindIndex(string sControl, string sName)

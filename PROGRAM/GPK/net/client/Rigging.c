@@ -52,7 +52,15 @@ ref NetClient_procGetSailTextureData()
 
 	DeleteAttribute(&BI_objRetValue, "");
 	// sails upgrade
-	BI_objRetValue.normalTex = "ships\parus_" + NetShipSailUpgrade[sti(arClient.ship.Upgrades.Sails) - 1].str + ".tga";
+	if (sti(arClient.ship.Upgrades.Sails) == 4)
+	{
+		// Dedicated Flying Dutchman sail texture; deliberately skip national emblems below.
+		BI_objRetValue.normalTex = "ships\parus_common_torn.tga";
+	}
+	else
+	{
+		BI_objRetValue.normalTex = "ships\parus_" + NetShipSailUpgrade[sti(arClient.ship.Upgrades.Sails) - 1].str + ".tga";
+	}
 
 	BI_objRetValue.sailscolor = argb(255,255,255,255);
 	//BI_objRetValue.geraldTex = "Net\Sails\france.tga";
@@ -71,27 +79,34 @@ ref NetClient_procGetSailTextureData()
 		shref = Net_GetShipByIndex(st);
 		BI_objRetValue.maxSP = shref.sp;
 
-		if (CheckAttribute(shref, "GeraldSails")) 
+		if (sti(arClient.ship.Upgrades.Sails) != 4)
 		{
-			makearef(arEmbl, shref.GeraldSails);
-		} else {
-			makearef(arEmbl, shref.NetGeraldSails);
-		}
-		sq = GetAttributesNum(arEmbl);
-		for(i=0; i<sq; i++)
-		{
-			arSail = GetAttributeN(arEmbl,i);
-			attrName = GetAttributeName(arSail);
-			tmpStr = GetAttributeValue(arSail);
-			if(tmpStr=="1")	{BI_objRetValue.(attrName) = nationFileName;}
-			else	{BI_objRetValue.(attrName) = tmpStr;}
+			if (CheckAttribute(shref, "GeraldSails"))
+			{
+				makearef(arEmbl, shref.GeraldSails);
+			}
+			else
+			{
+				makearef(arEmbl, shref.NetGeraldSails);
+			}
+
+			sq = GetAttributesNum(arEmbl);
+			for(i=0; i<sq; i++)
+			{
+				arSail = GetAttributeN(arEmbl,i);
+				attrName = GetAttributeName(arSail);
+				tmpStr = GetAttributeValue(arSail);
+				if(tmpStr=="1")	{BI_objRetValue.(attrName) = nationFileName;}
+				else	{BI_objRetValue.(attrName) = tmpStr;}
+			}
 		}
 	}
 	// проставляем гербовый знак (в текстуре или при помощи поинтера на текстуру)
 	//BI_objRetValue.geraldTex = "ships\gerald\8ball1.tga";
 	//BI_objRetValue.geraldTexPointer = 0; // (IDirect3DTexture8*)
 
-	BI_objRetValue.geraldTexPointer = arClient.UserData.Sail.Texture;
+	if (sti(arClient.ship.Upgrades.Sails) == 4) { BI_objRetValue.geraldTexPointer = 0; }
+	else { BI_objRetValue.geraldTexPointer = arClient.UserData.Sail.Texture; }
 
 	return &BI_objRetValue;
 }

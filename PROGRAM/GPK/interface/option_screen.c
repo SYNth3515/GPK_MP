@@ -93,6 +93,15 @@ void ProcessOkExit()
 
 void ProcessExit()
 {
+	// COOP: the options screen was opened from the Esc menu of the net game: go back to that menu (not to the main menu)
+	if( CheckAttribute(&InterfaceStates,"NetOptionsReturn") && sti(InterfaceStates.NetOptionsReturn) == true ) {
+		DeleteAttribute(&InterfaceStates,"NetOptionsReturn");
+		InterfaceStates.InstantExit = true;
+		IDoExit(RC_INTERFACE_NET_OPTIONS_EXIT);
+		DeleteAttribute(&InterfaceStates,"InstantExit");
+		return;
+	}
+
 	if( CheckAttribute(&InterfaceStates,"showGameMenuOnExit") && sti(InterfaceStates.showGameMenuOnExit) == true) {
 		IDoExit(RC_INTERFACE_LAUNCH_GAMEMENU);
 		return;

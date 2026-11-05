@@ -3,6 +3,7 @@ int iMaxNumPlayers, iGameSpeed, iTimeLimit, iStartPosition, iCredit, iMaxShipCla
 int iGameTime = 0; 
 int iWeatherType = 0;
 int iNumTeams = 2;
+int iRespawnTime = 30;		// COOP: seconds between the death and the respawn (slider SBAR_RESPAWN, shown only with respawn on)
 
 void InitInterface(string iniName)
 {
@@ -32,6 +33,17 @@ void InitInterface(string iniName)
 	// select checkbox LAN game
 	CheckButton_SetState("CHECKBUTTON_LAN", 1, true);
 
+	// P2P: server port (default 29020) and the P2P switch, which appears together with the Internet switch
+	GameInterface.EDITBOX_SERVERPORT.str = "" + NET_DEFAULT_SERVER_PORT;
+	CheckButton_SetState("CHECKBUTTON_P2P", 1, false);
+	SetNodeUsing("CHECKBUTTON_P2P", false);
+
+	// COOP: new switches, all off by default (old behaviour; the brander needs "All active perks")
+	CheckButton_SetState("CHECKBUTTON_RESPAWN", 1, false);
+	CheckButton_SetState("CHECKBUTTON_NOBOARDING", 1, false);
+	CheckButton_SetState("CHECKBUTTON_PASSIVEPERKS", 1, false);
+	CheckButton_SetState("CHECKBUTTON_ACTIVEPERKS", 1, false);
+
 	iMaxNumPlayers = NET_MAXCLIENTS;		
 	iGameSpeed = 1;
 	iTimeLimit = 0;
@@ -47,11 +59,16 @@ void InitInterface(string iniName)
 	CS_SetCredit();
 	CS_SetMaxShipClass();
 
+	iRespawnTime = NET_RESPAWN_DELAY / 1000;
+	CS_SetRespawnTime();
+	CS_ShowRespawnTime(false);		// the respawn switch is off by default
+
 	SetEventHandler("OnCreate", "OnCreate", 0);
 
 	SetEventHandler("OnCancel", "OnCancel", 0);
 
-	SetEventHandler("TableSelectChange", "CS_TableSelectChange", 0);	
+	SetEventHandler("TableSelectChange", "CS_TableSelectChange", 0);
+	SetEventHandler("eSlideChange", "CS_SlideChange", 0);	
 
 	SetEventHandler("AddPlayer", "CS_AddPlayer", 0);
 	SetEventHandler("DecPlayer", "CS_DecPlayer", 0);
@@ -86,7 +103,6 @@ void InitInterface(string iniName)
 	XI_WindowShow("WND_RECREATE", false);
 	XI_WindowDisable("WND_RECREATE", true);
 
-	CheckButton_SetDisable("CHECKBUTTON_DEDICATED", 1, true);
 	//CheckButton_SetDisable("CHECKBUTTON_INET", 1, true);
 }
 
@@ -163,12 +179,76 @@ void CS_DecStartPosition() { iStartPosition--; CS_SetStartPosition(); }
 
 void CS_SetCredit()
 {
-	if (iCredit < 5000) { iCredit = 5000; }
-	StringCollection_SetTextValue("STRINGS_VALUE", 6, iCredit);
-	//Gameinterface.strings.Credit = iCredit;
+    if (iCredit < 1000) { iCredit = 1000; }
+    if (iCredit > 1000000) { iCredit = 1000000; }
+
+    StringCollection_SetTextValue("STRINGS_VALUE", 6, iCredit);
+
+    float fCredit = (iCredit - 1000.0) / 999000.0;
+
+    GameInterface.nodes.SBAR_CREDIT.value = fCredit;
+
+    SendMessage(&GameInterface, "lslf",
+        MSG_INTERFACE_MSG_TO_NODE, "SBAR_CREDIT", 0, fCredit);
 }
-void CS_AddCredit() { iCredit = iCredit + 1000 * CS_IsShift(10, 1, 100); CS_SetCredit(); }
-void CS_DecCredit() { iCredit = iCredit - 1000 * CS_IsShift(10, 1, 100); CS_SetCredit(); }
+
+void CS_AddCredit()
+{
+    iCredit += 1000 * CS_IsShift(10, 1, 100);
+    CS_SetCredit();
+}
+
+void CS_DecCredit()
+{
+    iCredit -= 1000 * CS_IsShift(10, 1, 100);
+    CS_SetCredit();
+}
+
+void CS_SlideChange()
+{
+    string sNodeName = GetEventData();
+    int nVal = GetEventData();
+    float fVal = GetEventData();
+
+    // COOP: respawn time slider
+    if (sNodeName == "SBAR_RESPAWN")
+    {
+        if (fVal < 0.0) { fVal = 0.0; }
+        if (fVal > 1.0) { fVal = 1.0; }
+        iRespawnTime = NET_RESPAWN_TIME_MIN + makeint(fVal * (NET_RESPAWN_TIME_MAX - NET_RESPAWN_TIME_MIN) + 0.5);
+        CS_SetRespawnTime();
+        return;
+    }
+
+    if (sNodeName != "SBAR_CREDIT") { return; }
+
+    if (fVal < 0.0) { fVal = 0.0; }
+    if (fVal > 1.0) { fVal = 1.0; }
+
+    iCredit = 1000 + makeint(fVal * 999000.0);
+
+    CS_SetCredit();
+}
+
+// COOP: respawn time (seconds) - text and slider position
+void CS_SetRespawnTime()
+{
+    if (iRespawnTime < NET_RESPAWN_TIME_MIN) { iRespawnTime = NET_RESPAWN_TIME_MIN; }
+    if (iRespawnTime > NET_RESPAWN_TIME_MAX) { iRespawnTime = NET_RESPAWN_TIME_MAX; }
+
+    SetFormatedText("TEXT_RESPAWN_TIME", XI_ConvertString("capNetCS_Respawn") + ": " + iRespawnTime + " сек.");
+
+    float fPos = MakeFloat(iRespawnTime - NET_RESPAWN_TIME_MIN) / MakeFloat(NET_RESPAWN_TIME_MAX - NET_RESPAWN_TIME_MIN);
+    GameInterface.nodes.SBAR_RESPAWN.value = fPos;
+    SendMessage(&GameInterface, "lslf", MSG_INTERFACE_MSG_TO_NODE, "SBAR_RESPAWN", 0, fPos);
+}
+
+// the slider and its text are shown only while the respawn switch is on
+void CS_ShowRespawnTime(bool bShow)
+{
+    SetNodeUsing("SBAR_RESPAWN", bShow);
+    SetNodeUsing("TEXT_RESPAWN_TIME", bShow);
+}
 
 void CS_SetMaxShipClass()
 {
@@ -293,6 +373,7 @@ void IDoExit(int exitCode)
 	DelEventHandler("DecMaxShipClass", "CS_DecMaxShipClass");
 
 	DelEventHandler("CheckButtonChange", "CS_CheckButtonChange");
+	DelEventHandler("eSlideChange", "CS_SlideChange");
 
 	interfaceResultCommand = exitCode;
 	EndCancelInterface(true);
@@ -304,6 +385,20 @@ void CS_CheckButtonChange()
 	int iButtonNumber = GetEventData();
 	int bChecked = GetEventData();
 	
+	// COOP: respawn time slider next to the respawn switch
+	if (sNode == "CHECKBUTTON_RESPAWN")
+	{
+		CS_ShowRespawnTime(bChecked);
+		if (bChecked) { CS_SetRespawnTime(); }
+	}
+
+	// P2P: the switch exists only for Internet servers and is on by default there
+	if (sNode == "CHECKBUTTON_INET")
+	{
+		SetNodeUsing("CHECKBUTTON_P2P", bChecked);
+		CheckButton_SetState("CHECKBUTTON_P2P", 1, bChecked);
+	}
+
 	if (sNode == "CHECKBUTTON_LAN" && !bChecked)
 	{
 		//CheckButton_SetState("CHECKBUTTON_LAN", 1, true);
@@ -376,10 +471,11 @@ void CS_CreateServer()
 	}
 
 	oSrvParams.ServerName = GameInterface.EDITBOX_GAMENAME.str;
-	oSrvParams.ServerPort = NET_DEFAULT_SERVER_PORT;
+	oSrvParams.ServerPort = sti(GameInterface.EDITBOX_SERVERPORT.str);
 	oSrvParams.ServerPassword = GameInterface.EDITBOX_GAMEPASSWORD.str;
 	oSrvParams.AdminPassword = GameInterface.EDITBOX_ADMINPASSWORD.str;	// COOP: empty = nobody can become an admin
-	oSrvParams.Dedicated = sti(GameInterface.CHECKBUTTON_DEDICATED.state1);
+	oSrvParams.Dedicated = 0;
+	oSrvParams.P2P = sti(GameInterface.CHECKBUTTON_INET.state1) && sti(GameInterface.CHECKBUTTON_P2P.state1);
 	oSrvParams.LanServer = sti(GameInterface.CHECKBUTTON_LAN.state1);
 	oSrvParams.InetServer = sti(GameInterface.CHECKBUTTON_INET.state1);
 	oSrvParams.UpdateMasterServer = true;
@@ -397,12 +493,27 @@ void CS_CreateServer()
 	oSrvParams.AllowUpload = true;
 	oSrvParams.AllowDownload = true;
 
+	// COOP: respawn, boarding off, all passive / active sea perks of single player
+	oSrvParams.Respawn = CS_GetCheck("CHECKBUTTON_RESPAWN");
+	oSrvParams.RespawnTime = iRespawnTime;
+	oSrvParams.NoBoarding = CS_GetCheck("CHECKBUTTON_NOBOARDING");
+	oSrvParams.PassivePerks = CS_GetCheck("CHECKBUTTON_PASSIVEPERKS");
+	oSrvParams.ActivePerks = CS_GetCheck("CHECKBUTTON_ACTIVEPERKS");
+
 	Trace("COOP: CS_CreateServer: params ready");
 	Net_CreateServer(&oSrvParams);
 	Trace("COOP: CS_CreateServer: Net_CreateServer returned");
 
 	IDoExit(RC_INTERFACE_NET_FINDGAME);
 	Trace("COOP: CS_CreateServer: IDoExit done");
+}
+
+// COOP: state of a check button with one section (0 / 1)
+int CS_GetCheck(string sNode)
+{
+	if (!CheckAttribute(&GameInterface, sNode + ".state1")) { return 0; }
+	if (sti(GameInterface.(sNode).state1)) { return 1; }
+	return 0;
 }
 
 void CS_OnMustOk() { XI_WindowDisable("WND_NETCREATEGAME", false); }
@@ -477,6 +588,22 @@ void OnCreate()
 	if (!CS_IsIslandAllowedForMode(CS_GetCurrentIsland(), iGameType))
 	{
 		SetFormatedText("TEXT_OK", "Этот остров доступен только в режимах Deathmatch и Team Deathmatch.");
+
+		XI_WindowDisable("WND_NETCREATEGAME", true);
+
+		XI_WindowShow("WND_OK", true);
+		XI_WindowDisable("WND_OK", false);
+
+		SetEventHandler("OnOk", "CS_OnOk", 0);
+
+		return;
+	}
+
+	// P2P: server port must be a number 1024..65535
+	int iPortValue = sti(GameInterface.EDITBOX_SERVERPORT.str);
+	if ("" + iPortValue != GameInterface.EDITBOX_SERVERPORT.str || iPortValue < 1024 || iPortValue > 65535)
+	{
+		SetFormatedText("TEXT_OK", "Порт должен быть числом от 1024 до 65535.");
 
 		XI_WindowDisable("WND_NETCREATEGAME", true);
 

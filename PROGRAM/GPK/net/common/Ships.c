@@ -26,6 +26,102 @@ int Net_GetShipCost(int iShipIndex)
 	return sti(NetShips[iShipIndex].Cost); 
 }
 
+// COOP: crew hiring, price of one sailor is NET_CREW_COST (Net_Defines.h)
+// number of sailors for the chosen percent (10..100) of the ship's MaxCrew
+int Net_GetCrewCount(int iShipIndex, int iCrewPercent)
+{
+	if (iShipIndex < 0) { return 0; }
+	int iMaxCrew = sti(NetShips[iShipIndex].MaxCrew);
+	if (iMaxCrew <= 0) { return 0; }
+	int iCrew = (iMaxCrew * iCrewPercent + 50) / 100;
+	if (iCrew < 1) { iCrew = 1; }
+	if (iCrew > iMaxCrew) { iCrew = iMaxCrew; }
+	return iCrew;
+}
+
+// COOP: number of cannons for the percent chosen in the lobby (0..100)
+int Net_GetCannonsCountByPercent(int iShipIndex, int iPercent)
+{
+	int iTotal = Net_GetShipCannonsNum(iShipIndex);
+	if (iPercent >= 100) { return iTotal; }
+	if (iPercent <= 0) { return 0; }
+	int iNum = (iTotal * iPercent + 50) / 100;
+	if (iNum > iTotal) { iNum = iTotal; }
+	return iNum;
+}
+
+// COOP: cannons of a bort of the ship type (0 bow, 1 stern, 2 left, 3 right)
+string Net_BortLetter(int iBort)
+{
+	switch (iBort)
+	{
+		case 0: return "f"; break;
+		case 1: return "b"; break;
+		case 2: return "l"; break;
+	}
+	return "r";
+}
+
+int Net_GetBortMax(int iShipIndex, int iBort)
+{
+	if (iShipIndex < 0) { return 0; }
+	string sAttr = Net_BortLetter(iBort) + "cannon";
+	if (!CheckAttribute(&NetShips[iShipIndex], sAttr)) { return 0; }
+	return sti(NetShips[iShipIndex].(sAttr));
+}
+
+// iCount cannons spread over the borts in proportion to their places (the rest goes to the sides first)
+int Net_DistributeCannons(int iShipIndex, int iCount, int iBort)
+{
+	int i;
+	int iTotal = 0;
+	int iMax[4];
+	int iNum[4];
+	for (i=0; i<NET_BORT_NUM; i++) { iMax[i] = Net_GetBortMax(iShipIndex, i); iTotal = iTotal + iMax[i]; }
+	if (iTotal <= 0) { return 0; }
+	if (iCount >= iTotal) { return iMax[iBort]; }
+	if (iCount <= 0) { return 0; }
+	int iSum = 0;
+	for (i=0; i<NET_BORT_NUM; i++) { iNum[i] = (iMax[i] * iCount) / iTotal; iSum = iSum + iNum[i]; }
+	int iOrder[4];
+	iOrder[0] = 3; iOrder[1] = 2; iOrder[2] = 0; iOrder[3] = 1;		// right, left, bow, stern
+	int k = 0;
+	int iGuard = 0;
+	while (iSum < iCount && iGuard < 400)
+	{
+		int b = iOrder[k];
+		if (iNum[b] < iMax[b]) { iNum[b] = iNum[b] + 1; iSum = iSum + 1; }
+		k = k + 1; if (k >= NET_BORT_NUM) { k = 0; }
+		iGuard = iGuard + 1;
+	}
+	return iNum[iBort];
+}
+
+// COOP: weight of the load like RecalculateCargoLoad of single player: cannons + 1 cwt per sailor + goods
+// (iGoodsWeight - weight of all goods, Net_GetGoodWeight)
+int Net_GetShipLoadWeight(int iCannonType, int iCannonsNum, int iCrew, int iGoodsWeight)
+{
+	int iLoad = iCrew + iGoodsWeight;
+	if (iCannonType >= 0 && iCannonsNum > 0)
+	{
+		ref rCannon = Net_GetCannonByIndex(iCannonType);
+		iLoad = iLoad + iCannonsNum * sti(rCannon.SPWeight);
+	}
+	return iLoad;
+}
+
+int Net_GetShipCapacity(int iShipIndex)
+{
+	if (iShipIndex < 0) { return 0; }
+	return sti(NetShips[iShipIndex].Capacity);
+}
+
+// hiring price of that crew
+int Net_GetCrewCost(int iShipIndex, int iCrewPercent)
+{
+	return Net_GetCrewCount(iShipIndex, iCrewPercent) * NET_CREW_COST;
+}
+
 int Net_GetShipUpgradeHullCost(int iShipIndex, int iHullUpgradeIndex)
 {
 	if (iShipIndex < 0) { return 0; }
@@ -89,6 +185,7 @@ void Net_InitShips()
 		refship.Upgrades.Rigging1	= 0;
 		refship.Upgrades.Rigging2	= 1300;
 		refship.Upgrades.Rigging3	= 13000;
+		refship.Upgrades.Rigging4	= 0;
 
 		refShip.MaxCaliber	= 12;
 		refShip.Cannon = "";
@@ -198,6 +295,8 @@ void Net_InitShips()
 	makeref(refShip, NetShips[n]); n++;
 	refShip.Name							= "WarTartane";
 	refShip.Class							= 7;
+	refship.SpeedDependWeight				= 0.2;		// COOP: single player values (ships\ships_init.c), the load slows the ship down
+	refship.TurnDependWeight				= 0.2;
 	refShip.Cannon							= CANNON_TYPE_CANNON_LBS12;
 	refShip.MaxCaliber						= 8;
 	refShip.Weight							= Tonnes2CWT(10);

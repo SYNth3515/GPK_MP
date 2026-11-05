@@ -41,7 +41,14 @@ void NetServer_OnBuy_TeamChangeRequest(int wNetClientID, int iMsg)
 	ref rClient = NetServer_GetCLient(wNetClientID);
 	int iNewTeam = NMGetByte(iMsg);
 
-	if (iSecondsToStartGame >= 0) { return; }
+	// COOP: in the running game a player in the lobby (no ship yet) can still choose his team
+	if (!bServerGameStarted && iSecondsToStartGame >= 0) { return; }
+	if (bServerGameStarted)
+	{
+		if (NetServer_HasShip(wNetClientID)) { return; }
+		if (NetServer_IsInGame(wNetClientID)) { return; }
+	}
+	if (iNewTeam < 0 || iNewTeam >= 4) { return; }
 
 	rClient.Team = iNewTeam;
 	rClient.BuyReady = false;
@@ -69,6 +76,7 @@ void NetServer_OnBuy_Ready(int wNetClientID)
 
 	// countdown already started
 	if (iSecondsToStartGame >= 0) { return; }
+	if (bServerGameStarted) { return; }		// COOP: the running game is joined with the "Start" button (NetServer_OnCommandStartGame)
 
 	// if client alone on server - dont start countdown
 	if ((!NET_DEBUG) && NetServer_GetNumClients() == 1) { return; }
@@ -116,14 +124,35 @@ void NetServer_OnBuy_Ready(int wNetClientID)
 // Note: like before, the server does not check WHO sent the command (the lobby shows the button only to the host).
 void NetServer_OnCommandStartGame(int wNetClientID)
 {
-	// already started, or the start was already requested (double click, countdown ended at the same time)
-	if (bServerGameStarted || bServerStartRequested) { return; }
-
-	if (!NET_DEBUG)
+	// COOP: the game is running: this is a player from the lobby who wants to join it ("Start" button of the lobby).
+	// He gets the buy info request; his answer (NetServer_OnBuy_FullInfo) puts his ship into the game.
+	if (bServerGameStarted)
 	{
-		if (NetServer_GetNumClients() <= 1) { return; }
-		if (sti(NetServer.GameType) != NETGAME_DEATHMATCH && NetServer_GetNumTeams() <= 1) { return; }
+		if (wNetClientID < 0 || wNetClientID >= NET_MAXCLIENTS) { return; }
+		if (!sti(NSClients[wNetClientID].Use)) { return; }
+		if (NetServer_IsInGame(wNetClientID)) { return; }
+		// (a repeated press only repeats the request: the ship is created once, see NetServer_OnBuy_FullInfo)
+		NSClients[wNetClientID].JoinRequested = true;
+
+		// reconnect: the old ship is given back at once
+		if (CheckAttribute(&NSClients[wNetClientID], "Reconnect") && sti(NSClients[wNetClientID].Reconnect) && NetServer_HasShip(wNetClientID))
+		{
+			NetServer_LateJoin(wNetClientID, true);
+			return;
+		}
+
+		int iJSMsg = NMCreate();
+		NMAddByte(iJSMsg, NC_STARTGAME);
+		NMAddByte(iJSMsg, NSC_STARTGAME_GETBUYINFO);
+		NetServer_SendMessage(wNetClientID, iJSMsg, true);
+		NMDelete(iJSMsg);
+		return;
 	}
+
+	// already started, or the start was already requested (double click, countdown ended at the same time)
+	if (bServerStartRequested) { return; }
+
+	// COOP: the host can start alone (other players join the running game later), in team games with one team too
 
 	bServerStartRequested = true;
 
@@ -176,15 +205,23 @@ void NetServer_OnBuy_FullInfo(int wNetClientID, int iMsg)
 
 	ref rClient = NetServer_GetCLient(wNetClientID);
 
+	// COOP: a player who already has a ship in the running game can not buy again (a repeated / late packet)
+	if (bServerGameStarted)
+	{
+		if (NetServer_IsInGame(wNetClientID)) { return; }
+		if (NetServer_HasShip(wNetClientID)) { return; }
+	}
+
 	// receive and calculates all 
 	int iShipType = NMGetWord(iMsg);
 	int iShipUpgradeHull = NMGetByte(iMsg);
 	int iShipUpgradeRigging = NMGetByte(iMsg);
+	if (iShipUpgradeRigging < 1 || iShipUpgradeRigging > 4) { iShipUpgradeRigging = 1; }
 
 	int iCannonsType = NMGetByte(iMsg);
 	int iCannonsUpgrade = NMGetByte(iMsg);
 
-	int iSkills[8], iPerks[6], iGoods[6];
+	int iSkills[8], iPerks[6], iGoods[8];
 
 	// add skills money
 	for (i=0; i<Net_GetSkillsNum(); i++) 
@@ -201,7 +238,7 @@ void NetServer_OnBuy_FullInfo(int wNetClientID, int iMsg)
 	}
 
 	// add goods money
-	for (i=0; i<6; i++) 
+	for (i=0; i<Net_GetGoodsNum(); i++) 
 	{ 
 		iGoods[i] = NMGetWord(iMsg); 
 		iCredit = iCredit + Net_GetGoodCost(i, iGoods[i]);
@@ -211,6 +248,24 @@ void NetServer_OnBuy_FullInfo(int wNetClientID, int iMsg)
 		rClient.Ship.Goods.(sGood) = iGoods[i];
 	}
 
+	int iCrewPercent = NMGetByte(iMsg);
+	if (iCrewPercent < 10) { iCrewPercent = 10; }
+	if (iCrewPercent > 100) { iCrewPercent = 100; }
+	iCredit = iCredit + Net_GetCrewCost(iShipType, iCrewPercent);	// hiring the crew is paid
+
+	// start charge chosen in the buy menu (0 balls, 1 grapes, 2 knippels, 3 bombs); if there is none of it in the hold, the first available one
+	int iStartCharge = NMGetByte(iMsg);
+	if (iStartCharge < 0 || iStartCharge > 3) { iStartCharge = 0; }
+	if (iGoods[iStartCharge] <= 0)
+	{
+		for (i=0; i<4; i++) { if (iGoods[i] > 0) { iStartCharge = i; break; } }
+	}
+
+	// COOP: percent of the cannons bought in the lobby (sent as percent + 1; 0 = an old client = all cannons)
+	int iCannonsPercent = NMGetByte(iMsg) - 1;
+	if (iCannonsPercent < 0 || iCannonsPercent > 100) { iCannonsPercent = 100; }
+
+	if (iShipType < 0 || iShipType >= Net_GetShipsNum()) { iShipType = 0; }		// COOP: never a broken ship type
 	ref rShip = Net_GetShipByIndex(iShipType);
 
 	float fShipMaxHP = stf(rShip.HP) * (1.0 + stf(NetShipHullUpgrades[iShipUpgradeHull - 1].hp) / 100.0);
@@ -224,8 +279,16 @@ void NetServer_OnBuy_FullInfo(int wNetClientID, int iMsg)
 	rClient.Ship.Cannons.Borts = "";
 	rClient.Ship.Cannons.Type = iCannonsType;
 	rClient.Ship.Upgrades.Cannons = iCannonsUpgrade;
-	rClient.Ship.Cannons.Charge.Type = 0;				// balls // but check first available
-	rClient.Ship.Crew.Quantity = sti(rShip.MaxCrew);
+	rClient.Ship.Cannons.Charge.Type = iStartCharge;
+	rClient.Ship.Crew.Quantity = Net_GetCrewCount(iShipType, iCrewPercent);
+	DeleteAttribute(rClient, "Ship.ShotAcc");
+	NetServer_SetBortsByCount(rClient, Net_GetCannonsCountByPercent(iShipType, iCannonsPercent));		// COOP: cannons on the borts
+	rClient.Ship.MinesDropped = 0;
+	rClient.Ship.MineCooldown = 0;
+	rClient.Ship.BranderActive = 0;
+	rClient.Ship.BranderArmUntil = 0;
+	DeleteAttribute(rClient, "Ship.GoodsHeld");
+	DeleteAttribute(rClient, "Ship.AmmoLast");		// powder tracking starts from the new goods, not from the previous ship
 	rClient.Skills.Accuracy = iSkills[0];
 	rClient.Skills.Cannons = iSkills[1];
 	rClient.Skills.Sailing = iSkills[2];
@@ -244,6 +307,13 @@ void NetServer_OnBuy_FullInfo(int wNetClientID, int iMsg)
 	NetServer_CalculateReloadTime(rClient);
 
 	rClient.StartReady = true;
+
+	// COOP: the game is already running: this player joins it now with the ship he has just bought
+	if (bServerGameStarted)
+	{
+		if (!NetServer_IsInGame(wNetClientID)) { NetServer_LateJoin(wNetClientID, false); }
+		return;
+	}
 
 	// check for all clients ready
 	bool bAllClientsReady = true;

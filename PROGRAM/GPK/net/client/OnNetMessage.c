@@ -120,6 +120,9 @@ void NetClient_OnBroadcast(int dwIP, int wPort, int iMsg)
 		case NSC_BROADCAST_INET:
 			NetInterface_AddInternetServerToList(sServerName, inet_ntoa(dwIP), ntohs(wPort), bSecure, iGameType, iCredit, iMaxShipClass, sWeatherID, sIslandID, iNumClients, iMaxClients, iPingTime);
 		break;
+		case NSC_BROADCAST_FAVORITE:
+			NetInterface_UpdateFavoriteServer(sServerName, inet_ntoa(dwIP), ntohs(wPort), bSecure, iGameType, iCredit, iMaxShipClass, sWeatherID, sIslandID, iNumClients, iMaxClients, iPingTime);
+		break;
 	}
 }
 

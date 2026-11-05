@@ -51,6 +51,18 @@ void NetClient_CreateFortEnvironment(int iMsg)
 	LayerAddObject("net_realize", &NCFortBlots, 10001);*/
 
 	SendMessage(rFort, "laaii", MSG_NET_ADD_FORT, rIsland, arLocator, &NCFortModel, &NCFortBlots);
+
+	// COOP: data of the fort for the spyglass (own attributes only, the NetFort entity does not read them)
+	rFort.SpyGlass.Name = "";
+	if (CheckAttribute(arLocator, "fortname")) { rFort.SpyGlass.Name = arLocator.fortname; }
+	rFort.SpyGlass.x = stf(arLocator.x);
+	rFort.SpyGlass.z = stf(arLocator.z);
+	rFort.SpyGlass.CannonsTotal = 0;		// 0 = not known yet, the spyglass hides the cannons
+	rFort.SpyGlass.CannonsDamaged = 0;
+	rFort.SpyGlass.Crew = -1;				// -1 = not received yet
+	int iFortHasX = 0;
+	if (CheckAttribute(arLocator, "x")) { iFortHasX = 1; }
+	Trace("COOP: cli spyglass fort '" + rFort.SpyGlass.Name + "' x=" + rFort.SpyGlass.x + " z=" + rFort.SpyGlass.z + " hasX=" + iFortHasX);
 }
 
 void NetClient_OnFortCannonDestroy(int iMsg)
@@ -72,6 +84,19 @@ void NetClient_OnFortCannonDestroy(int iMsg)
 	CreateParticleSystem(sFortFireParticle, x, y, z, NetClient_WhrGetWindSpeed() / 48.0, NetClient_WhrGetWindAngle(), 0.0, 0);
 }
 
+// COOP: NSC_FORT_INFO, see server\Fort.c
+void NetClient_OnFortInfo(int iMsg)
+{
+	int iTotal = NMGetWord(iMsg);
+	int iDamaged = NMGetWord(iMsg);
+	int iCrew = NMGetWord(iMsg);
+
+	ref rFort = NetClient_GetClient(NET_FORTCLIENT);
+	rFort.SpyGlass.CannonsTotal = iTotal;
+	rFort.SpyGlass.CannonsDamaged = iDamaged;
+	rFort.SpyGlass.Crew = iCrew;
+}
+
 void NetClient_OnFort(int iMsg)
 {
 	int iSubCode = NMGetByte(iMsg);
@@ -80,6 +105,10 @@ void NetClient_OnFort(int iMsg)
 	{
 		case NSC_FORT_CANNON_DESTROY:		
 			NetClient_OnFortCannonDestroy(iMsg); 		
+		break;
+
+		case NSC_FORT_INFO:
+			NetClient_OnFortInfo(iMsg);
 		break;
 	}
 }

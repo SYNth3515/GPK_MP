@@ -1,4 +1,4 @@
-#define INTERFACE_QUANTITY				55
+#define INTERFACE_QUANTITY				56
 
 #define INTERFACE_STORE					0
 #define INTERFACE_SHIPYARD				1
@@ -57,6 +57,7 @@
 // <-- Warship
 // Ugeen -->
 #define INTERFACE_MAPVIEW				53 // Интерфейс атласа карт 
+#define INTERFACE_NET_DUMP				55
 #define INTERFACE_STORAGE				54 // Интерфейс склада
 // <-- Ugeen
 
@@ -131,6 +132,8 @@
 #define RC_INTERFACE_NET_PLAYERSETTINGS			45071
 #define RC_INTERFACE_NET_ENDGAME				45072
 #define RC_INTERFACE_NET_NETMENU				45073
+#define RC_INTERFACE_NET_DUMP					45090
+#define RC_INTERFACE_NET_OPTIONS_EXIT			45091	// COOP: the options screen opened from the net Esc menu is closed: back to the net menu
 #define RC_INTERFACE_LAUNCH_GAMEMENU			45074
 #define RC_INTERFACE_QUICK_SAVE					45075
 // boal -->

@@ -76,53 +76,65 @@ bool NetServer_OnShipSailRepair( int wOurClientID )
 	if( fCurSP < fMaxSP )
 	{
 		float fPercentSPRestore = fMaxSP * Bring2Range(0.0, 0.2, 0.1, 1.0, iSkillRepair / NETSKILL_MAX) / 30.0;
+		if (NetServer_PassivePerksFor(wOurClientID)) { fPercentSPRestore = fPercentSPRestore * 1.1; }	// COOP: passive perk Carpenter
 		if( fCurSP+fPercentSPRestore > fMaxSP ) {
 			fPercentSPRestore = fMaxSP - fCurSP;
 		}
 
-		int i,rq, j,gq;
-		string tmpstr;
-		aref arRoot,arGroup,arSail;
-		makearef(arRoot, rOurClient.ship.sails);
-		rq = GetAttributesNum(arRoot);
-
-		for(i=0; i<rq; i++)
-		{
-			arGroup = GetAttributeN(arRoot, i);
-			gq = GetAttributesNum(arGroup);
-			for(j=0; j<gq; j++)
-			{
-				arSail = GetAttributeN(arGroup, j);
-
-				if( CheckAttribute(arSail,"mastFall") )
-				{
-					tmpstr = "ship.masts."+arSail.mastFall;
-					if( CheckAttribute(rOurClient,tmpstr) && stf(rOurClient.(tmpstr))>=1.0 )	{continue;}
-				}
-				fPercentSPRestore -= Net_OneSailDmgRepair(rOurClient,arGroup,arSail,fPercentSPRestore);
-				if(fPercentSPRestore<=0.0) {break;}
-				if(!CheckAttribute(rOurClient,"ship.sails")) break;
-				if( GetAttributesNum(arRoot) != rq ) break;
-				if( GetAttributesNum(arGroup) != gq )
-				{
-					gq = GetAttributesNum(arGroup);
-					j--;
-				}
-			}
-			if( fPercentSPRestore <= 0.0 ) {break;}
-			if( !CheckAttribute(rOurClient,"ship.sails") ) break;
-			if( GetAttributesNum(arRoot) != rq )
-			{
-				rq = GetAttributesNum(arRoot);
-				i--;
-			}
-		}
-
-		rOurClient.ship.sp = Net_CalculateShipSP(rOurClient);
+		NetServer_ShipSailRepairBy(rOurClient, fPercentSPRestore);
 		bNotEnoughSailcloth = false;
 	}
 
 	return bNotEnoughSailcloth;
+}
+
+// COOP: repairs fPercentSPRestore points of sail damage (the sails of the ship lose their holes), returns the repaired amount.
+// The same loop as before (it was the body of NetServer_OnShipSailRepair), used by the active perks LightRepair / InstantRepair too.
+float NetServer_ShipSailRepairBy(ref rOurClient, float fPercentSPRestore)
+{
+	float fWanted = fPercentSPRestore;
+	int i,rq, j,gq;
+	string tmpstr;
+	aref arRoot,arGroup,arSail;
+	if (!CheckAttribute(rOurClient, "ship.sails")) { return 0.0; }
+	makearef(arRoot, rOurClient.ship.sails);
+	rq = GetAttributesNum(arRoot);
+
+	for(i=0; i<rq; i++)
+	{
+		arGroup = GetAttributeN(arRoot, i);
+		gq = GetAttributesNum(arGroup);
+		for(j=0; j<gq; j++)
+		{
+			arSail = GetAttributeN(arGroup, j);
+
+			if( CheckAttribute(arSail,"mastFall") )
+			{
+				tmpstr = "ship.masts."+arSail.mastFall;
+				if( CheckAttribute(rOurClient,tmpstr) && stf(rOurClient.(tmpstr))>=1.0 )	{continue;}
+			}
+			fPercentSPRestore -= Net_OneSailDmgRepair(rOurClient,arGroup,arSail,fPercentSPRestore);
+			if(fPercentSPRestore<=0.0) {break;}
+			if(!CheckAttribute(rOurClient,"ship.sails")) break;
+			if( GetAttributesNum(arRoot) != rq ) break;
+			if( GetAttributesNum(arGroup) != gq )
+			{
+				gq = GetAttributesNum(arGroup);
+				j--;
+			}
+		}
+		if( fPercentSPRestore <= 0.0 ) {break;}
+		if( !CheckAttribute(rOurClient,"ship.sails") ) break;
+		if( GetAttributesNum(arRoot) != rq )
+		{
+			rq = GetAttributesNum(arRoot);
+			i--;
+		}
+	}
+
+	rOurClient.ship.sp = Net_CalculateShipSP(rOurClient);
+	if (fPercentSPRestore < 0.0) { fPercentSPRestore = 0.0; }
+	return fWanted - fPercentSPRestore;
 }
 
 float Net_OneSailDmgRepair(ref chref, aref arSailNode, aref arSail, float fDmgRepair)

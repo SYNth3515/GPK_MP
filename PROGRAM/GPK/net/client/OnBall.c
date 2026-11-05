@@ -98,6 +98,7 @@ void NetClient_OnBallAdd(int iMsg, int iBallIndex)
 	NCBalls.SpdV0 = NMGetFloat(iMsg);
 	NCBalls.Dir = NMGetFloat(iMsg);
 	NCBalls.Ang = NMGetFloat(iMsg);
+	int iCannonType = NMGetByte(iMsg);
 
 	NCBalls.Index = iBallIndex;
 
@@ -107,7 +108,14 @@ void NetClient_OnBallAdd(int iMsg, int iBallIndex)
 	EntityUpdate(1);
 
 	CreateParticleSystem("cancloud_fire", x, y, z, -stf(NCBalls.Ang), stf(NCBalls.Dir), 0.0, 5);
-	Play3DSound("cannon_fire", x, y, z);
+	// shot sound depends on the caliber / cannon type (cannon_fire_<type>_<caliber> from sound_alias.ini, like in single player)
+	string sFireSound = "cannon_fire";
+	if (iCannonType >= 0 && iCannonType < Net_GetCannonsNum())
+	{
+		ref rFireCannon = Net_GetCannonByIndex(iCannonType);
+		if (CheckAttribute(rFireCannon, "Sound")) { sFireSound = rFireCannon.Sound; }
+	}
+	Play3DSound(sFireSound, x, y, z);
 
 	NCBalls.ClientAdd = "";
 }

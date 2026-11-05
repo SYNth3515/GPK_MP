@@ -1,4 +1,5 @@
 object NSFortModel, NSFortBlots;
+int iNetFortInfoGen = 0;		// COOP: generation of the NSC_FORT_INFO timer (old timers of a previous game stop)
 
 void NetServer_DeleteFortEnvironment()
 {
@@ -6,11 +7,14 @@ void NetServer_DeleteFortEnvironment()
 	DelEventHandler("NetServer_FortSelectCannonType", "NetServer_FortSelectCannonType");
 	DelEventHandler("NetServer_OnFortHit", "NetServer_OnFortHit");
 	DelEventHandler("NetServer_OnFortCannonDamage", "NetServer_OnFortCannonDamage");
+	DelEventHandler("NetServer_FortInfoTick", "NetServer_FortInfoTick");
+	iNetFortInfoGen++;
 }
 
 void NetServer_CreateFortEnvironment(int iSMsg)
 {
 	int iIslandIndex = Net_GetIslandIndex(NetServer.IslandID);
+	NetServer.FortLocator = "";		// COOP: the same fort for players who join the running game (NetServer_AddEnvironmentData)
 
 	if (NetServer.GameType != NETGAME_FORT || iIslandIndex < 0)
 	{
@@ -101,10 +105,18 @@ void NetServer_CreateFortEnvironment(int iSMsg)
 			bSuccess = true;
 			NMAddByte(iSMsg, true);
 			NMAddString(iSMsg, GetAttributeName(arLocator), 16);
+			NetServer.FortLocator = GetAttributeName(arLocator);
 
 			SetEventHandler("NetServer_FortSelectCannonType", "NetServer_FortSelectCannonType", 0);
 			SetEventHandler("NetServer_OnFortHit", "NetServer_OnFortHit", 0);
 			SetEventHandler("NetServer_OnFortCannonDamage", "NetServer_OnFortCannonDamage", 0);
+
+			// COOP: exact cannons / crew of the fort for the spyglass of every client
+			rFort.CoopCannonsTotal = 0;		// unknown until the first cannon of the fort is hit (the engine tells the total only then)
+			rFort.CoopCannonsDamaged = 0;
+			iNetFortInfoGen++;
+			SetEventHandler("NetServer_FortInfoTick", "NetServer_FortInfoTick", 0);
+			PostEvent("NetServer_FortInfoTick", 3000, "l", iNetFortInfoGen);
 
 			break;
 		}
@@ -114,6 +126,26 @@ void NetServer_CreateFortEnvironment(int iSMsg)
 	{
 		NMAddByte(iSMsg, false);		// no fort
 	}
+}
+
+// COOP: fort state for the spyglass of the clients (every 2 s, also reaches the players who joined later)
+void NetServer_FortInfoTick()
+{
+	int iGen = GetEventData();
+	if (iGen != iNetFortInfoGen) { return; }
+
+	ref rFort = NetServer_GetCLient(NET_FORTCLIENT);
+
+	int iSMsg = NMCreate();
+	NMAddByte(iSMsg, NC_FORT);
+	NMAddByte(iSMsg, NSC_FORT_INFO);
+	NMAddWord(iSMsg, sti(rFort.CoopCannonsTotal));
+	NMAddWord(iSMsg, sti(rFort.CoopCannonsDamaged));
+	NMAddWord(iSMsg, sti(rFort.Ship.Crew.Quantity));
+	NetServer_SendMessage(DST_ALL, iSMsg, false);
+	NMDelete(iSMsg);
+
+	PostEvent("NetServer_FortInfoTick", 2000, "l", iNetFortInfoGen);
 }
 
 float NetServer_FortSelectCannonType()
@@ -145,6 +177,10 @@ float NetServer_OnFortCannonDamage()
 
 	ref rFort = NetServer_GetCLient(NET_FORTCLIENT);
 
+	// COOP: for the spyglass (NSC_FORT_INFO)
+	rFort.CoopCannonsTotal = iTotalCannons;
+	rFort.CoopCannonsDamaged = iDamagedCannons;
+
 	fDamage += 0.12 * fDistanceRatio;
 
 	if (fDamage >= 1.0)
@@ -160,6 +196,7 @@ float NetServer_OnFortCannonDamage()
 		NMDelete(iSMsg);
 
 		iDamagedCannons++;
+		rFort.CoopCannonsDamaged = iDamagedCannons;
 		
 		rFort.Ship.HP = 100.0 * (1.0 - (iDamagedCannons / iTotalCannons));
 

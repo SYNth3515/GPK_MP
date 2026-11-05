@@ -18,6 +18,12 @@ bool NetServer_CheckGameOver_Naval()
 		iTeams[iTeam] = iTeams[iTeam] + 1;
 	}
 
+	// COOP: ships alive now / on the previous check: 2 -> 0 in one step means the last two ships sank together (mine, brander...)
+	int iTotalAlive = iTeams[0] + iTeams[1] + iTeams[2] + iTeams[3];
+	int iPrevAlive = 0;
+	if (CheckAttribute(&NetServer, "PrevAlive")) { iPrevAlive = sti(NetServer.PrevAlive); }
+	NetServer.PrevAlive = iTotalAlive;
+
 	// check if only one team alive
 	int iBestDamageTeam = 0;
 	int iBestDamage = -1;
@@ -41,6 +47,14 @@ bool NetServer_CheckGameOver_Naval()
 
 	if (iNumAliveTeams == 0) // all teams dead
 	{
+		// COOP: only two players were left and both are dead now: a draw, nobody wins
+		if (iPrevAlive == 2)
+		{
+			NetServer.Draw = 1;
+			NetServer.iWinnerTeam = -1;
+			return true;
+		}
+
 		NetServer.iWinnerTeam = iBestDamageTeam;
 		return true;
 	}

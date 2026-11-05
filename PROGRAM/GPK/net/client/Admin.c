@@ -116,7 +116,14 @@ void NetClient_OnAdminEnv(int iMsg)
 // stars do not depend on ships and are created again.
 void NetClient_OnSetWeather(int iMsg)
 {
-	if (!bWeatherLoaded) { return; }
+	// COOP: no weather here (lobby of a running game): read the data out of the message, the next message of the packet follows it
+	if (!bWeatherLoaded)
+	{
+		string sSkipWeather = NMGetString(iMsg);
+		float fSkipAngle = NMGetFloat(iMsg);
+		float fSkipSpeed = NMGetFloat(iMsg);
+		return;
+	}
 
 	NetClient_WhrDeleteRainEnvironment();
 	NetClient_WhrDeleteSkyEnvironment();

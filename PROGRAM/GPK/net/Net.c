@@ -17,6 +17,7 @@ int		iMasterServerPort = 29029;
 
 extern void NetInterface_AddLocalServerToList(string sName, string sIP, int wPort, bool bSecure, string sGameType, int iCredit, int iMaxClass, string sWeatherID, string sIslandID, int iNumClients, int iMaxClients, int iPing);
 extern void NetInterface_AddInternetServerToList(string sName, string sIP, int wPort, bool bSecure, string sGameType, int iCredit, int iMaxClass, string sWeatherID, string sIslandID, int iNumClients, int iMaxClients, int iPing);
+extern void NetInterface_UpdateFavoriteServer(string sName, string sIP, int wPort, bool bSecure, string sGameType, int iCredit, int iMaxClass, string sWeatherID, string sIslandID, int iNumClients, int iMaxClients, int iPing);
 
 int NMGetClientID(int iMsg)
 {

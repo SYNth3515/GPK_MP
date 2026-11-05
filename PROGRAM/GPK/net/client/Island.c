@@ -210,4 +210,7 @@ void NetClient_CreateIslandReal()
 	CreateEntity(&NCCoastFoam, "NetCoastFoam");
 	LayerAddObject("net_realize", &NCCoastFoam, 65534);
 	LayerAddObject("net_execute", &NCCoastFoam, 65535);
+
+	// COOP: show the island on the minimap of the navigator (like BI_SetIslandData in single player)
+	NetBI_SetIslandData();
 }

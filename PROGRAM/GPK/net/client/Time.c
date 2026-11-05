@@ -33,7 +33,7 @@ void COOP_SrvShipWatch()
 	iCoopSrvWatchTicks = iCoopSrvWatchTicks + 1;
 	for (i=0; i<NET_MAXCLIENTS; i++)
 	{
-		if (!sti(NSClients[i].Use)) { continue; }
+		if (!NetServer_HasShip(i)) { continue; }		// COOP: lobby players of the running game have no ship, parked ships do
 		ref rC = NetServer_GetClient(i);
 		if (COOP_SrvYBad(rC) && sti(rC.CoopFix) < 6) { COOP_SrvRecreateShip(i); }
 	}

@@ -28,6 +28,12 @@ void NetClient_Drop(int iMsg)
 	int wNetClientID = NMGetClientID(iMsg);	// ClientID
 	ref rClient = NetClient_GetClient(wNetClientID);
 
+	// COOP: chat line + sound "player disconnected" (lobby and battle; in the running game his ship stays parked, he can come back)
+	if (sti(rClient.Use) && wNetClientID != wClientID)
+	{
+		NetClient_AnnouncePlayer(wNetClientID, false);
+	}
+
 	rClient.Use = false;
 
 	//DeleteClass(rClient);
@@ -48,8 +54,14 @@ void NetClient_Connect(int iMsg)
 
 	int iSailColor = NMGetDword(iMsg);
 	int bBuyReady = NMGetByte(iMsg);
+	int iKeepShip = NMGetByte(iMsg);		// COOP: 1 = the player reconnected to the running game, his ship exists here
+	int iAnnounce = NMGetByte(iMsg);		// COOP: 1 = write "player connected" to the chat (new player or reconnect), 0 = he was here before us
 
 	ref rClient = NetClient_GetClient(wNetClientID);
+
+	// COOP: our copy of his ship is alive: keep its type, put it back into the battle interface
+	bool bKeepShip = false;
+	if (iKeepShip != 0 && wNetClientID != wClientID && COOP_CliSlotLive(wNetClientID) && CheckAttribute(rClient, "CoopReady") && sti(rClient.CoopReady)) { bKeepShip = true; }
 
 	rClient.Use = true;
 	rClient.BuyReady = bBuyReady;
@@ -59,7 +71,13 @@ void NetClient_Connect(int iMsg)
 	rClient.Ship.Name = sShipName;
 	rClient.Ship.Sails.Color = iSailColor;
 
+	// Single-player portraits (face_*.tga.tx) live outside the multiplayer user-face folder.
+	// Keep compatibility with existing custom multiplayer avatars.
 	string sFaceTex = sUserFacesPath + sFaceImage + ".tga";
+	if (findSubStr(sFaceImage, "face_", 0) == 0)
+	{
+		sFaceTex = "interfaces\portraits\256\" + sFaceImage + ".tga";
+	}
 	string sFlagTex = sUserFlagsPath + sFlagImage + ".tga";
 	string sSailTex = sUserSailsPath + sSailImage + ".tga";
 
@@ -72,7 +90,7 @@ void NetClient_Connect(int iMsg)
 	rClient.UserData.Flag = sFlagImage;
 	rClient.UserData.Flag.Texture = NFGetTexture("UserDataImages", sFlagTex);
 
-	rClient.Ship.Type = -1;
+	if (!bKeepShip) { rClient.Ship.Type = -1; }
 
 	if (!sti(rClient.UserData.Face.Texture))
 	{
@@ -93,6 +111,14 @@ void NetClient_Connect(int iMsg)
 	}
 
 	Event("NCEvent_Client_Connect", "l", wNetClientID);
+
+	// COOP: chat line + sound "player connected" (new player and reconnect; never for ourselves)
+	if (iAnnounce != 0 && wNetClientID != wClientID) { NetClient_AnnouncePlayer(wNetClientID, true); }
+
+	if (bKeepShip)
+	{
+		Event("NCEvent_ShipCreate", "l", wNetClientID);
+	}
 }
 
 void NetClient_Load(int iMsg)
@@ -115,6 +141,8 @@ void NetClient_Load(int iMsg)
 
 	rClient.NickName = NMGetString(iMsg);
 	rClient.Dead = false;
+	rClient.Wrecked = false;
+	rClient.ShipState = 0;
 
 	rClient.Ship.Type = NMGetWord(iMsg);
 	rClient.Ship.HP = NMGetFloat(iMsg);
@@ -131,6 +159,7 @@ void NetClient_Load(int iMsg)
 	rClient.Skill.Sailing = NMGetByte(iMsg);
 	rClient.Skill.Defence = NMGetByte(iMsg);
 	rClient.Skill.Repair = NMGetByte(iMsg);
+	rClient.Skill.Grappling = NMGetByte(iMsg);	// COOP: for the spyglass (server\OnStart.c)
 
 	rClient.Ship.Pos.x = NMGetFloat(iMsg);
 	rClient.Ship.Pos.y = NMGetFloat(iMsg);
@@ -148,7 +177,7 @@ void NetClient_Load(int iMsg)
 	
 	rClient.Ship.SailState = 0.0;
 
-	rClient.Ship.Cannons.Charge.Type = 0;
+	rClient.Ship.Cannons.Charge.Type = NMGetByte(iMsg);
 
 	rClient.Ship.MaxSpeedZ = 12.0;
 	rClient.Ship.MaxSpeedY = 0.6;

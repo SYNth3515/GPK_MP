@@ -93,7 +93,12 @@ void TL_PlayerStatistic()
 	// TABLE
 	string sRow = "tr" + (iPIndex + 1);
 
+	// Resolve both the original multiplayer avatars and single-player face_ portraits.
 	string sFaceTex = sUserFacesPath + sFaceImage + ".tga";
+	if (findSubStr(sFaceImage, "face_", 0) == 0)
+	{
+		sFaceTex = "interfaces\portraits\256\" + sFaceImage + ".tga";
+	}
 	GameInterface.TABLE_LIST.(sRow).td1.icon.offset = "0,1";
 	GameInterface.TABLE_LIST.(sRow).td1.icon.width = 26;
 	GameInterface.TABLE_LIST.(sRow).td1.icon.height = 26;

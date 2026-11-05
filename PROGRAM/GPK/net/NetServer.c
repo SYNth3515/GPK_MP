@@ -6,6 +6,7 @@
 #include "GPK\Net\Server\OnNetMessage.c"
 #include "GPK\Net\Server\OnSay.c"
 #include "GPK\Net\Server\OnShip.c"
+#include "GPK\Net\Server\OnLoad.c"
 #include "GPK\Net\Server\OnPing.c"
 #include "GPK\Net\Server\OnStart.c"
 #include "GPK\Net\Server\Utils.c"
@@ -31,7 +32,7 @@
 
 #define MAX_TOPPLAYERS				100
 
-#define MASTERSERVER_UPDATETIME		60000
+#define MASTERSERVER_UPDATETIME		15000	// P2P: short interval keeps the NAT mapping to the master server alive
 
 int		NSSortedPlayers[MAX_TOPPLAYERS];
 object	NSClients[NET_TOTALCLIENTS];	// current game clients
@@ -56,7 +57,7 @@ void Net_DeleteServer()
 		int iSMsg = NMCreate();
 		NMAddByte(iSMsg, NC_MASTERSERVER);
 		NMAddByte(iSMsg, NSC_MASTERSERVER_DELSERVER);
-		NetServer_SendMasterServerMessage("VANOSUPERPC", 29029, iSMsg);
+		NetServer_SendMasterServerMessage(sMasterServerAddress, iMasterServerPort, iSMsg);
 		NMDelete(iSMsg);
 	}
 
@@ -90,6 +91,7 @@ void Net_ServerFirstInit()
 	NetServer.AdminPassword = "";		// COOP: empty = nobody can become an admin
 	NetServer.LanServer = true;
 	NetServer.InetServer = false;
+	NetServer.P2P = false;
 	NetServer.UpdateMasterServer = true;
 	NetServer.MaxFps = 100;
 	NetServer.WeatherID = "Night_sky_minor_clouds";
@@ -98,6 +100,10 @@ void Net_ServerFirstInit()
 	NetServer.AllowDownload = false;
 	NetServer.AllowUpload = false;
 	NetServer.GameSpeed = 0;
+	NetServer.Respawn = false;			// COOP: CS-like respawn (Create game screen)
+	NetServer.NoBoarding = false;		// COOP: boarding is switched off
+	NetServer.PassivePerks = false;		// COOP: all passive sea perks of single player for every captain
+	NetServer.ActivePerks = false;		// COOP: active sea perks of single player (and the brander) for every captain
 }
 
 void Net_CreateServer(ref rSrvParams)
@@ -128,6 +134,11 @@ void Net_CreateServer(ref rSrvParams)
 		NSClients[i].Stat.Won = 0;
 		NSClients[i].Stat.Lost = 0;
 		NSClients[i].Stat.DamageInflicted = 0;
+		NSClients[i].Stat.Deaths = 0;
+
+		NSClients[i].Spawned = false;		// COOP: the ship of this slot was created in the current game (the slot is "burned" for new players)
+		NSClients[i].InGame = false;		// COOP: the client got the environment of the running game (lobby clients do not)
+		NSClients[i].Parked = false;		// COOP: the player left the running game, his ship waits for a reconnect
 	}
 
 	NetServer.ServerName = rSrvParams.ServerName;
@@ -135,6 +146,7 @@ void Net_CreateServer(ref rSrvParams)
 	NetServer.ServerPassword = rSrvParams.ServerPassword;
 	NetServer.AdminPassword = rSrvParams.AdminPassword;	// COOP: set on the "Create game" screen, empty = no admins
 	NetServer.Dedicated = sti(rSrvParams.Dedicated);
+	NetServer.P2P = sti(rSrvParams.P2P);	// P2P: answer punch requests of the master server (no port forwarding needed)
 	NetServer.MaxClients = sti(rSrvParams.MaxPlayers);
 	NetServer.LanServer = sti(rSrvParams.LanServer);
 	NetServer.InetServer = sti(rSrvParams.InetServer);
@@ -154,7 +166,24 @@ void Net_CreateServer(ref rSrvParams)
 	NetServer.TimeLimit = sti(rSrvParams.TimeLimit);
 	NetServer.GameSpeed = sti(rSrvParams.GameSpeed);
 
+	// COOP: switches of the Create game screen (missing attributes = old behaviour)
+	NetServer.Respawn = false;
+	NetServer.NoBoarding = false;
+	NetServer.PassivePerks = false;
+	NetServer.ActivePerks = false;
+	if (CheckAttribute(rSrvParams, "Respawn")) { NetServer.Respawn = sti(rSrvParams.Respawn); }
+	NetServer.RespawnTime = NET_RESPAWN_DELAY / 1000;
+	if (CheckAttribute(rSrvParams, "RespawnTime")) { NetServer.RespawnTime = sti(rSrvParams.RespawnTime); }
+	if (sti(NetServer.RespawnTime) < NET_RESPAWN_TIME_MIN) { NetServer.RespawnTime = NET_RESPAWN_TIME_MIN; }
+	if (sti(NetServer.RespawnTime) > NET_RESPAWN_TIME_MAX) { NetServer.RespawnTime = NET_RESPAWN_TIME_MAX; }
+	if (CheckAttribute(rSrvParams, "NoBoarding")) { NetServer.NoBoarding = sti(rSrvParams.NoBoarding); }
+	if (CheckAttribute(rSrvParams, "PassivePerks")) { NetServer.PassivePerks = sti(rSrvParams.PassivePerks); }
+	if (CheckAttribute(rSrvParams, "ActivePerks")) { NetServer.ActivePerks = sti(rSrvParams.ActivePerks); }
+	Trace("COOP: server switches respawn=" + NetServer.Respawn + " (" + NetServer.RespawnTime + " s) noboarding=" + NetServer.NoBoarding + " passive perks=" + NetServer.PassivePerks + " active perks=" + NetServer.ActivePerks);
+
 	NetServer.GameOver = false;
+	NetServer.ContestStarted = false;	// COOP: at least two sides have fought in this game (a lonely captain does not "win")
+	NetServer.Round = 0;
 	
 	NetServer.ConvoyShipID = DST_INVALID;
 	NetServer.ConvoyPoint.x = 0.0;
@@ -204,6 +233,7 @@ void NetServer_UpdateMasterServerInfo()
 	int iSMsg = NMCreate();
 	NMAddByte(iSMsg, NC_MASTERSERVER);
 	NMAddByte(iSMsg, NSC_MASTERSERVER_UPDATESERVER);
+	NMAddByte(iSMsg, NET_SCRIPT_VERSION);
 	NetServer_SendMasterServerMessage(sMasterServerAddress, iMasterServerPort, iSMsg);
 	NMDelete(iSMsg);
 
@@ -214,21 +244,25 @@ void NetServer_OneSecondTick()
 {
 	int iFullDeltaTime = MakeInt(fHighPrecisionDeltaTime * 1000000.0);
 	int iDeltaTime = iFullDeltaTime / 1000;
+	// COOP: a long frame (loading of the sea / island on this machine) must not look like silence of the clients
+	if (iDeltaTime > 1000) { iDeltaTime = 1000; }
 
 	int iNewPingTime = iPingTime + iDeltaTime;
 
-	if (!bServerGameStarted)
+	// COOP: the ping timeout works in the running game too (with a longer limit: loading the sea stops the pings for a while).
+	// A client that crashed or lost the connection is dropped, his ship is parked and he can reconnect (server\OnConnect.c).
+	int iPingLimit = 15 * 1000;
+	if (bServerGameStarted) { iPingLimit = NET_INGAME_PING_TIMEOUT; }
+	if (iNewPingTime / 1000 != iPingTime / 1000)
 	{
-		if (iNewPingTime / 1000 != iPingTime / 1000)
+		for (int i=0; i<NET_MAXCLIENTS; i++)
 		{
-			for (int i=0; i<NET_MAXCLIENTS; i++)
+			if (!sti(NSClients[i].Use)) { continue; }
+			
+			if (iPingTime - sti(NSClients[i].LastPingTime) >= iPingLimit)
 			{
-				if (!sti(NSClients[i].Use)) { continue; }
-				
-				if (iPingTime - sti(NSClients[i].LastPingTime) >= 15 * 1000)
-				{
-					NetServer_DropClient(sti(NSClients[i].ID));
-				}
+				Trace("COOP: client " + i + " ping timeout, dropped");
+				NetServer_DropClient(sti(NSClients[i].ID));
 			}
 		}
 	}
@@ -320,7 +354,8 @@ void NetServer_UpdateGlobalPlayerStatistics(ref rPlayer)
 	}
 
 	makearef(arPlayer, arPlayers.(sNickName));
-
+	// Update player's avatar on every statistics save
+	arPlayer.FaceImage = rPlayer.UserData.Face;
 	int iHits = sti(arPlayer.Hits) + sti(rPlayer.Stat.Hits);
 	int iMisses = sti(arPlayer.Misses) + sti(rPlayer.Stat.Misses);
 	int iWon = sti(arPlayer.Won) + sti(rPlayer.Stat.Won);

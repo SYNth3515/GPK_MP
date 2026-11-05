@@ -4,7 +4,9 @@ int BuyClients[NET_TOTALCLIENTS];
 
 int iCurrentCredit = 0, iMaxCredit = 0;
 int iSkillsQuantity[8];
-int iNetGoodsQuantity[6];
+int iNetGoodsQuantity[8];
+int iCrewPercent = 100;
+int iCannonsPercent = 100;		// COOP: percent of the cannons of the ship that are bought (0 = no cannons at all)
 int iPerks[6];
 int iCurrentShipType = -1;
 int iCurrentShipUpgradeHull = -1;
@@ -85,6 +87,9 @@ void InitInterface(string iniName)
 	SetEventHandler("AddBombs", "Buy_AddBombs", 0);			SetEventHandler("DecBombs", "Buy_DecBombs", 0);
 	SetEventHandler("AddPlanks", "Buy_AddPlanks", 0);		SetEventHandler("DecPlanks", "Buy_DecPlanks", 0);
 	SetEventHandler("AddSailcloth", "Buy_AddSailcloth", 0);	SetEventHandler("DecSailcloth", "Buy_DecSailcloth", 0);
+	SetEventHandler("AddPowder", "Buy_AddPowder", 0);	SetEventHandler("DecPowder", "Buy_DecPowder", 0);
+	SetEventHandler("AddCrew", "Buy_AddCrew", 0);	SetEventHandler("DecCrew", "Buy_DecCrew", 0);
+	SetEventHandler("AddCannonsPercent", "Buy_AddCannonsPercent", 0);	SetEventHandler("DecCannonsPercent", "Buy_DecCannonsPercent", 0);
 
 	SetEventHandler("OnTableClick", "Buy_OnTableClick", 0);
 	SetEventHandler("NCEvent_PlayerInfo_ShipType", "Buy_PlayerInfo_ShipType", 0);
@@ -236,6 +241,14 @@ void NetBuy_OpenSelectTeam()
 // COOP: can the host start the game right now? Same rules as the server: not alone, at least 2 teams in team games.
 bool NetBuy_HostCanStart()
 {
+	// COOP: the host may start alone (other players join the running game later), a team game with one team too.
+	// The old rule (at least 2 players, at least 2 teams) is kept below for reference.
+	return true;
+}
+
+/* old rule:
+bool NetBuy_HostCanStart_Old()
+{
 	if (NET_DEBUG) { return true; }
 
 	int i;
@@ -260,6 +273,8 @@ bool NetBuy_HostCanStart()
 
 	return true;
 }
+
+*/
 
 // ================= lobby chat =================
 
@@ -436,6 +451,21 @@ void NetBuy_OnFrame()
 	if (iSeconds < 10) { sSeconds = "0" + iSeconds; } else { sSeconds = iSeconds; }
 	string sValue = "#" + XI_ConvertString("btnNetBuy_Start") + " " + sMinutes + ":" + sSeconds;
 
+	// COOP: the game is already running: "Join the battle" for everybody
+	if (sti(NCServer.GameRunning))
+	{
+		sValue = XI_ConvertString("btnNetBuy_Join");
+		if (sValue == "" || sValue == "btnNetBuy_Join") { sValue = "Присоединиться"; }		// the key is missing in the text ini
+		sValue = "#" + sValue;
+		if (bBuyHostStartSent)
+		{
+			iBuyHostStartTimer = iBuyHostStartTimer - iRealDeltaTime;
+			if (iBuyHostStartTimer <= 0) { bBuyHostStartSent = false; }
+		}
+		Button_SetEnable("BTN_START", bServerInfoReady && !bBuyHostStartSent);
+	}
+	else
+	{
 	// COOP: the host (the machine that runs the server) can start the game at any moment, without waiting for the countdown
 	if (NetServer_IsStarted() || bNetClientIsAdmin)
 	{
@@ -449,6 +479,7 @@ void NetBuy_OnFrame()
 		}
 
 		Button_SetEnable("BTN_START", bServerInfoReady && !bBuyHostStartSent && NetBuy_HostCanStart());
+	}
 	}
 
 	Button_SetText("BTN_START", sValue);
@@ -612,7 +643,12 @@ void Buy_OnServerInfo()
 		}
 
 		// update goods costs 
-		for (i=0; i<6; i++)	
+		iCrewPercent = 100;
+		StringCollection_SetText("STRINGS_AMMO_QUANTITY", 8, "#" + iCrewPercent + "%");
+		iCannonsPercent = 100;
+		StringCollection_SetText("STRINGS_CANNONS_PERCENT", 1, "#" + iCannonsPercent + "%");
+		CheckButton_SetState("RADIO_START_CHARGE", 1, true);		// start charge: balls
+		for (i=0; i<Net_GetGoodsNum(); i++)	
 		{ 
 			iNetGoodsQuantity[i] = 0;
 			StringCollection_SetTextValue("STRINGS_AMMO_MONEY", i + 1, Net_GetGoodCost(i, sti(NetGoods[i].Units))); 
@@ -633,6 +669,7 @@ void Buy_OnServerInfo()
 		StringCollection_SetText("STRINGS_MAP_INFO_VALUE", 4, "#" + NCServer.MaxShipClass);
 
 		Buy_AddGood(1, 2);
+		Buy_AddGood(7, 2);
 	}
 }
 
@@ -678,7 +715,7 @@ void Buy_SetShipUpgradeRigging(int iDirection)
 	iDirection = Clampi(iDirection, -1, 1);
 
 	int iOldPrice = Net_GetShipUpgradeRiggingCost(iCurrentShipType, iCurrentShipUpgradeRigging);
-	int iNumUpgrades = 3;
+	int iNumUpgrades = 4;
 	int iNextUpgrade = iCurrentShipUpgradeRigging;
 	for (int i=0; i<iNumUpgrades; i++)
 	{
@@ -709,7 +746,7 @@ void Buy_SetShip(int iDirection)
 	if (iDirection == 0) { return; }
 	iDirection = Clampi(iDirection, -1, 1);
 
-	int iOldCannonsNum = Net_GetShipCannonsNum(iCurrentShipType);
+	int iOldCannonsNum = Buy_CannonsNum(iCurrentShipType);
 	int iOldPrice = Net_GetShipCost(iCurrentShipType)
 
 	int iMaxShipClass = sti(NCServer.MaxShipClass);
@@ -727,8 +764,10 @@ void Buy_SetShip(int iDirection)
 		if (sti(rShip.TradeOff)) { continue; }
 		if (sti(rShip.Class) < iMaxShipClass) { continue; }
 		int iNewPrice = Net_GetShipCost(iNextShipType);
+		// crew is hired for the new ship with the same percent
+		int iCrewDelta = Net_GetCrewCost(iNextShipType, iCrewPercent) - Net_GetCrewCost(iCurrentShipType, iCrewPercent);
 
-		if (iCurrentCredit - iOldPrice + iNewPrice < iMaxCredit)
+		if (iCurrentCredit - iOldPrice + iNewPrice + iCrewDelta < iMaxCredit)
 		{
 			if (iCurrentShipType >= 0)
 			{
@@ -763,7 +802,8 @@ void Buy_SetShip(int iDirection)
 
 			// buy new ship
 			iCurrentShipType = iNextShipType;
-			iCurrentCredit = iCurrentCredit - iOldPrice + iNewPrice;
+			iCurrentCredit = iCurrentCredit - iOldPrice + iNewPrice + iCrewDelta;
+			Buy_UpdateCrewMoney();
 
 			string sGroup = "SHIPS_" + rShip.Name;
 			Picture_SetGroupPicture("PICTURE_SHIP", sGroup, "ship");
@@ -779,6 +819,7 @@ void Buy_SetShip(int iDirection)
 			Buy_SetShipUpgradeRigging(1);
 
 			StringCollection_SetText("STRINGS_SHIPCANNONS_TYPE", 1, rShip.Name);
+			Buy_FitCargo();		// COOP: the goods of a bigger ship may not fit into the new hold
 			Buy_UpdateCredit();
 			Buy_Server_UpdateShipType();
 			break;
@@ -790,7 +831,7 @@ void Buy_ShipRight() { Buy_SetShip(1); }
 
 void Buy_SetCannonUpgrade(int iNewCannonUpgrade, bool bSetRadioButton)
 {
-	int iNumShipCannons = Net_GetShipCannonsNum(iCurrentShipType);
+	int iNumShipCannons = Buy_CannonsNum(iCurrentShipType);
 	
 	int iOldPrice = iNumShipCannons * Net_GetCannonUpgradeCost(iCurrentCannonType, iCurrentCannonUpgrade);
 	int iNewPrice = iNumShipCannons * Net_GetCannonUpgradeCost(iCurrentCannonType, iNewCannonUpgrade);
@@ -816,7 +857,8 @@ void Buy_SetCannon(int iDirection)
 	if (iDirection == 0) { return; }
 	iDirection = Clampi(iDirection, -1, 1);	
 
-	int iNumShipCannons = Net_GetShipCannonsNum(iCurrentShipType);
+	int iNumShipCannons = Buy_CannonsNum(iCurrentShipType);
+	bool bAutoPick = (iCurrentCannonType < 0);		// COOP: the ship was changed: the goods are trimmed afterwards
 
 	int iOldPrice = iNumShipCannons * Net_GetCannonCost(iCurrentCannonType);
 
@@ -833,6 +875,9 @@ void Buy_SetCannon(int iDirection)
 		if (sti(rCannon.TradeOff)) { continue; }
 
 		int iNewPrice = iNumShipCannons * Net_GetCannonCost(iNextType);
+
+		// COOP: deadweight - a heavier cannon type must fit into the hold
+		if (!bAutoPick && Buy_LoadWith(iCurrentShipType, iNextType, iNumShipCannons, iCrewPercent, Buy_GoodsWeight()) > Net_GetShipCapacity(iCurrentShipType)) { continue; }
 
 		if (iCurrentCredit - iOldPrice + iNewPrice < iMaxCredit)
 		{
@@ -1128,6 +1173,9 @@ void IDoExit(int exitCode)
 	DelEventHandler("AddBombs", "Buy_AddBombs");			DelEventHandler("DecBombs", "Buy_DecBombs");
 	DelEventHandler("AddPlanks", "Buy_AddPlanks");			DelEventHandler("DecPlanks", "Buy_DecPlanks");
 	DelEventHandler("AddSailcloth", "Buy_AddSailcloth");	DelEventHandler("DecSailcloth", "Buy_DecSailcloth");
+	DelEventHandler("AddPowder", "Buy_AddPowder");	DelEventHandler("DecPowder", "Buy_DecPowder");
+	DelEventHandler("AddCrew", "Buy_AddCrew");	DelEventHandler("DecCrew", "Buy_DecCrew");
+	DelEventHandler("AddCannonsPercent", "Buy_AddCannonsPercent");	DelEventHandler("DecCannonsPercent", "Buy_DecCannonsPercent");
 
 	DelEventHandler("OnTableClick", "Buy_OnTableClick");
 	DelEventHandler("NCEvent_PlayerInfo_ShipType", "Buy_PlayerInfo_ShipType");
@@ -1201,7 +1249,10 @@ void Buy_GetBuyInfo()
 	NMAddByte(iSMsg, iCurrentCannonUpgrade + 1);
 	for (i=0; i<Net_GetSkillsNum(); i++) { NMAddByte(iSMsg, iSkillsQuantity[i]); }
 	for (i=0; i<6; i++) { NMAddByte(iSMsg, iPerks[i]); }
-	for (i=0; i<6; i++) { NMAddWord(iSMsg, iNetGoodsQuantity[i]); }
+	for (i=0; i<Net_GetGoodsNum(); i++) { NMAddWord(iSMsg, iNetGoodsQuantity[i]); }
+	NMAddByte(iSMsg, iCrewPercent);
+	NMAddByte(iSMsg, Buy_GetStartCharge());		// COOP: the server reads the start charge after the crew
+	NMAddByte(iSMsg, iCannonsPercent + 1);		// COOP: percent of the cannons (+ 1: 0 means an old client)
 	NetClient_SendMessage(iSMsg, true);
 	NMDelete(iSMsg);
 
@@ -1232,6 +1283,17 @@ void OnDisconnect()
 
 void OnTmpStart()
 {
+	// COOP: the game is running: every player joins it with this button (the server asks for the buy info)
+	if (sti(NCServer.GameRunning))
+	{
+		if (!bServerInfoReady) { return; }
+		if (bBuyHostStartSent) { return; }
+		bBuyHostStartSent = true;
+		iBuyHostStartTimer = 5000;
+		Net_StartServer();
+		return;
+	}
+
 	// COOP: only the host (the machine that runs the server) can start the game from the lobby
 	if (!NetServer_IsStarted() && !bNetClientIsAdmin) { return; }
 	if (bBuyHostStartSent) { return; }
@@ -1255,6 +1317,7 @@ void Buy_UpdateCredit()
 {
 	string sValue = "#" + iCurrentCredit + " / " + iMaxCredit;
 	StringCollection_SetText("STRINGS_MAP_INFO_VALUE", 2, sValue);
+	Buy_UpdateDeadweight();
 
 	int i, bState;
 	bool bDisable;
@@ -1349,6 +1412,18 @@ void Buy_AddGood(int iGoodIndex, int iGoodAddQuantity)
 	if (iNewQuantity < 0) { iNewQuantity = 0; }
 	if (iNewQuantity > 9999) { iNewQuantity = 9999; }
 
+	// COOP: deadweight - no more than the hold takes (the step is made smaller until it fits)
+	if (iNewQuantity > iOldQuantity)
+	{
+		int iCap = Net_GetShipCapacity(iCurrentShipType);
+		int iOtherWeight = Buy_GoodsWeight() - Net_GetGoodWeight(i, iOldQuantity);
+		while (iNewQuantity > iOldQuantity && Buy_LoadWith(iCurrentShipType, iCurrentCannonType, Buy_CannonsNum(iCurrentShipType), iCrewPercent, iOtherWeight + Net_GetGoodWeight(i, iNewQuantity)) > iCap)
+		{
+			iNewQuantity = iNewQuantity - iUnits;
+		}
+		if (iNewQuantity <= iOldQuantity) { return; }
+	}
+
 	int iOldPrice = (iOldQuantity * iMoney) / iUnits;
 	int iNewPrice = (iNewQuantity * iMoney) / iUnits;
 
@@ -1379,6 +1454,138 @@ void Buy_DecPlanks() { Buy_AddGood(5, -1); }
 
 void Buy_AddSailcloth() { Buy_AddGood(6, 1); }
 void Buy_DecSailcloth() { Buy_AddGood(6, -1); }
+
+void Buy_AddPowder() { Buy_AddGood(7, 1); }
+void Buy_DecPowder() { Buy_AddGood(7, -1); }
+
+// percent of the crew on the own ship (10..100), changes the ship weight and the boarding strength
+void Buy_SetCrewPercent(int iDelta)
+{
+	if (XI_IsKeyPressed("shift")) { iDelta = iDelta * 2; }
+	int iNewPercent = Clampi(iCrewPercent + iDelta * 5, 10, 100);
+	if (iNewPercent == iCrewPercent) { return; }
+	// COOP: deadweight - 1 cwt per sailor
+	if (iNewPercent > iCrewPercent && Buy_LoadWith(iCurrentShipType, iCurrentCannonType, Buy_CannonsNum(iCurrentShipType), iNewPercent, Buy_GoodsWeight()) > Net_GetShipCapacity(iCurrentShipType)) { return; }
+
+	// hiring the crew is paid
+	int iOldPrice = Net_GetCrewCost(iCurrentShipType, iCrewPercent);
+	int iNewPrice = Net_GetCrewCost(iCurrentShipType, iNewPercent);
+	if (iCurrentCredit - iOldPrice + iNewPrice > iMaxCredit) { return; }
+
+	iCurrentCredit = iCurrentCredit - iOldPrice + iNewPrice;
+	iCrewPercent = iNewPercent;
+	StringCollection_SetText("STRINGS_AMMO_QUANTITY", 8, "#" + iCrewPercent + "%");
+	Buy_UpdateCrewMoney();
+	Buy_UpdateCredit();
+}
+
+// price of the current crew in the money column
+void Buy_UpdateCrewMoney()
+{
+	StringCollection_SetTextValue("STRINGS_AMMO_MONEY", 8, Net_GetCrewCost(iCurrentShipType, iCrewPercent));
+}
+// =============================================================================================
+// COOP: cannons percent, deadweight
+// =============================================================================================
+int Buy_CannonsNum(int iShipType)
+{
+	return Net_GetCannonsCountByPercent(iShipType, iCannonsPercent);
+}
+
+int Buy_GoodsWeight()
+{
+	int iW = 0;
+	for (int i=0; i<Net_GetGoodsNum(); i++) { iW = iW + Net_GetGoodWeight(i, iNetGoodsQuantity[i]); }
+	return iW;
+}
+
+// load of the ship (cwt): cannons + crew + goods, as on the server (server\OnLoad.c: NetServer_ShipLoad)
+int Buy_LoadWith(int iShipType, int iCannonType, int iCannonsNum, int iCrewPct, int iGoodsWeight)
+{
+	if (iShipType < 0) { return 0; }
+	return Net_GetShipLoadWeight(iCannonType, iCannonsNum, Net_GetCrewCount(iShipType, iCrewPct), iGoodsWeight);
+}
+
+int Buy_CurrentLoad()
+{
+	return Buy_LoadWith(iCurrentShipType, iCurrentCannonType, Buy_CannonsNum(iCurrentShipType), iCrewPercent, Buy_GoodsWeight());
+}
+
+// the caption of the goods block: "Goods. Deadweight 120/600"
+void Buy_UpdateDeadweight()
+{
+	if (iCurrentShipType < 0) { return; }
+	string sCap = XI_ConvertString("capNetBuy_AmmoList") + ". Дедвейт " + Buy_CurrentLoad() + "/" + Net_GetShipCapacity(iCurrentShipType);
+	StringCollection_SetText("CAPTIONS", 6, "#" + sCap);
+}
+
+// the hold is overloaded (another ship / cannons): goods are sold back from the last one until everything fits
+void Buy_FitCargo()
+{
+	if (iCurrentShipType < 0) { return; }
+	int iCap = Net_GetShipCapacity(iCurrentShipType);
+	int i = Net_GetGoodsNum() - 1;
+	while (i >= 0 && Buy_CurrentLoad() > iCap)
+	{
+		if (iNetGoodsQuantity[i] <= 0) { i = i - 1; continue; }
+		ref rGood = Net_GetGoodByIndex(i);
+		int iUnits = sti(rGood.Units);
+		int iMoney = sti(rGood.Cost);
+		int iOldQ = iNetGoodsQuantity[i];
+		int iNewQ = iOldQ - iUnits;
+		if (iNewQ < 0) { iNewQ = 0; }
+		iCurrentCredit = iCurrentCredit - (iOldQ * iMoney) / iUnits + (iNewQ * iMoney) / iUnits;
+		iNetGoodsQuantity[i] = iNewQ;
+		StringCollection_SetTextValue("STRINGS_AMMO_QUANTITY", i + 1, iNewQ);
+	}
+}
+
+// percent of the cannons (step 10%, shift - 50%): the price of the cannons and of their upgrade follows the number
+void Buy_SetCannonsPercent(int iDelta)
+{
+	int iStep = 10;
+	if (XI_IsKeyPressed("shift")) { iStep = 50; }
+	int iNewPercent = Clampi(iCannonsPercent + iDelta * iStep, 0, 100);
+	if (iNewPercent == iCannonsPercent) { return; }
+
+	int iOldNum = Buy_CannonsNum(iCurrentShipType);
+	int iNewNum = Net_GetCannonsCountByPercent(iCurrentShipType, iNewPercent);
+	int iOneCannon = Net_GetCannonCost(iCurrentCannonType) + Net_GetCannonUpgradeCost(iCurrentCannonType, iCurrentCannonUpgrade);
+	int iPriceDelta = (iNewNum - iOldNum) * iOneCannon;
+
+	if (iPriceDelta > 0 && iCurrentCredit + iPriceDelta > iMaxCredit) { return; }
+	if (iNewNum > iOldNum && Buy_LoadWith(iCurrentShipType, iCurrentCannonType, iNewNum, iCrewPercent, Buy_GoodsWeight()) > Net_GetShipCapacity(iCurrentShipType)) { return; }
+
+	iCannonsPercent = iNewPercent;
+	iCurrentCredit = iCurrentCredit + iPriceDelta;
+	Buy_UpdateCannonsMoney();
+	Buy_UpdateCredit();
+}
+void Buy_AddCannonsPercent() { Buy_SetCannonsPercent(1); }
+void Buy_DecCannonsPercent() { Buy_SetCannonsPercent(-1); }
+
+void Buy_UpdateCannonsMoney()
+{
+	int iNum = Buy_CannonsNum(iCurrentShipType);
+	StringCollection_SetText("STRINGS_CANNONS_PERCENT", 1, "#" + iCannonsPercent + "%");
+	StringCollection_SetTextValue("STRINGS_SHIPCANNONS_MONEY", 2, iNum * Net_GetCannonCost(iCurrentCannonType));
+	StringCollection_SetText("STRINGS_CANNON_UPGRADE_MONEY", 1, "#" + iNum * Net_GetCannonUpgradeCost(iCurrentCannonType, 0));
+	StringCollection_SetText("STRINGS_CANNON_UPGRADE_MONEY", 2, "#" + iNum * Net_GetCannonUpgradeCost(iCurrentCannonType, 1));
+	StringCollection_SetText("STRINGS_CANNON_UPGRADE_MONEY", 3, "#" + iNum * Net_GetCannonUpgradeCost(iCurrentCannonType, 2));
+}
+
+// start charge of the radio buttons (0 balls, 1 grapes, 2 knippels, 3 bombs)
+int Buy_GetStartCharge()
+{
+	for (int i=0; i<4; i++)
+	{
+		if (CheckButton_GetState("RADIO_START_CHARGE", i + 1)) { return i; }
+	}
+	return 0;
+}
+
+void Buy_AddCrew() { Buy_SetCrewPercent(1); }
+void Buy_DecCrew() { Buy_SetCrewPercent(-1); }
 
 void Buy_Server_UpdateShipType()
 {

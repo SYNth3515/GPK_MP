@@ -12,6 +12,7 @@ void InitInterface(string iniName)
 
 	SetEventHandler("OnNetMenuDisconnect", "ICancelProcedure", 0);
 	SetEventHandler("OnNetMenuReturn", "IReturnToGame", 0);
+	SetEventHandler("OnNetMenuOptions", "NetMenu_OpenOptions", 0);	// COOP: button "Options"
 	SetEventHandler("exitCancel", "NetMenu_Cancel", 0);
 
 	SetEventHandler("OnNetMenuAdmin", "NetMenu_OpenAdmin", 0);
@@ -51,6 +52,7 @@ void IDoExit(int exitCode)
 {
 	DelEventHandler("OnNetMenuDisconnect", "ICancelProcedure");
 	DelEventHandler("OnNetMenuReturn", "IReturnToGame");
+	DelEventHandler("OnNetMenuOptions", "NetMenu_OpenOptions");
 	DelEventHandler("exitCancel", "NetMenu_Cancel");
 
 	DelEventHandler("OnNetMenuAdmin", "NetMenu_OpenAdmin");
@@ -98,6 +100,14 @@ void ICancelProcedure()
 void IReturnToGame()
 {
 	IDoExit( INTERFACE_NET_NETMENU );
+}
+
+// COOP: the usual options screen of the single player (sound, graphics, controls). It closes back to this menu
+// (interface\option_screen.c: ProcessExit, seadogs.c: RC_INTERFACE_NET_OPTIONS_EXIT)
+void NetMenu_OpenOptions()
+{
+	InterfaceStates.NetOptionsReturn = true;
+	IDoExit( RC_INTERFACE_DO_OPTIONS );
 }
 
 // Esc: from the admin windows back to the menu, from the menu back to the game

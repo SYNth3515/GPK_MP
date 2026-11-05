@@ -302,6 +302,15 @@ void NetBI_InitializeCommands()
 	NetBInterface.CommandTextures.list.t0.xsize = 8;
 	NetBInterface.CommandTextures.list.t0.ysize = 8;
 
+	// одиночные иконки команд (list_icons.tga 16x8) и иконка бордел€ из быстрого перехода (LandTarget_SLB.tga 16x2)
+	NetBInterface.CommandTextures.list.t1.name = "battle_interface\list_icons.tga";
+	NetBInterface.CommandTextures.list.t1.xsize = 16;
+	NetBInterface.CommandTextures.list.t1.ysize = 8;
+
+	NetBInterface.CommandTextures.list.t2.name = "battle_interface\LandTarget_SLB.tga";
+	NetBInterface.CommandTextures.list.t2.xsize = 16;
+	NetBInterface.CommandTextures.list.t2.ysize = 2;
+
 	NetBInterface.CommandTextures.ChargeTexNum = 0;
 	NetBInterface.CommandTextures.CommandTexNum = 0;
 
@@ -337,9 +346,59 @@ void NetBI_InitializeCommands()
 	NetBInterface.Commands.Board.enable		= false;
 	NetBInterface.Commands.Board.picNum		= 30;
 	NetBInterface.Commands.Board.selPicNum	= 14;
-	NetBInterface.Commands.Board.texNum		= 0;
+	NetBInterface.Commands.Board.texNum		= 1;
 	NetBInterface.Commands.Board.event		= "BI_Board";
 	NetBInterface.Commands.Board.note		= LanguageConvertString(idLngFile, "sea_Board");
+
+	NetBInterface.Commands.Mine.enable		= false;
+	NetBInterface.Commands.Mine.picNum		= 25;	// бордель из быстрого перехода (9 + 16)
+	NetBInterface.Commands.Mine.selPicNum	= 9;
+	NetBInterface.Commands.Mine.texNum		= 2;
+	NetBInterface.Commands.Mine.event		= "BI_Mine";
+	NetBInterface.Commands.Mine.note		= LanguageConvertString(idLngFile, "sea_Mine");
+
+	NetBInterface.Commands.Brander.enable		= false;
+	NetBInterface.Commands.Brander.picNum		= 52;
+	NetBInterface.Commands.Brander.selPicNum	= 36;
+	NetBInterface.Commands.Brander.texNum		= 1;
+	NetBInterface.Commands.Brander.event		= "BI_Brander";
+	NetBInterface.Commands.Brander.note			= LanguageConvertString(idLngFile, "sea_Brander");
+
+	NetBInterface.Commands.Dump.enable		= false;
+	NetBInterface.Commands.Dump.picNum		= 26;	// как команда Boat в одиночке (обмен между корабл€ми)
+	NetBInterface.Commands.Dump.selPicNum	= 10;
+	NetBInterface.Commands.Dump.texNum		= 1;
+	NetBInterface.Commands.Dump.event		= "BI_Dump";
+	NetBInterface.Commands.Dump.note		= LanguageConvertString(idLngFile, "sea_Dump");
+
+	// COOP: active perks of single player (icons of list_icons.tga = texture 1, the same pictures as in single player)
+	NetBInterface.Commands.ImmediateReload.enable		= false;
+	NetBInterface.Commands.ImmediateReload.picNum		= 53;
+	NetBInterface.Commands.ImmediateReload.selPicNum	= 37;
+	NetBInterface.Commands.ImmediateReload.texNum		= 1;
+	NetBInterface.Commands.ImmediateReload.event		= "BI_ImmediateReload";
+	NetBInterface.Commands.ImmediateReload.note			= GetConvertStr("ImmediateReload", "AbilityDescribe.txt");
+
+	NetBInterface.Commands.LightRepair.enable		= false;
+	NetBInterface.Commands.LightRepair.picNum		= 54;
+	NetBInterface.Commands.LightRepair.selPicNum	= 38;
+	NetBInterface.Commands.LightRepair.texNum		= 1;
+	NetBInterface.Commands.LightRepair.event		= "BI_LightRepair";
+	NetBInterface.Commands.LightRepair.note			= GetConvertStr("LightRepair", "AbilityDescribe.txt");
+
+	NetBInterface.Commands.InstantRepair.enable		= false;
+	NetBInterface.Commands.InstantRepair.picNum		= 55;
+	NetBInterface.Commands.InstantRepair.selPicNum	= 39;
+	NetBInterface.Commands.InstantRepair.texNum		= 1;
+	NetBInterface.Commands.InstantRepair.event		= "BI_InstantRepair";
+	NetBInterface.Commands.InstantRepair.note		= GetConvertStr("InstantRepair", "AbilityDescribe.txt");
+
+	NetBInterface.Commands.Turn180.enable		= false;
+	NetBInterface.Commands.Turn180.picNum		= 56;
+	NetBInterface.Commands.Turn180.selPicNum	= 40;
+	NetBInterface.Commands.Turn180.texNum		= 1;
+	NetBInterface.Commands.Turn180.event		= "BI_Turn180";
+	NetBInterface.Commands.Turn180.note			= GetConvertStr("Turn180", "AbilityDescribe.txt");
 
 	NetBInterface.charge.charge1.picNum		= 32; // balls
 	NetBInterface.charge.charge1.selPicNum	= 40;
@@ -369,6 +428,24 @@ void NetBI_InitializeCommands()
 	NetBInterface.UserIcons.ui3.name	= "sail_fast";
 
 	LanguageCloseFile(idLngFile);
+}
+
+// COOP: island for the minimap of the navigator (single player does the same in BI_SetIslandData).
+// Called when the battle interface exists AND when the island is created, whichever comes last.
+void NetBI_SetIslandData()
+{
+	if (!isEntity(&NetBInterface)) { return; }
+	if (!CheckAttribute(&NCServer, "IslandID")) { return; }
+
+	string sIslandID = NCServer.IslandID;
+	if (sIslandID == "") { return; }
+
+	int iIslandIndex = Net_GetIslandIndex(sIslandID);
+	if (iIslandIndex == -1) { return; }
+
+	ref rIsland;
+	rIsland = GetIslandByIndex(iIslandIndex);
+	SendMessage(&NetBInterface, "la", BI_MSG_SET_ISLAND, rIsland);
 }
 
 void NetBI_InitBattleInterface()
@@ -450,6 +527,9 @@ void NetBI_InitBattleInterface()
 	SetEventHandler("neGetCooldownFactor","Net_GetCooldownFactor",0);
 
 	SendMessage( &NetBInterface, "l", BI_MSG_REFRESH );
+
+	// COOP: minimap of the island (if the island is already created; otherwise NetClient_CreateIslandReal does it)
+	if (isEntity(&NCIsland)) { NetBI_SetIslandData(); }
 
 	SetEventHandler("DoSailHole","Net_ProcessSailDamage",0);
 	//SetEventHandler("BI_CallUpdateShip","BI_UpdateShip",0);
@@ -628,10 +708,26 @@ void NetBI_SetPossibleCommands()
 	int chIdx = GetEventData();
 
 	// дл€ главного персонажа
-	NetBInterface.Commands.Charge.enable	= true;//CheckAttribute(mainCh,"Ship.Cannons.Charge.Type");
-	NetBInterface.Commands.Speed.enable		= true;
-	NetBInterface.Commands.Repair.enable	= true;
-	NetBInterface.Commands.Board.enable		= (NetClient_BoardTarget >= 0);
+	// COOP: a wrecked (respawn) / sinking ship has no commands
+	bool bAlive = !NetClient_IsThisShipDead();
+	bool bPerks = bAlive && sti(NCServer.ActivePerks);
+
+	NetBInterface.Commands.Charge.enable	= bAlive;//CheckAttribute(mainCh,"Ship.Cannons.Charge.Type");
+	NetBInterface.Commands.Speed.enable		= bAlive;
+	NetBInterface.Commands.Repair.enable	= bAlive;
+	bool bBoard = bAlive;
+	if (NetClient_BoardTarget < 0) { bBoard = false; }
+	if (sti(NCServer.NoBoarding)) { bBoard = false; }
+	NetBInterface.Commands.Board.enable		= bBoard;
+	NetBInterface.Commands.Mine.enable		= bAlive;
+	NetBInterface.Commands.Brander.enable	= bPerks;		// COOP: the brander is an active perk (server switch)
+	NetBInterface.Commands.Dump.enable		= bAlive;
+
+	// COOP: active perks, shown while they can be used (the log tells when they are ready again)
+	NetBInterface.Commands.ImmediateReload.enable	= bPerks && NetClient_ActivePerkReady(NET_APERK_IMMEDIATERELOAD);
+	NetBInterface.Commands.Turn180.enable			= bPerks && NetClient_ActivePerkReady(NET_APERK_TURN180);
+	NetBInterface.Commands.LightRepair.enable		= bPerks && NetClient_ActivePerkReady(NET_APERK_LIGHTREPAIR);
+	NetBInterface.Commands.InstantRepair.enable		= bPerks && NetClient_ActivePerkReady(NET_APERK_INSTANTREPAIR);
 }
 
 ref NetBI_GetCooldownFactor()
@@ -656,6 +752,27 @@ ref NetBI_CommandEndChecking()
 		NetBI_retComValue = 0;
 		break;
 	case "BI_Board":
+		NetBI_retComValue = 0;
+		break;
+	case "BI_Mine":
+		NetBI_retComValue = 0;
+		break;
+	case "BI_Brander":
+		NetBI_retComValue = 0;
+		break;
+	case "BI_Dump":
+		NetBI_retComValue = 0;
+		break;
+	case "BI_ImmediateReload":
+		NetBI_retComValue = 0;
+		break;
+	case "BI_Turn180":
+		NetBI_retComValue = 0;
+		break;
+	case "BI_LightRepair":
+		NetBI_retComValue = 0;
+		break;
+	case "BI_InstantRepair":
 		NetBI_retComValue = 0;
 		break;
 	}
@@ -720,6 +837,27 @@ void NetBI_LaunchCommand()
 		break;
 	case "BI_Board":
 		NetClient_RequestBoarding();
+		break;
+	case "BI_Mine":
+		NetClient_ShipDropMine();
+		break;
+	case "BI_Brander":
+		NetClient_ShipBranderPress();
+		break;
+	case "BI_Dump":
+		LaunchNetInterface_Dump();
+		break;
+	case "BI_ImmediateReload":
+		NetClient_UseActivePerk(NET_APERK_IMMEDIATERELOAD);
+		break;
+	case "BI_Turn180":
+		NetClient_UseActivePerk(NET_APERK_TURN180);
+		break;
+	case "BI_LightRepair":
+		NetClient_UseActivePerk(NET_APERK_LIGHTREPAIR);
+		break;
+	case "BI_InstantRepair":
+		NetClient_UseActivePerk(NET_APERK_INSTANTREPAIR);
 		break;
 	}
 }
@@ -835,6 +973,7 @@ float Net_GetRigDamage(int shootIdx, int iBallType, ref damage_chr)
 	ref rBall = Net_GetGoodByIndex(iBallType);
 	float fDmgRig = stf(rBall.DamageRig);
 	fDmgRig = fDmgRig * stf(damage_chr.ship.SailsDamageModifier);
+	if (NetServer_PassivePerksFor(shootIdx)) { fDmgRig = fDmgRig * 1.15; }		// COOP: passive perk SailsDamageUp of the shooter
 	return fDmgRig;
 }
 
@@ -862,4 +1001,459 @@ float Net_CalculateShipSP(ref chref)
 
 	if(fSP<0.0) fSP = 0.0;
 	return fSP;
+}
+
+// ================================================================================================
+// COOP: spyglass (event SetTelescopeInfo of the engine, parameter = net client ID of the ship, or NET_FORTCLIENT).
+// Same data as spyglass5 of the single player: nation (not in the net game), ship type / name, hull, sails, EXACT crew,
+// speed, distance, cannons (intact / installed), charge, caliber, captain skills, musket volley, fort.
+// The format of MSG_ISG_UPDATE must be exactly the same as in SetSpyGlassData (battle_interface\ispyglass.c):
+// "lsslllfflllllllllllssl" (22 values). The old net version sent 20 values with a wrong format -> crash of the game.
+// ================================================================================================
+string Net_SpyGlassCannonName(ref chref)
+{
+	if (!CheckAttribute(chref, "Ship.Cannons.Type")) { return ""; }
+	int iType = sti(chref.Ship.Cannons.Type);
+	if (iType < 0 || iType >= Net_GetCannonsNum()) { return ""; }
+
+	ref rCannon = Net_GetCannonByIndex(iType);
+	string sName = " ѕушки ";
+	if (rCannon.name == "culverine") { sName = "  улеврины "; }
+	return sName + sti(rCannon.caliber) + "ф";
+}
+
+// ship icon for the spyglass: ship_icons2.tga has square cells 0.125 x 0.125 (the same as GetTextureUVForShip of the single player).
+// The old code used ship_icons1.tga with cells 0.25 high (that sheet is for the tall icons of the command list) in the square frame
+// of the spyglass -> the picture was squeezed 2 times in height and the next icon of the sheet was visible.
+void Net_GetSpyShipUV(int nShipType, ref rLeft, ref rTop, ref rRight, ref rBottom)
+{
+	SetShipPictureDataByShipTypeName( NetShips[nShipType].name );
+	int nV = BI_intNRetValue[0] / 8;
+	int nH = BI_intNRetValue[0] - nV * 8;
+	float fLeft = stf(nH) * 0.125;
+	float fTop = stf(nV) * 0.125;
+
+	rLeft = fLeft;
+	rTop = fTop;
+	rRight = fLeft + 0.125;
+	rBottom = fTop + 0.125;
+}
+
+// distance (2D) from our ship to the other ship / the fort, like Ship_GetDistance2D of the single player
+float Net_SpyGlassDistance(ref chref, bool bFort)
+{
+	ref rThis = NetClient_GetClient(NetClient_GetThisClientID());
+
+	float fX1 = 0.0;
+	float fZ1 = 0.0;
+	if (CheckAttribute(rThis, "Ship.NewPos.x"))
+	{
+		fX1 = stf(rThis.Ship.NewPos.x);
+		fZ1 = stf(rThis.Ship.NewPos.z);
+	}
+	else
+	{
+		if (!CheckAttribute(rThis, "Ship.Pos.x")) { return 0.0; }
+		fX1 = stf(rThis.Ship.Pos.x);
+		fZ1 = stf(rThis.Ship.Pos.z);
+	}
+
+	float fX2 = 0.0;
+	float fZ2 = 0.0;
+	if (bFort)
+	{
+		if (!CheckAttribute(chref, "SpyGlass.x")) { return 0.0; }
+		fX2 = stf(chref.SpyGlass.x);
+		fZ2 = stf(chref.SpyGlass.z);
+	}
+	else
+	{
+		if (CheckAttribute(chref, "Ship.NewPos.x"))
+		{
+			fX2 = stf(chref.Ship.NewPos.x);
+			fZ2 = stf(chref.Ship.NewPos.z);
+		}
+		else
+		{
+			if (!CheckAttribute(chref, "Ship.Pos.x")) { return 0.0; }
+			fX2 = stf(chref.Ship.Pos.x);
+			fZ2 = stf(chref.Ship.Pos.z);
+		}
+	}
+	float fDX = fX2 - fX1;
+	float fDZ = fZ2 - fZ1;
+	return stf(FloatToString(sqrt(fDX * fDX + fDZ * fDZ), 1));
+}
+
+// avatar path for the spyglass: the same rules as TopList / FindGame / client\OnClient.c
+// (face_* = portrait of the single player, otherwise net\faces; a missing custom file = empty face). Cached.
+string Net_SpyGlassFacePath(ref chref)
+{
+	string sEmpty = sUserFacesPath + "_emptyface_.tga";
+	if (!CheckAttribute(chref, "UserData.Face")) { return sEmpty; }
+	string sFace = chref.UserData.Face;
+	if (sFace == "") { return sEmpty; }
+
+	if (findSubStr(sFace, "face_", 0) == 0)
+	{
+		return "interfaces\portraits\256\" + sFace + ".tga";
+	}
+
+	if (CheckAttribute(chref, "UserData.SpyFaceKey") && CheckAttribute(chref, "UserData.SpyFacePath"))
+	{
+		if (chref.UserData.SpyFaceKey == sFace) { return chref.UserData.SpyFacePath; }
+	}
+
+	string sPath = sEmpty;
+	object oFaceFiles;
+	if (NFFindFiles(&oFaceFiles, "resource\textures\" + sUserFacesPath, sFace + ".tga.tx", false) > 0)
+	{
+		sPath = sUserFacesPath + sFace + ".tga";
+	}
+	chref.UserData.SpyFaceKey = sFace;
+	chref.UserData.SpyFacePath = sPath;
+	return sPath;
+}
+
+// ---- the fort in the view of the telescope (the engine reports ships only) ----
+#define ISG_FORT_RADIUS		300.0	// m, how far from the view ray the fort locator may be (the locator is not the centre of the fort model)
+#define ISG_FORT_RADIUS_K	0.04	// + this * distance to the fort (the further the fort, the bigger the tolerance)
+#define ISG_FORT_HEIGHT		25.0	// m, height of the fort above the sea
+#define ISG_FORT_VTOL		80.0	// m, vertical tolerance of the view ray at the fort
+#define ISG_FORT_MAXDIST	5000.0
+
+int iSpyTickNo = 0;		// timer ticks
+int iSpyEngineTick = -100;	// tick of the last SetTelescopeInfo of the engine (a ship is in the view)
+int iSpyLastId = -2;
+int iSpyTraceCnt = 0;
+
+// diagnostics of the fort check (written to compile.log once a second while the telescope is on and no ship is in the view)
+int iSpyDiagTick = -100;
+string sSpyFortWhy = "";
+float fSpyDbgDist = 0.0;
+float fSpyDbgFwd = 0.0;
+float fSpyDbgLat = 0.0;
+float fSpyDbgVert = 0.0;
+
+bool NetClient_SpyFortInView()
+{
+	sSpyFortWhy = "no fort data (SpyGlass.x)";
+	ref rFort = NetClient_GetClient(NET_FORTCLIENT);
+	if (!CheckAttribute(rFort, "SpyGlass.x")) { return false; }
+	sSpyFortWhy = "no camera";
+	if (!CheckAttribute(&NCDeckCamera, "Pos.x") || !CheckAttribute(&NCDeckCamera, "Dir.x")) { return false; }
+
+	float cx = stf(NCDeckCamera.Pos.x);
+	float cy = stf(NCDeckCamera.Pos.y);
+	float cz = stf(NCDeckCamera.Pos.z);
+	float dx = stf(NCDeckCamera.Dir.x);
+	float dy = stf(NCDeckCamera.Dir.y);
+	float dz = stf(NCDeckCamera.Dir.z);
+	sSpyFortWhy = "camera is not finite";
+	if (!COOP_CliFloatOk(cx) || !COOP_CliFloatOk(cy) || !COOP_CliFloatOk(cz)) { return false; }
+	if (!COOP_CliFloatOk(dx) || !COOP_CliFloatOk(dy) || !COOP_CliFloatOk(dz)) { return false; }
+
+	sSpyFortWhy = "view is vertical";
+	float fHor = sqrt(dx * dx + dz * dz);
+	if (fHor < 0.001) { return false; }
+
+	float vx = stf(rFort.SpyGlass.x) - cx;
+	float vz = stf(rFort.SpyGlass.z) - cz;
+	float fDist = sqrt(vx * vx + vz * vz);
+	fSpyDbgDist = fDist;
+	sSpyFortWhy = "too close / too far";
+	if (fDist < 30.0 || fDist > ISG_FORT_MAXDIST) { return false; }
+
+	float fForward = (dx * vx + dz * vz) / fHor;		// along the view ray (horizontal)
+	fSpyDbgFwd = fForward;
+	sSpyFortWhy = "fort is behind";
+	if (fForward <= 0.0) { return false; }
+	float fLateral = (dx * vz - dz * vx) / fHor;		// across the view ray
+	if (fLateral < 0.0) { fLateral = -fLateral; }
+	fSpyDbgLat = fLateral;
+	sSpyFortWhy = "fort is aside of the view ray";
+	if (fLateral > ISG_FORT_RADIUS + ISG_FORT_RADIUS_K * fForward) { return false; }
+
+	float fRayY = cy + (dy / fHor) * fForward;		// height of the view ray at the fort
+	float fVert = fRayY - ISG_FORT_HEIGHT;
+	if (fVert < 0.0) { fVert = -fVert; }
+	fSpyDbgVert = fVert;
+	sSpyFortWhy = "view ray is too high / low at the fort";
+	if (fVert > ISG_FORT_VTOL) { return false; }
+	sSpyFortWhy = "IN VIEW";
+	return true;
+}
+
+// COOP v3.1: the fort check is called from several places (the timer may be late or dead): the timer, the heartbeat,
+// the engine event ReleaseTelescopeInfo and the TelescopeIn control. iSpyTickNo counts the calls.
+int iSpyLastWhyTick = -100;
+string sSpyLastWhy = "";
+
+void NetClient_SpyFortUpdate()
+{
+	iSpyTickNo++;
+
+	if (!bNetTelescopeOn)
+	{
+		if (bSpyFortShown)
+		{
+			bSpyFortShown = false;
+			SendMessage(&objISpyGlass, "ll", MSG_ISG_VISIBLE, false);
+		}
+		return;
+	}
+
+	// the engine keeps sending SetTelescopeInfo while a ship is in the view: the ship has the priority
+	if (iSpyTickNo - iSpyEngineTick < 5) { return; }
+
+	bool bFortView = NetClient_SpyFortInView();
+	// log when the reason changes (and not more often than every 60 calls)
+	if (sSpyFortWhy != sSpyLastWhy || iSpyTickNo - iSpyDiagTick >= 60)
+	{
+		sSpyLastWhy = sSpyFortWhy;
+		iSpyDiagTick = iSpyTickNo;
+		string sDiagFort = "";
+		ref rDiagFort = NetClient_GetClient(NET_FORTCLIENT);
+		if (CheckAttribute(rDiagFort, "SpyGlass.x")) { sDiagFort = " fort=" + rDiagFort.SpyGlass.x + "," + rDiagFort.SpyGlass.z; }
+		Trace("COOP: spyfort " + sSpyFortWhy + sDiagFort + " dist=" + fSpyDbgDist + " fwd=" + fSpyDbgFwd + " lat=" + fSpyDbgLat + " vert=" + fSpyDbgVert);
+	}
+	if (!bFortView)
+	{
+		if (bSpyFortShown)
+		{
+			bSpyFortShown = false;
+			SendMessage(&objISpyGlass, "ll", MSG_ISG_VISIBLE, false);
+		}
+		return;
+	}
+
+	bSpyFortShown = true;
+	Net_SpyGlassShow(NET_FORTCLIENT);
+}
+
+int iSpyAliveCnt = 0;
+
+void NetClient_SpyFortTick()
+{
+	int iGen = GetEventData();
+	if (iGen != iSpyFortGen) { return; }
+	PostEvent("NetClient_SpyFortTick", 150, "l", iSpyFortGen);
+
+	// the timer is alive (once per ~6 s)
+	iSpyAliveCnt++;
+	if (iSpyAliveCnt >= 40)
+	{
+		iSpyAliveCnt = 0;
+		Trace("COOP: spyfort timer alive, calls=" + iSpyTickNo);
+	}
+	NetClient_SpyFortUpdate();
+}
+
+// event SetTelescopeInfo of the engine
+void Net_SetSpyGlassData()
+{
+	int wNetClientID = GetEventData();
+	iSpyEngineTick = iSpyTickNo;
+	bSpyFortShown = false;
+	Net_SpyGlassShow(wNetClientID);
+}
+
+void Net_SpyGlassShow(int wNetClientID)
+{
+	if (wNetClientID < 0) { return; }
+
+	bool bFort = false;
+	if (wNetClientID == NET_FORTCLIENT) { bFort = true; }
+	if (!bFort)
+	{
+		if (wNetClientID >= NET_MAXCLIENTS) { return; }
+		if (!NetClient_IsCLient(wNetClientID)) { return; }
+	}
+
+	ref chref = NetClient_GetClient(wNetClientID);
+
+	string sTextureName = "battle_interface\ship_icons2.tga";
+	float uvLeft = 0.0;
+	float uvTop = 0.0;
+	float uvRight = 0.125;
+	float uvBottom = 0.125;
+
+	int shipHull = -1;
+	int shipSail = -1;
+	int shipCrew = -1;
+	int shipCannons = -1;
+	int shipMaxCannons = -1;
+	int shipCharge = -1;
+	int shipNation = 0;		// no nations in the net game: the 'nation' icon slot shows the boarding skill (see FillISpyGlassParameters)
+	int shipClass = 1;
+	int nSailState = -1;
+	float shipSpeed = -1.0;
+	string shipName = "";
+	string shipType = "";
+	string sCaptainName = "";
+	string sCannonType = "";
+	string sNetUserFaceTex = sUserFacesPath + "_emptyface_.tga";
+
+	int nFencingSkill = 0;
+	int nCannonSkill = 0;
+	int nAccuracySkill = 0;
+	int nNavigationSkill = 0;
+	int nBoardingSkill = 0;
+	int nGrapplingSkill = 1;	// boarding (Grappling), shown left of the carpentry (Repair)
+
+	if (bFort)
+	{
+		// ---------------- fort (data from NSC_FORT_INFO, see client\Fort.c) ----------------
+		shipType = XI_ConvertString("Fort_Name");
+		if (CheckAttribute(chref, "SpyGlass.Name")) { shipName = chref.SpyGlass.Name; }
+
+		sTextureName = "battle_interface\list_icon2.tga";
+		uvLeft = 0.375;
+		uvTop = 0.75;
+		uvRight = 0.5;
+		uvBottom = 0.875;
+
+		shipHull = 100;
+		if (CheckAttribute(chref, "SpyGlass.CannonsTotal"))
+		{
+			int iFortTotal = sti(chref.SpyGlass.CannonsTotal);
+			int iFortDamaged = sti(chref.SpyGlass.CannonsDamaged);
+			if (iFortTotal > 0)
+			{
+				if (iFortDamaged > iFortTotal) { iFortDamaged = iFortTotal; }
+				shipMaxCannons = iFortTotal;
+				shipCannons = iFortTotal - iFortDamaged;
+				shipHull = makeint(100.0 * makefloat(iFortTotal - iFortDamaged) / makefloat(iFortTotal));
+			}
+		}
+		if (CheckAttribute(chref, "SpyGlass.Crew")) { shipCrew = sti(chref.SpyGlass.Crew); }
+
+		shipCharge = 1;			// the fort shoots bombs (icon 1 = bombs)
+		nFencingSkill = 5;		// the skills of the fort (server\Fort.c)
+		nCannonSkill = 10;
+		nAccuracySkill = 10;
+		nNavigationSkill = 5;
+		nBoardingSkill = 5;
+		nGrapplingSkill = 5;
+		sCaptainName = "       ";
+	}
+	else
+	{
+		// ---------------- ship of a player ----------------
+		if (!CheckAttribute(chref, "Ship.Type")) { return; }
+		int nShipIdx = sti(chref.Ship.Type);
+		if (nShipIdx < 0 || nShipIdx >= iNetShipsNum) { return; }
+
+		ref rShip = Net_GetShipByIndex(nShipIdx);
+		shipType = XI_ConvertString(rShip.Name);
+		if (CheckAttribute(chref, "Ship.Name")) { shipName = chref.Ship.Name; }
+		shipClass = sti(rShip.Class);
+
+		Net_GetSpyShipUV(nShipIdx, &uvLeft, &uvTop, &uvRight, &uvBottom);
+
+		// hull
+		shipHull = 100;
+		if (CheckAttribute(chref, "Ship.HP") && CheckAttribute(chref, "Ship.MaxHP"))
+		{
+			float fMaxHP = stf(chref.Ship.MaxHP);
+			if (fMaxHP > 0.0) { shipHull = makeint(100.0 * stf(chref.Ship.HP) / fMaxHP); }
+		}
+		if (shipHull < 0) { shipHull = 0; }
+		if (shipHull > 100) { shipHull = 100; }
+
+		// sails
+		shipSail = Net_GetSailPercent(chref);
+		if (shipSail < 0) { shipSail = 0; }
+		if (shipSail > 100) { shipSail = 100; }
+
+		// exact crew
+		if (CheckAttribute(chref, "Ship.Crew.Quantity")) { shipCrew = makeint(stf(chref.Ship.Crew.Quantity)); }
+
+		// cannons: installed (server) minus the destroyed ones (counted from the damages of the ship model)
+		int iMaxCannons = Net_GetShipCannonsNum(nShipIdx);
+		int iDestroyed = iMaxCannons - Net_GetIntactCannonsNum(wNetClientID);
+		if (iDestroyed < 0) { iDestroyed = 0; }
+		int iInstalled = iMaxCannons;
+		if (CheckAttribute(chref, "Ship.CannonsInstalled")) { iInstalled = sti(chref.Ship.CannonsInstalled); }
+		if (iInstalled > iMaxCannons) { iInstalled = iMaxCannons; }
+		shipMaxCannons = iMaxCannons;		// max of the ship type (16), the thrown away ones show up as missing: 10 / 16
+		shipCannons = iInstalled - iDestroyed;
+		if (shipCannons < 0) { shipCannons = 0; }
+
+		// speed
+		if (CheckAttribute(chref, "Ship.Speed.z") && CheckAttribute(&NetBInterface, "ShipSpeedScaler"))
+		{
+			shipSpeed = stf(chref.Ship.Speed.z) * stf(NetBInterface.ShipSpeedScaler);
+		}
+
+		// charge
+		if (CheckAttribute(chref, "Ship.Cannons.Charge.Type"))
+		{
+			switch (sti(chref.Ship.Cannons.Charge.Type))
+			{
+				case GOOD_BALLS: shipCharge = 0; break;
+				case GOOD_GRAPES: shipCharge = 3; break;
+				case GOOD_KNIPPELS: shipCharge = 2; break;
+				case GOOD_BOMBS: shipCharge = 1; break;
+			}
+		}
+
+		// sails state (icon)
+		nSailState = 1;
+		float fSailSt = NetClient_ShipGetSailState(wNetClientID);
+		if (fSailSt < 0.3) { nSailState = 0; }
+		else
+		{
+			if (fSailSt < 0.6) { nSailState = 1; }
+			else { nSailState = 2; }
+		}
+
+		// captain
+		if (CheckAttribute(chref, "NickName")) { sCaptainName = chref.NickName; }
+		if (CheckAttribute(chref, "Skill.Defence")) { nFencingSkill = sti(chref.Skill.Defence); }
+		if (CheckAttribute(chref, "Skill.Cannons")) { nCannonSkill = sti(chref.Skill.Cannons); }
+		if (CheckAttribute(chref, "Skill.Accuracy")) { nAccuracySkill = sti(chref.Skill.Accuracy); }
+		if (CheckAttribute(chref, "Skill.Sailing")) { nNavigationSkill = sti(chref.Skill.Sailing); }
+		if (CheckAttribute(chref, "Skill.Repair")) { nBoardingSkill = sti(chref.Skill.Repair); }
+		if (CheckAttribute(chref, "Skill.Grappling")) { nGrapplingSkill = sti(chref.Skill.Grappling); }
+
+		sCannonType = Net_SpyGlassCannonName(chref);
+
+		sNetUserFaceTex = Net_SpyGlassFacePath(chref);
+	}
+
+	// the same line as in the single player: caliber + musket volley (perk MusketsShoot, everybody has it, not the fort) + captain
+	if (bNetBoardPerkMusketsShoot && !bFort)
+	{
+		sCaptainName = sCannonType + "  ћушкетный залп   " + sCaptainName;
+	}
+	else
+	{
+		sCaptainName = sCannonType + "       " + sCaptainName;
+	}
+
+	// the 'crew' text of the entity now shows the boarding skill (the entity has no 6th skill field), so the crew goes to the caption line
+	if (shipCrew >= 0) { sCaptainName = " Ёкипаж " + shipCrew + "     " + sCaptainName; }
+
+	float fDistance = Net_SpyGlassDistance(chref, bFort);
+
+	if (wNetClientID != iSpyLastId || iSpyTraceCnt > 20)
+	{
+		iSpyTraceCnt = 0;
+		iSpyLastId = wNetClientID;
+		int iFortFlag = 0;
+		if (bFort) { iFortFlag = 1; }
+		Trace("COOP: spy v3 id=" + wNetClientID + " fort=" + iFortFlag + " dist=" + fDistance + " hull=" + shipHull + " crew=" + shipCrew + " cannons=" + shipCannons + "/" + shipMaxCannons + " face=" + sNetUserFaceTex);
+	}
+	iSpyTraceCnt++;
+
+	SendMessage(&objISpyGlass, "lsslllfflllllllllllssl", MSG_ISG_UPDATE,
+		shipName, shipType,
+		shipHull, shipSail, nGrapplingSkill, shipSpeed, fDistance,
+		shipCannons, shipMaxCannons,
+		shipCharge, shipNation, nSailState, -1,
+		nFencingSkill, nCannonSkill, nAccuracySkill, nNavigationSkill, nBoardingSkill,
+		sCaptainName, sNetUserFaceTex, shipClass);
+	SendMessage(&objISpyGlass, "lsffff", MSG_ISG_SET_SHIPICON, sTextureName, uvLeft, uvTop, uvRight, uvBottom);
+	SendMessage(&objISpyGlass, "ll", MSG_ISG_VISIBLE, true);
 }

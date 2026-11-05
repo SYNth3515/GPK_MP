@@ -47,6 +47,7 @@ bool NetServer_AdminShipOk(int wTarget)
 {
 	if (!bServerGameStarted) { return false; }
 	if (!NetServer_AdminTargetOk(wTarget)) { return false; }
+	if (!NetServer_HasShip(wTarget)) { return false; }		// COOP: a lobby player of the running game has no ship
 	if (sti(NSClients[wTarget].Ship.Type) < 0) { return false; }
 	if (sti(NSClients[wTarget].Dead)) { return false; }
 	return true;
@@ -217,6 +218,7 @@ void NetServer_AdminKick(int wAdmin, int wTarget)
 
 	// and remove it right now (all clients get NSC_CLIENT_DROP, the lobby table is updated at once)
 	NetServer_DropClient(wTarget);
+	NSClients[wTarget].Parked = false;		// COOP: a kicked player can not take his ship back by reconnecting
 }
 
 void NetServer_AdminMute(int wTarget)

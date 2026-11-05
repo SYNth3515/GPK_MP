@@ -34,6 +34,24 @@ void Net_InitCannons()
 	
 	makeref(rCannon, NetCannons[n]); n++;
 	rCannon.name = "culverine";
+	rCannon.picture = "cannons1";
+	rCannon.caliber = 8;
+	rCannon.ReloadTime = 16;
+	rCannon.Cost = 80;
+	rCannon.Upgrade1 = 0;
+	rCannon.Upgrade2 = 20;
+	rCannon.Upgrade3 = 40;
+	rCannon.Weight = 18;
+	rCannon.SPWeight = 3;
+	rCannon.FireAngMax = 0.60;
+	rCannon.FireAngMin = -0.35;
+	rCannon.DamageMultiply = 0.7;
+	rCannon.TradeOff = false;
+	rCannon.hp = 30.0;
+	Net_InitCannonsCalcSpeedV0(&rCannon, 450.0);
+
+	makeref(rCannon, NetCannons[n]); n++;
+	rCannon.name = "culverine";
 	rCannon.picture = "cannons2";
 	rCannon.caliber = 12;
 	rCannon.ReloadTime = 20;
@@ -42,6 +60,7 @@ void Net_InitCannons()
 	rCannon.Upgrade2 = 30;
 	rCannon.Upgrade3 = 60;
 	rCannon.Weight = 27;
+	rCannon.SPWeight = 7;
 	rCannon.FireAngMax = 0.60;
 	rCannon.FireAngMin = -0.35;
 	rCannon.DamageMultiply = 1.0;
@@ -59,6 +78,7 @@ void Net_InitCannons()
 	rCannon.Upgrade2 = 30;
 	rCannon.Upgrade3 = 60;
 	rCannon.Weight = 42;
+	rCannon.SPWeight = 10;
 	rCannon.FireAngMax = 0.60;
 	rCannon.FireAngMin = -0.35;
 	rCannon.DamageMultiply = 2;
@@ -76,12 +96,31 @@ void Net_InitCannons()
 	rCannon.Upgrade2 = 30;
 	rCannon.Upgrade3 = 60;
 	rCannon.Weight = 51;
+	rCannon.SPWeight = 15;
 	rCannon.FireAngMax = 0.60;
 	rCannon.FireAngMin = -0.35;
 	rCannon.DamageMultiply = 4;
 	rCannon.TradeOff = false;
 	rCannon.hp = 70.0;
 	Net_InitCannonsCalcSpeedV0(&rCannon, 600.0);
+
+	makeref(rCannon, NetCannons[n]); n++;
+	rCannon.name = "cannon";
+	rCannon.picture = "cannons5";
+	rCannon.caliber = 8;
+	rCannon.ReloadTime = 10;
+	rCannon.Cost = 70;
+	rCannon.Upgrade1 = 0;
+	rCannon.Upgrade2 = 20;
+	rCannon.Upgrade3 = 40;
+	rCannon.Weight = 14;
+	rCannon.SPWeight = 2;
+	rCannon.FireAngMax = 0.60;
+	rCannon.FireAngMin = -0.35;
+	rCannon.DamageMultiply = 0.7;
+	rCannon.TradeOff = false;
+	rCannon.hp = 28.0;
+	Net_InitCannonsCalcSpeedV0(&rCannon, 300.0);
 
 	makeref(rCannon, NetCannons[n]); n++;
 	rCannon.name = "cannon";
@@ -93,6 +132,7 @@ void Net_InitCannons()
 	rCannon.Upgrade2 = 30;
 	rCannon.Upgrade3 = 60;
 	rCannon.Weight = 20;
+	rCannon.SPWeight = 6;
 	rCannon.FireAngMax = 0.60;
 	rCannon.FireAngMin = -0.35;
 	rCannon.DamageMultiply = 1.0;
@@ -110,6 +150,7 @@ void Net_InitCannons()
 	rCannon.Upgrade2 = 30;
 	rCannon.Upgrade3 = 60;
 	rCannon.Weight = 30;
+	rCannon.SPWeight = 8;
 	rCannon.FireAngMax = 0.60;
 	rCannon.FireAngMin = -0.35;
 	rCannon.DamageMultiply = 2.5;
@@ -123,6 +164,7 @@ void Net_InitCannons()
 	rCannon.caliber = 24;
 	rCannon.ReloadTime = 24;
 	rCannon.Weight = 38;
+	rCannon.SPWeight = 12;
 	rCannon.Cost = 165;
 	rCannon.Upgrade1 = 0;
 	rCannon.Upgrade2 = 30;
@@ -144,10 +186,11 @@ void Net_InitCannons()
 	rCannon.Upgrade2 = 30;
 	rCannon.Upgrade3 = 60;
 	rCannon.Weight = 72;
+	rCannon.SPWeight = 16;
 	rCannon.FireAngMax = 0.60;
 	rCannon.FireAngMin = -0.35;
 	rCannon.DamageMultiply = 6.0;
-	rCannon.TradeOff = true;
+	rCannon.TradeOff = false;
 	rCannon.hp = 85.0;
 	Net_InitCannonsCalcSpeedV0(&rCannon, 750.0);
 	
@@ -161,10 +204,11 @@ void Net_InitCannons()
 	rCannon.Upgrade2 = 30;
 	rCannon.Upgrade3 = 60;
 	rCannon.Weight = 90;
+	rCannon.SPWeight = 20;
 	rCannon.FireAngMax = 0.60;
 	rCannon.FireAngMin = -0.35;
 	rCannon.DamageMultiply = 7.5;
-	rCannon.TradeOff = true;
+	rCannon.TradeOff = false;
 	rCannon.hp = 90.0;
 	Net_InitCannonsCalcSpeedV0(&rCannon, 780.0);
 	NETCANNON_CANNON = n - 1;
@@ -179,10 +223,11 @@ void Net_InitCannons()
 	rCannon.Upgrade2 = 30;
 	rCannon.Upgrade3 = 60;
 	rCannon.Weight = 112;
+	rCannon.SPWeight = 22;
 	rCannon.FireAngMax = 0.60;
 	rCannon.FireAngMin = -0.35;
 	rCannon.DamageMultiply = 9.0;
-	rCannon.TradeOff = true;
+	rCannon.TradeOff = false;
 	rCannon.hp = 100.0;
 	Net_InitCannonsCalcSpeedV0(&rCannon, 800.0);
 	NETCANNON_CULVERINE = n - 1;
@@ -197,13 +242,30 @@ void Net_InitCannons()
 	rCannon.Upgrade2 = 200;
 	rCannon.Upgrade3 = 400;
 	rCannon.Weight = 120;
+	rCannon.SPWeight = 30;
 	rCannon.FireAngMax = 0.60;
 	rCannon.FireAngMin = -0.35;
 	rCannon.DamageMultiply = 12.0;
-	rCannon.TradeOff = true;
+	rCannon.TradeOff = false;
 	rCannon.hp = 110.0;
 	Net_InitCannonsCalcSpeedV0(&rCannon, 760.0);
 	NETCANNON_MORTAR = n - 1;
 
 	iNetCannonsNum = n;
+
+	// COOP: shot sound of every cannon, same aliases as in single player (cannons\cannons_init.c)
+	for (int i=0; i<iNetCannonsNum; i++)
+	{
+		makeref(rCannon, NetCannons[i]);
+		rCannon.Sound = Net_GetCannonFireSound(rCannon.name, sti(rCannon.caliber));
+	}
+}
+
+string Net_GetCannonFireSound(string sName, int iCaliber)
+{
+	if (sName == "culverine") { return "cannon_fire_culverine_" + iCaliber; }
+	if (sName == "cannon") { return "cannon_fire_cannon_" + iCaliber; }
+	// special: 32, 42, 48 lbs are heavy cannons in SP, 36 lbs uses the fort cannon sound
+	if (iCaliber == 36) { return "fort_cannon_fire"; }
+	return "cannon_fire_cannon_" + iCaliber;
 }

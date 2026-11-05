@@ -28,6 +28,12 @@ void NetClient_OnServerInfo_Common(int iMsg)
 	NCServer.GameSpeed = NMGetByte(iMsg);
 	NCServer.WeatherID = NMGetString(iMsg);
 	NCServer.IslandID = NMGetString(iMsg);
+	// COOP: game state and switches of the server
+	NCServer.GameRunning = NMGetByte(iMsg);
+	NCServer.Respawn = NMGetByte(iMsg);
+	NCServer.NoBoarding = NMGetByte(iMsg);
+	NCServer.PassivePerks = NMGetByte(iMsg);
+	NCServer.ActivePerks = NMGetByte(iMsg);
 }
 
 void NetClient_OnServerInfo_Player(int iMsg)

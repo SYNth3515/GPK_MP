@@ -605,6 +605,9 @@ void InterfaceDoExit()
 		case RC_INTERFACE_NET_BUY:
 			LaunchNetBuyScreen();
 		break;
+		case RC_INTERFACE_NET_OPTIONS_EXIT:
+			LaunchNetMenu();	// COOP: back from the options screen to the Esc menu of the running net game
+		break;
 		case RC_INTERFACE_RANSACK_MAIN_EXIT:
 			Return2SeaAfterAbordage();
 			break;

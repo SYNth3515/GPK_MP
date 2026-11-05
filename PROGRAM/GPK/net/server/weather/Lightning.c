@@ -63,6 +63,7 @@ void NetServer_Lightning_DoIt()
 	for (int i=0; i<NET_MAXCLIENTS; i++)
 	{
 		if (!sti(NSClients[i].Use)) { continue; }
+		if (!NetServer_HasShip(i)) { continue; }		// COOP: lobby players of the running game have no ship
 		ref rClient, rShip; 
 		aref arCShip; 
 
@@ -102,7 +103,9 @@ void NetServer_Lightning_DoIt()
 				NMDelete(iSMsg);
 			}
 
-			NetServer_ShipApplyHullHitpoints(rClient, iMinBoom * 40.0, NETKILL_BY_LIGHTNING, DST_INVALID);
+			float fStormPerk = 1.0;
+			if (NetServer_PassivePerksFor(i)) { fStormPerk = 0.7; }		// COOP: passive perk StormProfessional
+			NetServer_ShipApplyHullHitpoints(rClient, iMinBoom * 40.0 * fStormPerk, NETKILL_BY_LIGHTNING, DST_INVALID);
 			NetServer_ShipApplyCrewHitpoints(rClient, MakeFloat(rand(3)), DST_INVALID);
 
 			// fireplaces test
@@ -129,7 +132,7 @@ void NetServer_Lightning_DoIt()
 				NetServer_SendMessage(DST_ALL, iSMsg, false);
 				NMDelete(iSMsg);
 
-				PostEvent("NetServer_ShipFireDamage", iRandStartTime, "lllf", i, DST_INVALID, j, fTotalFireTime);
+				PostEvent("NetServer_ShipFireDamage", iRandStartTime, "llllf", i, DST_INVALID, j, NetServer_GetShipLife(i), fTotalFireTime);
 			}
 		}
 	}

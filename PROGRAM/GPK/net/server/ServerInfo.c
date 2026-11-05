@@ -23,6 +23,16 @@ void NetServer_GetFullServerInfo(int wNetClientID)
 	NetServer_OnServerInfo_SendSkillsInfo(wNetClientID);
 	NetServer_OnServerInfo_SendPerksInfo(wNetClientID);
 	NetServer_OnServerInfo_SendGoodsInfo(wNetClientID);
+
+	// COOP: a player who reconnects to the running game gets his ship back right after the server info
+	if (bServerGameStarted && wNetClientID >= 0 && wNetClientID < NET_MAXCLIENTS)
+	{
+		if (CheckAttribute(&NSClients[wNetClientID], "Reconnect") && sti(NSClients[wNetClientID].Reconnect) && NetServer_HasShip(wNetClientID))
+		{
+			NSClients[wNetClientID].JoinRequested = true;
+			NetServer_LateJoin(wNetClientID, true);
+		}
+	}
 }
 
 // NSC_SERVERINFO_COMMON
@@ -40,6 +50,12 @@ void NetServer_OnServerInfo_SendCommonServerInfo(int wNetClientID)
 	NMAddByte(iSMsg, sti(NetServer.GameSpeed));
 	NMAddString(iSMsg, NetServer.WeatherID, 32);
 	NMAddString(iSMsg, NetServer.IslandID, 32);
+	// COOP: game state and the switches of the Create game screen
+	NMAddByte(iSMsg, bServerGameStarted);
+	NMAddByte(iSMsg, sti(NetServer.Respawn));
+	NMAddByte(iSMsg, sti(NetServer.NoBoarding));
+	NMAddByte(iSMsg, sti(NetServer.PassivePerks));
+	NMAddByte(iSMsg, sti(NetServer.ActivePerks));
 	NetServer_SendMessage(wNetClientID, iSMsg, true);
 	NMDelete(iSMsg);
 }
@@ -47,8 +63,10 @@ void NetServer_OnServerInfo_SendCommonServerInfo(int wNetClientID)
 // NSC_SERVERINFO_PLAYER 
 void NetServer_OnServerInfo_SendClientsInfo(int wNetClientID)
 {
-	for (int i=0; i<NetServer_GetClientsNum(); i++)
+	// COOP: the USED slots (after drops / reconnects they are not 0..N-1 any more); the lobby counts NumClients pieces
+	for (int i=0; i<NET_MAXCLIENTS; i++)
 	{
+		if (!sti(NSClients[i].Use)) { continue; }
 		int iSMsg = NMCreate();
 		NMAddByte(iSMsg, NC_SERVERINFO);
 		NMAddByte(iSMsg, NSC_SERVERINFO_PLAYER);

@@ -47,6 +47,20 @@ void LaunchNetInterface_TopList()
 	}
 }
 
+void LaunchNetInterface_Dump()
+{
+	// registered here as well as in BaseInterface.c, so the jettison window starts even if that file is an old one
+	Interfaces[INTERFACE_NET_DUMP].SectionName = "GPK\net\interfaces\DumpCargo.c";
+	Interfaces[INTERFACE_NET_DUMP].IniFile = "RESOURCE\INI\INTERFACES\Net\DumpCargo.ini";
+
+	if(procInterfacePrepare(INTERFACE_NET_DUMP))
+	{
+		nPrevInterface = -1;
+		CurrentInterface = INTERFACE_NET_DUMP;
+		InitInterface(Interfaces[CurrentInterface].IniFile);
+	}
+}
+
 void FreezeMainNetLayers(bool bFreeze)
 {
 	if( bFreeze ) {

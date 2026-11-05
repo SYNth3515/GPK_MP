@@ -54,6 +54,21 @@ void NetServer_OnNetMessage()
 
 	int iCode = NMGetByte(iMsg);
 
+	// COOP: a message from a slot that was dropped (ping timeout, kick): this client does not know it, tell it to leave
+	// (it goes to the main menu and can connect again: in a running game it gets its parked ship back)
+	if (wNetClientID < NET_MAXCLIENTS && !sti(NSClients[wNetClientID].Use))
+	{
+		if (iCode != NC_DISCONNECT && iCode != NC_GARANTED && iCode != NC_CONNECT && iCode != NC_BROADCAST)
+		{
+			int iByeSMsg = NMCreate();
+			NMAddByte(iByeSMsg, NC_CONNECT);
+			NMAddByte(iByeSMsg, NSC_CONNECT_DISCONNECT);
+			NetServer_SendMessageDirect(dwIP, wPort, iByeSMsg);
+			NMDelete(iByeSMsg);
+		}
+		if (iCode != NC_CONNECT && iCode != NC_BROADCAST) { return; }
+	}
+
 	if (wNetClientID < NET_MAXCLIENTS)	// update port for client, router can change this value on the fly
 	{
 		rClient = NetServer_GetClient(wNetClientID);
@@ -72,6 +87,7 @@ void NetServer_OnNetMessage()
 		case NC_SHIP:			NetServer_OnShip(wNetClientID, iMsg);			break;
 		case NC_CAMERA:			NetServer_OnCamera(wNetClientID, iMsg);			break;
 		case NC_BROADCAST:		NetServer_OnBroadcast(dwIP, wPort, iMsg);		break;
+		case NC_MASTERSERVER:	NetServer_OnMasterServer(dwIP, wPort, iMsg);	break;
 		case NC_FILE:			NetServer_OnFile(wNetClientID, iMsg);			break;
 		case NC_BUY:			NetServer_OnBuy(wNetClientID, iMsg);			break;
 		case NC_SERVERINFO:		NetServer_OnServerInfo(wNetClientID, iMsg);		break;
@@ -83,6 +99,36 @@ void NetServer_OnGaranted(int wNetClientID, int iMsg)
 {
 	int iGaranted = NMGetWord(iMsg);
 	NetServer_GarantedDeliveryCallback(wNetClientID, iGaranted);
+}
+
+int iPunchTick = 0;
+int iPunchCount = 0;
+
+// P2P: the master server tells us the address of a client that wants to connect (message starts with ClientID 0xFE like any
+// client message). We send one tiny packet to that address from the game socket: this opens our NAT for the client,
+// so its connect request is not dropped by the router. Other master messages (the ack of ADD/UPDATE) need no action.
+void NetServer_OnMasterServer(int dwIP, int wPort, int iMsg)
+{
+	int iSubCode = NMGetByte(iMsg);
+	if (iSubCode != NSC_MASTERSERVER_PUNCH) { return; }
+	if (!sti(NetServer.InetServer) || !sti(NetServer.P2P)) { Trace("P2P: punch request ignored (Internet/P2P switch is off)"); return; }
+
+	int dwClientIP = NMGetDword(iMsg);
+	int wClientPort = ntohs(NMGetWord(iMsg));
+	if (wClientPort <= 0) { return; }
+	Trace("P2P: punch request from master, client " + inet_ntoa(dwClientIP) + ":" + wClientPort);
+
+	// at most 30 punches per second
+	int iNow = Net_GetTickCount();
+	if (iNow - iPunchTick > 1000 || iNow < iPunchTick) { iPunchTick = iNow; iPunchCount = 0; }
+	if (iPunchCount >= 30) { return; }
+	iPunchCount++;
+
+	int iSMsg = NMCreate();
+	NMAddByte(iSMsg, NC_MASTERSERVER);
+	NMAddByte(iSMsg, NSC_MASTERSERVER_PUNCH);
+	NetServer_SendMessageDirect(dwClientIP, wClientPort, iSMsg);
+	NMDelete(iSMsg);
 }
 
 void NetServer_OnBroadcast(int dwIP, int wPort, int iMsg)

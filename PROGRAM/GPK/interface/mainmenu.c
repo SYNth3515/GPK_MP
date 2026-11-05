@@ -1,5 +1,9 @@
 string isUsersName="";
 
+// GPK_MP: links for the main menu buttons (set your real URLs here)
+#define MM_URL_GITHUB	"https://github.com/SYNth3515/GPK_MP/blob/main/README.md"
+#define MM_URL_SUPPORT	"https://yoomoney.ru/to/4100119665987017/0"
+
 //ref rCharacter; // boal
 int iChar;
 #event_handler("Control Activation","TempIControlProcess");
@@ -43,6 +47,8 @@ void InitInterface(string iniName)
     // boal ver num <--
 	
 	SetEventHandler("backgroundcommand","ProcCommand",0);
+	SetEventHandler("OnMainMenuGithub","MainMenu_OnGithub",0);
+	SetEventHandler("OnMainMenuSupport","MainMenu_OnSupport",0);
 
 	GameInterface.SavePath = "SAVE";
 
@@ -131,11 +137,30 @@ void MultiPress()
 	InterfaceStates.BackEnvironmentIsCreated = false;
 }
 
+// GPK_MP: OpenURL(string) is a new engine function (patched engine.exe), it opens an
+// http:// or https:// link in the default browser. Other strings are ignored.
+void MainMenu_OpenURL(string sUrl)
+{
+	OpenURL(sUrl);
+}
+
+void MainMenu_OnGithub()
+{
+	MainMenu_OpenURL(MM_URL_GITHUB);
+}
+
+void MainMenu_OnSupport()
+{
+	MainMenu_OpenURL(MM_URL_SUPPORT);
+}
+
 void IDoExit(int exitCode, bool bClear)
 {
 	InterfaceStates.BackEnvironmentIsCreated = true;
 
 	DelEventHandler("backgroundcommand","ProcCommand");
+	DelEventHandler("OnMainMenuGithub","MainMenu_OnGithub");
+	DelEventHandler("OnMainMenuSupport","MainMenu_OnSupport");
 	
 	interfaceResultCommand = exitCode;
 	EndCancelInterface(bClear);
