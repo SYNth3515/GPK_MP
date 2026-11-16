@@ -1,0 +1,53 @@
+Net_ShipDieFromPlayer				{%1 <%2> пустил ко дну %3 <%4>.}
+Net_ShipDieFromCollisionLiveShip	{%1 <%2> протаранил %3 <%4>.}
+Net_ShipDieFromCollisionDeadShip	{%1 <%2> пошел на корм рыбам! Горе такому шкиперу!}
+Net_ShipDieFromCollisionIsland		{%1 <%2> разбился о скалы! Позор такому шкиперу!}
+Net_ShipDieFromLighting				{Господь разгневался на %1 <%2> и покарал его своей десницей!}
+Net_ShipDieFromCriticalHit			{%1 <%2> разнес %3 <%4> в щепки!}
+Net_ShipDieFromBoarding				{%1 <%2> взял на абордаж и потопил %3 <%4>!}
+Net_BoardMusketVolleyOur				{Мушкетным залпом убито %1 человек команды противника.}
+Net_BoardMusketVolleyEnemy			{Мушкетным залпом убито %1 человек нашей команды.}
+Net_BoardCasualties					{Потери на абордаже: наша команда - %1 чел., команда противника - %2 чел.}
+Net_CriticalHit	 					{%1 <%2> всадил ядро в бочонок с порохом на палубе %3 <%4>!}
+Net_MastFallFromHit					{%1 <%2> сбил мачту %3 <%4>.}
+Net_MastFallFromCollision			{%1 <%2> потерял мачту в результате столкновения.}
+Net_FireActivation					{%1 <%2> поджег %3 <%4>}
+Net_FireActivation_Fort				{Форт поджег %3 <%4>}
+Net_CriticalHit_Fort				{Форт всадил ядро в бочонок с порохом на палубе %3 <%4>!}
+Net_MastFallFromHit_Fort			{Форт сбил мачту %3 <%4>.}
+Net_ShipDieFromPlayer_Fort			{Форт пустил ко дну %3 <%4>.}
+NetFG_ServerIsFull					{Сервер заполнен. Присоединение еще одного игрока невозможно.}
+NetFG_NeedUserPassword				{Введенный пароль не совпадает с хранящимся для этого пользователя паролем на сервере, попробуйте еще раз.}
+NetFG_NeedServerPassword			{Вы ввели неправильный пароль для доступа на сервер, попробуйте еще раз.}
+NetFG_RejectedUnknown				{По неизвестным причинам не удается подключиться к этому серверу.}
+NetFG_Banned						{Вам запретили доступ на этот сервер.}
+NetEG_DeathMatch					{Сражение завершено.\n \n%1 победил!}
+NetEG_Team							{Сражение завершено.\n \n"%1" команда победила!}
+Net_ShipDieFromExplosion			{%1 <%2> подорвался и пошел ко дну.}
+Net_PlayerLeft						{%1 <%2> покинул бой. Корабль ждет его возвращения.}
+Net_PlayerReconnected				{%1 <%2> вернулся в бой.}
+Net_RespawnIn						{Ваш корабль разбит. Возрождение через %1 сек.}
+Net_Respawned						{Корабль снова в строю!}
+NetGO_DeathMatch					{%1 побеждает в сражении!}
+NetGO_Team							{Команда "%1" побеждает в сражении!}
+NetGO_GameGoesOn					{Игра продолжается. Выйти: Esc - покинуть игру.}
+Net_LandStart						{Дуэль! E - достать оружие, ЛКМ - удар, пистолет - как в одиночной игре. Esc - меню.}
+Net_LandYouDied						{Вы погибли. Респаун выключен: выйти из боя - Esc.}
+Net_LandDied						{погиб.}
+Net_LandKilled						{убил}
+Net_LandRespawned					{Вы снова в бою!}
+Net_BotAdded						{Бот %1 добавлен}
+Net_BotRemoved						{Бот %1 удален}
+Net_BotNoShip						{Бота можно добавить, только когда ваш корабль на плаву.}
+Net_BotLimit						{В этом бою больше нельзя добавить ботов (лимит %1). Номера удаленных ботов освободятся в следующем бою.}
+Net_BotNoFort						{Ни на одной карте нет модели форта.}
+Net_BotFortExists					{Форт в этом бою уже стоит.}
+Net_BotFortAdded					{Форт добавлен}
+Net_BotFortFixed					{Форт этого режима нельзя переместить.}
+Net_BotFortMoveOff				{Перенос и лечение форта выключены (bNetFortMove в server\Fort.c).}
+Net_BotFortGone					{Форт уже убирали в этой игре: заново он не строится (игра падает на первом залпе), перезапустите игру.}
+Net_BotNoGame						{Боты добавляются только в идущем бою.}
+Net_PerkOn							{%1: перк активирован на %2 сек.}
+Net_PerkOff							{%1: действие перка закончилось.}
+Net_PerkReady						{%1: перк снова доступен.}
+Net_PerkWait						{%1: перк будет доступен через %2 сек.}
