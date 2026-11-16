@@ -1,8 +1,16 @@
 Мультиплеерный/кооперативный проект для Корсары: Город Потерянных Кораблей | A multiplayer/coop project for Age Of Pirates 2: City of Abandoned Ships
 
-<img width="256" height="256" alt="Logo" src="https://github.com/user-attachments/assets/ebe6b70c-4adc-438f-bf92-ecae9c3cb8e7" />
+<p align="center">
+  <img
+    width="256"
+    height="256"
+    alt="GPK_MP Logo"
+    src="https://github.com/user-attachments/assets/ebe6b70c-4adc-438f-bf92-ecae9c3cb8e7"
+  />
+</p>
 
-Группа в ВК - vk.ru/gpk_mp
+Группа/чат/обсуждения в ВК - https://vk.ru/gpk_mp
+GITHUB - https://github.com/SYNth3515/GPK_MP
 Поддержать проект - https://yoomoney.ru/to/4100119665987017/0
 
 Полноценный мультиплеер для Корсары: ГПК с реанимированным на своем хосте мастер-сервером, хостить сервера пока можно только с белым IP и открытыми портами либо через Radmin/Hamachi и подобные клиенты туннелирования, в планах реализовать P2P соединение без потребности во всем этом.
