@@ -5,7 +5,7 @@
     width="256"
     height="256"
     alt="GPK_MP Logo"
-    src="(https://github.com/user-attachments/assets/4534b421-d3fa-4327-a9bc-11b944502183"
+    src="https://github.com/user-attachments/assets/4534b421-d3fa-4327-a9bc-11b944502183"
   />
 </p>
 
