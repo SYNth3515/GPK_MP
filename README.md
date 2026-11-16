@@ -1,6 +1,6 @@
 Мультиплеерный/кооперативный проект для Корсары: Город Потерянных Кораблей | A multiplayer/coop project for Age Of Pirates 2: City of Abandoned Ships
 
-<img width="1254" height="1254" alt="Logo" src="https://github.com/user-attachments/assets/ebe6b70c-4adc-438f-bf92-ecae9c3cb8e7" />
+<img width="256" height="256" alt="Logo" src="https://github.com/user-attachments/assets/ebe6b70c-4adc-438f-bf92-ecae9c3cb8e7" />
 
 Группа в ВК - vk.ru/gpk_mp
 Поддержать проект - https://yoomoney.ru/to/4100119665987017/0
