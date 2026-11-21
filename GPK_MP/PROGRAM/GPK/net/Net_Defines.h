@@ -43,6 +43,8 @@
 #define MSG_NET_CREATE_SERVER			10000
 #define MSG_NET_CREATE_CLIENT			10001
 #define MSG_NET_ADD_FORT				10002
+#define MSG_NET_SHIP_SETPOS				50450	// COOP s27 (patch of net.dll): "lffff" x, y, z, ay: the server ship goes there at once, level, speed 0 (sea noclip)
+#define NET_ADMIN_NOCLIP				24		// COOP s27 (NSC_COMMAND_ADMIN_CMD): the sea noclip of the admin: value = -1 off, else keys (1 W, 2 S, 4 A, 8 D, 16 Q, 32 E, 64 Space, 128 Shift) + 256 * step in cm
 
 // =================================================================================
 // Network game types
@@ -107,25 +109,54 @@
 #define NSC_CONNECT_RECONNECT						7
 #define NSC_CONNECT_DISCONNECT						8
 #define NSC_CONNECT_REJECTED_DIFFERENT_VERSION		9
+#define NSC_CONNECT_TOLOBBY							10	// COOP s30: the game is over, back to the lobby (server\OnStart.c: NetServer_ReturnToLobby)
 
 // NC_LAND (COOP: land duel, Land.c)
 // client -> server
-#define NSC_LAND_STATE			0		// float x, y, z, ay; byte flags (1 fight mode, 2 dead, 4 blocks, 8 runs, 16 W is down, 32 S is down, 64 the animation is sent by NSC_LAND_ANIM, 128 the fight states are mirrored); word hp; word hp max; float vx, vz (m/s)
+#define NSC_LAND_STATE			0		// float x, y, z, ay; byte flags (1 fight mode, 2 dead, 4 blocks, 8 runs, 16 W is down, 32 S is down, 64 the animation is sent by NSC_LAND_ANIM, 128 the fight states are mirrored); word hp; word hp max; float vx, vz (m/s); word energy, word energy max
 #define NSC_LAND_ACT			1		// byte action (NET_LANDACT_* + 16 * the variant of the animation 1..4), byte packet number (the packet is sent twice)
-#define NSC_LAND_HIT			2		// clientID victim, word damage, word damage if blocked, word delay ms (the victim applies a blade hit this long after he sees the swing), byte kind (0 blade, 1 shot)
-#define NSC_LAND_DEAD			3		// clientID killer (DST_INVALID - none), byte variant of the death animation 1..4
-#define NSC_LAND_ANIM			6		// string action of player 0, string action of player 1, string action of player 2 of the animation of the hero (Location.dll "GetAnim"), byte state and byte variant of the fight state machine of the hero ("GetFightState")
+#define NSC_LAND_HIT			2		// clientID victim, word damage, word damage if blocked, word what the attacker saw at the touch (1 block, 2 dodge, 3 feint, +4 a break blow, +8 HardHitter, +16 * the variant 1..3 of the hit reaction, +64 the perk Sliding: a blow into the block does its full damage; the victim applies the hit at once), byte kind (0 blade, 1 shot), byte sequence number (the packet goes twice, not guaranteed)
+#define NSC_LAND_DEAD			3		// clientID killer (DST_INVALID - none), byte variant of the death animation 1..4 (death_0..3, the sword out), 5..6 (death_citizen_1..2, no sword)
+#define NSC_LAND_ANIM			6		// string action of player 0, string action of player 1, string action of player 2 of the animation of the hero (Location.dll "GetAnim"), byte state and byte variant of the fight state machine of the hero ("GetFightState"); byte clientID + 1 of the attacker of the last hit that has reached the hero (0 none) and byte its sequence number (the attacker keeps the hit reaction of the puppet until then)
 #define NSC_LAND_HITRES			5		// clientID attacker, byte NET_LANDRES_* (the victim tells what became of the hit)
 #define NSC_LAND_LOADOUT		4		// string blade, string gun, byte level, 7 bytes PIRATES, 5 bytes skills, 13 bytes perks
 // server -> client
-#define NSC_LAND_START			10		// string location, byte spawn index, byte respawn, byte respawn seconds
+#define NSC_LAND_START			10		// string location, byte spawn index, byte respawn, byte respawn seconds, byte no pistol, string weather, dword ms to the end of the match (0 = no limit; team duel only)
 #define NSC_LAND_STATE_R		11		// clientID + the data of NSC_LAND_STATE
 #define NSC_LAND_ACT_R			12		// clientID, byte action, byte packet number
-#define NSC_LAND_HIT_R			13		// clientID attacker, word damage, word damage if blocked, word delay ms, byte kind (only to the victim)
+#define NSC_LAND_HIT_R			13		// clientID attacker, word damage, word damage if blocked, word what the attacker saw, byte kind, byte sequence number (only to the victim)
 #define NSC_LAND_DEAD_R			14		// clientID dead, clientID killer, word kills of the killer, byte variant of the death animation
 #define NSC_LAND_RESPAWN_R		15		// clientID, byte spawn index
 #define NSC_LAND_ANIM_R			18		// clientID + the data of NSC_LAND_ANIM
 #define NSC_LAND_HITRES_R		17		// clientID victim, byte NET_LANDRES_* (only to the attacker)
+#define NSC_LAND_ADMIN_R		19		// byte NET_LANDADM_*, clientID (the other player / DST_INVALID), byte value (the admin menu in a land duel, only to the player it concerns)
+#define NET_LANDADM_HEAL		1		// the player gets his health back
+#define NET_LANDADM_KILL		2		// the player dies
+#define NET_LANDADM_TPTO		3		// the player goes to the player of the clientID
+#define NET_LANDADM_BOTADD		4		// a bot (value = NET_BOTREL_*) comes into the location (on every machine)
+#define NET_LANDADM_BOTCLEAR	5		// all the bots go
+#define NSC_LAND_DMG			23		// clientID victim (the sender or his bot), clientID attacker, word damage, word hp, word hp max
+#define NSC_LAND_DMG_R			24		// the data of NSC_LAND_DMG (the number above the victim)
+#define NSC_LAND_STAT_R			25		// clientID, word kills, word deaths, float damage done, byte dead (F1)
+#define NSC_LAND_BOTEVT			27		// COOP s28: the owner of a bot -> server: clientID bot, clientID the other (DST_INVALID none), byte NET_LANDBOTEVT_*
+#define NET_LANDBOTEVT_HIT		1		// our hero / our bot has hit our neutral bot: it turns into an enemy
+#define NET_LANDBOTEVT_KILLED	2		// the bot has been killed by the other (team duel: the score of the teams)
+#define NSC_LAND_TEAMSCORE_R	26		// COOP: team duel: word kills of team 0, word kills of team 1 (kills of one team over the other)
+#define NSC_LAND_NPCLIST		28		// COOP s35: the host -> server: the NPC of the location (net\LandNpc.c)
+#define NSC_LAND_NPCLIST_R		29
+#define NSC_LAND_NPCSTATE		30		// COOP s35: the host -> server: the places of the NPC
+#define NSC_LAND_NPCSTATE_R		31
+#define NSC_LAND_BOARD_START	32		// COOP s37: server -> captain: the real boarding begins (net\Board.c)
+#define NSC_LAND_BOARD_END		33		// COOP s37: server -> captain: byte won
+#define NSC_LAND_BOTSTATE		7		// clientID bot (of the sender), float x, y, z, ay, byte flags (1 fight, 2 dead), word hp, word hp max, byte death variant, string action
+#define NSC_LAND_BOTHIT			8		// clientID attacker (the sender or his bot), clientID bot, word damage, word damage if blocked, byte kind (to the owner of the bot)
+#define NSC_LAND_BOTHITP		9		// clientID bot (of the sender), clientID victim player, word damage, word damage if blocked, byte kind, byte sequence
+#define NSC_LAND_BOTSTATE_R		20		// the data of NSC_LAND_BOTSTATE
+#define NSC_LAND_BOTHIT_R		21		// the data of NSC_LAND_BOTHIT (only to the owner of the bot)
+#define NSC_LAND_BOTINFO_R		22		// clientID bot, clientID owner, byte relation, byte removed, word face, string blade, string name
+#define NET_LANDADM_BOTSKILL	7		// to all: value = the difficulty of the bots 0..3
+#define NET_LANDADM_SPEED		8		// to all: value = the game speed * 4
+#define NET_LANDADM_BOTCMD		6		// to the owner of the bot (clientID): value NET_LANDBOT_* + 16 * the admin
 #define NSC_LAND_LOADOUT_R		16		// clientID + the data of NSC_LAND_LOADOUT
 
 #define NET_LANDACT_FAST		1
@@ -144,11 +175,14 @@
 #define NET_LANDRES_PARRY		2		// the hit was parried
 #define NET_LANDRES_MISS		3		// the victim was out of reach
 #define NET_LANDRES_HIT			4		// the hit landed
+#define NET_LANDRES_FEINT		5		// the hit went into a feint: the victim strikes back, the attacker takes hit_feint
 
 // NC_CLIENT
 #define NSC_CLIENT_CONNECTED			0
 #define NSC_CLIENT_LOAD					1
 #define NSC_CLIENT_DROP					2
+#define NSC_CLIENT_CHOICE				4		// COOP s30: clientID, string: the choice of the lobby of that player (NSC_BUY_CHOICE)
+#define NSC_CLIENT_TOLOBBY				5		// COOP s31: clientID: that player went to the lobby, the game goes on (his puppet goes away)
 #define NSC_CLIENT_BOT					3		// COOP: bots of the admin: byte op (NET_BOTOP_*), then the data of the op
 
 // NC_WEATHER
@@ -171,6 +205,7 @@
 #define NSC_COMMAND_SET_WEATHER         13      // string weather id, float wind angle, float wind speed (the same data as in the start message)
 #define NSC_COMMAND_SET_WIND            14      // float wind angle, float wind speed
 #define NSC_COMMAND_RELOAD_SHIPS        15      // ships were recreated on the server
+#define NSC_COMMAND_NOCLIP_SHIP         16      // COOP s27: server -> all: clientID, byte on, float y, float vy (m/s): the ship is in the sea noclip (no waves / collisions on the clients)
 
 // COOP: admin actions (NSC_COMMAND_ADMIN_CMD)
 #define NET_ADMIN_SYNC                  0       // send me the flags of all players and the environment
@@ -195,18 +230,27 @@
 #define NET_ADMIN_BOT_HEAL              18
 #define NET_ADMIN_BOT_DESTROY           19
 #define NET_ADMIN_BOT_DELETE            20
+#define NET_ADMIN_BOT_SKILL		22		// COOP: value = the difficulty of the bots 0..3 (all modes)
 #define NET_ADMIN_BOT_RESPAWN           21      // value = 1 / 0: the bots come back after a death like the players
+#define NET_ADMIN_LATEJOIN              25      // COOP s30: value = 1 / 0: new players can join the running game
+#define NET_ADMIN_TOLOBBY               26      // COOP s30: the game ends, everybody goes back to the lobby
+#define NET_ADMIN_LBOT_DEL              27      // COOP s30: value = the number of a bot of the lobby (0..) to remove
+#define NET_ADMIN_GOD                   23      // COOP s27: toggle the immortality of the player (sea: no hull / crew damage, no death; land: no death)
 
 // COOP: relation of a bot to the players
 #define NET_BOTREL_ALLY                 1       // fights the enemy bots, follows the admin who made it an ally
 #define NET_BOTREL_ENEMY                2       // fights the players and the allied bots
-#define NET_BOTREL_NEUTRAL              3       // does not fire, sails around
+#define NET_BOTREL_NEUTRAL              3       // does not fire, sails around (COOP s28: turns into an enemy when it is attacked)
+#define NET_BOTREL_TEAM0                4       // COOP s28: a bot of a team (NET_BOTREL_TEAM0 + team 0..3) of the team games (team deathmatch,
+                                                // capture the fort, convoy, the land duel of 2 teams): it fights like a player of that team,
+                                                // counts for the victory of its team and its kills go to its team
 
 // COOP: NSC_CLIENT_BOT operations
 #define NET_BOTOP_INFO                  1       // clientID, byte number, byte relation, word ship type, string nick, byte announce
 #define NET_BOTOP_REMOVED               2       // clientID, float sink speed x, y, z
 #define NET_BOTOP_NOTE                  3       // byte note (NET_BOTNOTE_*), byte value (to the admin)
 #define NET_BOTOP_OPTS                  4       // byte respawn of the bots (0 / 1)
+#define NET_BOTOP_LOBBY                 5       // COOP s30: the bots of the lobby: byte n, then n x (byte rel, word ship, byte cannon, crew, hull, sails)
 
 #define NET_BOTNOTE_NOSHIP              1
 #define NET_BOTNOTE_LIMIT               2
@@ -231,6 +275,7 @@
 #define NSC_SAY_CHAT					0
 #define NSC_SAY_TEAM					1
 #define NSC_SAY_PERSON					2
+#define NSC_SAY_SYSTEM					3	// COOP s30: a line of the server (no sender)
 
 // NC_BALL
 #define NSC_BALL_ADD					0
@@ -278,7 +323,7 @@
 #define NET_POWDER_DETONATE_RATIO		0.25	// SP (boal, AIShip.c): a critical hit blows the powder up if its weight > 25% of the capacity...
 #define NET_POWDER_DETONATE_CHANCE		50		// ...with this chance, %
 #define NET_BRANDER_CREW_DAMAGE		0.6		// part of the crew killed by the brander blast at the epicenter (less with distance)
-#define NET_CREW_COST					50		// price of one hired sailor (the crew on your own ship is paid from the credit)
+#define NET_CREW_COST					40		// COOP s29: 50 -> 40. price of one hired sailor (the crew on your own ship is paid from the credit)
 #define NET_BRANDER_ARM_TIME			30000	// ms: after the first press the brander is armed and goes off if the ship is boarded
 
 #define NET_MINE_MAX					32
@@ -301,9 +346,10 @@
 #define NSC_SHIP_BOARD_VOLLEY			21		// server -> both captains: musket volley before the boarding (plays the sound)
 
 // ---- respawn (CS-like deathmatch): the ship is "wrecked" for NET_RESPAWN_DELAY ms, then comes back with the same loadout ----
-// The ship entity of the clients is never deleted / sunk (deleting a ship on a client crashed the game, see client/Time.c):
-// the wrecked ship stays afloat, burns and does not move, then the server puts it to a spawn point.
-#define NSC_SHIP_WRECKED				35		// server -> in game clients: wDead, byte kill status, wKiller, byte detonate, byte seconds to respawn
+// COOP s27: the ship entity of a client is deleted the safe way now (the way of "Delete" of the admin menu: crew, battle
+// interface, sounds, DeleteClass, then the foam is made again: client\OnClient.c NetClient_ShipEntityDelete). The wrecked
+// ship sinks (NET_WRECK_SINK of server\OnShip.c) and is created again at the respawn.
+#define NSC_SHIP_WRECKED				35		// server -> in game clients: wDead, byte kill status, wKiller, byte detonate, byte seconds to respawn, byte sink, float sink speed x, y, z
 #define NSC_SHIP_RESPAWN				36		// server -> in game clients: wID, float maxhp, word crew, goods..., byte charge, float x, z, ay
 #define NET_RESPAWN_DELAY				30000	// ms between the death and the respawn: default of the slider on the Create game screen
 #define NET_RESPAWN_TIME_MIN			10		// s, slider of the Create game screen
@@ -315,6 +361,8 @@
 #define NSC_SHIP_PERK_STATE				38		// server -> owner: byte perk, dword active until (server time), dword ready at (server time)
 #define NSC_SHIP_PERK_DENIED			39		// server -> owner: byte perk, word seconds left
 #define NSC_SHIP_CANNONS_SET			40		// client -> server: byte cannons on the bow, stern, left, right; removed and not placed ones go overboard
+#define NSC_SHIP_GONE					41		// COOP s27: server -> in game clients: wID; the sunk ship is deleted (some time after its death)
+#define NSC_SHIP_REBUILD				42		// COOP s27: server -> in game clients: wID, float x, z, ay; the ship is deleted and created again (the masts after a repair)
 #define NET_BORT_NUM					4		// cannon borts: 0 bow (fcannon), 1 stern (bcannon), 2 left (lcannon), 3 right (rcannon)
 #define NET_APERK_NUM					4
 #define NET_APERK_IMMEDIATERELOAD		0		// "Предварительная перезарядка": reload time x0.5 (SP: TimeDelay 300, TimeDuration 60)
@@ -331,9 +379,9 @@
 #define NET_FORT_DROP					-1.0		// COOP: the fort of Bot+ is set this much lower (m)
 #define NET_FORT_TRACE_SHIFT			1			// COOP: 1 = net.dll shifts the rays of the balls to the model of the fort (the server model stays where it was loaded),
 												// 0 = the server model is moved by MSG_MODEL_SET_POSITION like the client model
-#define NET_FORT_COLL_R					100.0		// COOP: ships cannot come closer than this to the middle of a fort (the push starts here)
-#define NET_FORT_COLL_PUSH				40.0		// COOP: the push (Ship.Impulse.Speed, an acceleration) at the middle of the fort, 0 at the edge of NET_FORT_COLL_R
-#define NET_FORT_COLL_K					6.0			// COOP: the push against the speed of the ship towards the fort: acceleration = K * that speed (1/s)
+#define NET_FORT_COLL_R					40.0		// 50 COOP: ships cannot come closer than this to the middle of a fort (the push starts here)
+#define NET_FORT_COLL_PUSH				60.0		// COOP: the push (Ship.Impulse.Speed, an acceleration) at the middle of the fort, 0 at the edge of NET_FORT_COLL_R
+#define NET_FORT_COLL_K					20.0			// COOP: the push against the speed of the ship towards the fort: acceleration = K * that speed (1/s)
 #define NET_FORT_COLL_MAX				300.0		// COOP: the push is never stronger than this
 #define NSC_FORT_REMOVE					3		// COOP: server -> all: the fort of Bot+ is removed (Bots table: Delete / Destroy, or before it is built again)
 #define NSC_FORT_SPAWN					2		// COOP: server -> all: the admin added the fort in a running game (string 16: locator, string 24: island whose fort model is used, float dx, float dz: shift of the fort from that locator)
@@ -345,6 +393,7 @@
 #define NSC_BROADCAST_LOCAL				0
 #define NSC_BROADCAST_INET				1
 #define NSC_BROADCAST_FAVORITE			2
+#define NSC_BROADCAST_DETAILS			3		// COOP s27: client -> a server of the list: its parameters (answer: NC_BROADCAST, 3, tick, string Net_DetailsCode)
 
 // NC_MASTERSERVER
 #define NSC_MASTERSERVER_CONNECT		0
@@ -362,6 +411,7 @@
 #define	NSC_BUY_TEAMCHANGE				3
 #define	NSC_BUY_SHIPCHANGE				4
 #define NSC_BUY_FULLINFO				5
+#define NSC_BUY_CHOICE					6	// COOP s30: client -> server -> all: the choice of the lobby as a string (interfaces\Buy.c: Buy_ChoiceCode)
 
 // NC_SERVERINFO
 #define NSC_SERVERINFO_GET				0
@@ -373,6 +423,8 @@
 #define NSC_SERVERINFO_PERKS			6
 #define NSC_SERVERINFO_GOODS			7
 #define NSC_SERVERINFO_TOPLIST_PLAYER	8
+#define NSC_SERVERINFO_CHANGED			10		// COOP s30: server -> clients: the game settings changed in the lobby (read the info again)
+#define NSC_SERVERINFO_DETAILS			9		// COOP s27: client <-> the server of the lobby: its parameters (answer: string Net_DetailsCode)
 
 // NC_PLAYERINFO
 #define NSC_PLAYERINFO_SHIPCHANGE		0

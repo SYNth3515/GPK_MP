@@ -50,7 +50,33 @@ int PlayStereoOGG(string name)
 {
 	InitSound();
 	//Trace("PlayStereoSound : "+name);
-	return SendMessage(Sound,"lsllllll",MSG_SOUND_PLAY, name, SOUND_MP3_STEREO, VOLUME_FX, false, false, false, 0); //fix boal
+	return SendMessage(Sound,"lsllllll",MSG_SOUND_PLAY, Music_AliasName(name), SOUND_MP3_STEREO, VOLUME_FX, false, false, false, 0); //fix boal
+}
+
+// COOP s28/s29: Options -> "Старая музыка". The sound service loads every *.ini of RESOURCE\INI\aliases, so both music files are
+// there at once: music_alias.ini is the old music of the game (music_gorod ...), music_alias_new.ini the new one with the
+// prefix "new_" (new_music_gorod ...). The box off = the new music, on = the old one.
+bool Music_OldOn()
+{
+	if (!CheckAttribute(&InterfaceStates, "OldMusic")) { return false; }
+	return sti(InterfaceStates.OldMusic) != 0;
+}
+
+string Music_AliasName(string name)
+{
+	if (name == "") { return name; }
+	if (Music_OldOn()) { return name; }
+	return "new_" + name;
+}
+
+// the option was changed: the music that plays now starts again from the other file
+void Music_Reapply()
+{
+	if (musicName == "") { return; }
+	if (!IsEntity(&Sound)) { return; }
+	string sMusicNow = musicName;
+	musicName = "";
+	SetMusic(sMusicNow);
 }
 
 // OTHER METHODS
@@ -560,7 +586,7 @@ void SetMusic(string name)
 	//musicID = SendMessage(Sound, "lslllllll", MSG_SOUND_PLAY, name, SOUND_MP3_STEREO, VOLUME_MUSIC, true, true, false, MUSIC_CHANGE_TIME, silenceTime);
 	//SendMessage(Sound, "llf", MSG_SOUND_SET_VOLUME, musicID, 1.0);
 	// fix поседнее - это громкость звука
-	musicID = SendMessage(Sound, "lslllllllf", MSG_SOUND_PLAY, name, SOUND_MP3_STEREO, VOLUME_MUSIC, true, true, false, 0, MUSIC_CHANGE_TIME, 1.0);
+	musicID = SendMessage(Sound, "lslllllllf", MSG_SOUND_PLAY, Music_AliasName(name), SOUND_MP3_STEREO, VOLUME_MUSIC, true, true, false, 0, MUSIC_CHANGE_TIME, 1.0);		// COOP s28: the old / the new music
 	SendMessage(Sound, "lll", MSG_SOUND_RESUME, musicID, MUSIC_CHANGE_TIME);
 	
 	oldMusicName = musicName;

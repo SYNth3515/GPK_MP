@@ -104,7 +104,7 @@ void NetServer_Lightning_DoIt()
 			}
 
 			float fStormPerk = 1.0;
-			if (NetServer_PassivePerksFor(i)) { fStormPerk = 0.7; }		// COOP: passive perk StormProfessional
+			if (NetServer_SeaPerk(i, NET_SPERK_STORM)) { fStormPerk = 0.7; }		// COOP: passive perk StormProfessional
 			NetServer_ShipApplyHullHitpoints(rClient, iMinBoom * 40.0 * fStormPerk, NETKILL_BY_LIGHTNING, DST_INVALID);
 			NetServer_ShipApplyCrewHitpoints(rClient, MakeFloat(rand(3)), DST_INVALID);
 

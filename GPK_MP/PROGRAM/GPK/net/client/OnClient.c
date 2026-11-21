@@ -6,6 +6,7 @@ int iCoopDelayShip = 0;
 
 // COOP: respawn of the bots (the switch of the admin, comes from the server: NET_BOTOP_OPTS)
 bool bNetCliBotRespawn = false;
+bool bNetCliLateJoin = true;		// COOP s30: "Join during the game" of the server (the admin menu)
 
 
 void NetClient_OnClient(int iMsg)
@@ -25,6 +26,20 @@ void NetClient_OnClient(int iMsg)
 		break;
 		case NSC_CLIENT_BOT:
 			NetClient_OnBot(iMsg);		// COOP: bots of the admin
+		break;
+		case NSC_CLIENT_TOLOBBY:		// COOP s31: a player (the host) went to the lobby, the game goes on (server\OnStart.c)
+			int wTlID = NMGetClientID(iMsg);
+			if (wTlID >= 0 && wTlID < NET_MAXPLAYERS && wTlID != wClientID)
+			{
+				NetLand_PlayerLeft(wTlID);
+				string sTlNick = NetClient_PlayerNick(wTlID);
+				if (sTlNick != "") { NetClient_ChatAddSystemLineEx(sTlNick + " גûרוכ ג כמבבט (במי ןנמהמכזאועסÿ)", false); }
+			}
+		break;
+		case NSC_CLIENT_CHOICE:		// COOP s30: the choice of the lobby of a player (interfaces\Buy.c: Buy_PeekPlayer)
+			int wChID = NMGetClientID(iMsg);
+			string sChoice = NMGetString(iMsg);
+			if (wChID >= 0 && wChID < NET_TOTALCLIENTS) { NCClients[wChID].LobbyChoice = sChoice; }
 		break;
 	}
 }
@@ -85,6 +100,8 @@ void NetClient_Connect(int iMsg)
 	{
 		sFaceTex = "interfaces\portraits\256\" + sFaceImage + ".tga";
 	}
+	string sNpcTex = NetLand_NpcFaceTex(sFaceImage);		// COOP: an NPC skin of the profile (net\Land.c)
+	if (sNpcTex != "") { sFaceTex = sNpcTex; }
 	string sFlagTex = sUserFlagsPath + sFlagImage + ".tga";
 	string sSailTex = sUserSailsPath + sSailImage + ".tga";
 
@@ -117,6 +134,7 @@ void NetClient_Connect(int iMsg)
 		//NetClient_DownloadServerFile("resource\textures\" + sUserFlagsPath + sFlagImage + ".tga.tx", NETFILE_FLAG, wNetClientID);
 	}
 
+	Trace("COOP: client " + wNetClientID + " (" + sNickName + "): flag <" + sFlagImage + "> tex " + rClient.UserData.Flag.Texture + ", gerald <" + sSailImage + "> tex " + rClient.UserData.Sail.Texture + ", face <" + sFaceImage + ">");
 	Event("NCEvent_Client_Connect", "l", wNetClientID);
 
 	// COOP: chat line + sound "player connected" (new player and reconnect; never for ourselves)
@@ -185,6 +203,7 @@ void NetClient_Load(int iMsg)
 	rClient.Ship.SailState = 0.0;
 
 	rClient.Ship.Cannons.Charge.Type = NMGetByte(iMsg);
+	rClient.SeaPerks = NMGetDword(iMsg);		// COOP s28: the sea perks bought in the lobby (common\Perks.c)
 
 	rClient.Ship.MaxSpeedZ = 12.0;
 	rClient.Ship.MaxSpeedY = 0.6;
@@ -252,6 +271,19 @@ void NetClient_LoadCreateShip(int wNetClientID)
 	ref rClient = NetClient_GetClient(wNetClientID);
 	ref rShip = Net_GetShipByIndex(sti(rClient.Ship.Type));
 
+	// COOP s27: a second load message of a slot whose ship exists (a reconnect, a repeated load): the old NetShip is deleted the
+	// safe way first. CreateEntity over a live ship left the old one in the foam, the crew and the battle interface.
+	if (IsEntity(rClient))
+	{
+		Trace("COOP: cli ship create id=" + wNetClientID + ": the old ship entity still exists, it is deleted first");
+		NetClient_SailorsDeleteShip(wNetClientID);
+		SendMessage(&NetBInterface, "ll", BI_IN_DELETE_SHIP, wNetClientID);
+		NetClient_ShipReleaseSounds(rClient);
+		rClient.CoopReady = 0;
+		DeleteClass(rClient);
+		NetClient_BotDelRebuildEngine(wNetClientID);
+	}
+
 	string sPath = "ships\" + rClient.Model + "\" + NetShipHullUpgrades[sti(rClient.Ship.Upgrades.Hull) - 1].str + "\";
 	SetTexturePath(0, sPath);
 	Trace("COOP: cli ship create id=" + wNetClientID + " island=[" + NCServer.IslandID + "] srvPos=" + rClient.Ship.Pos.x + "," + rClient.Ship.Pos.y + "," + rClient.Ship.Pos.z + " ay=" + rClient.Ship.Ang.y);
@@ -314,7 +346,12 @@ void NetClient_LoadCreateShip(int wNetClientID)
 	NetClient_SailorsAddShipLater(wNetClientID);
 
 	Event("NCEvent_ShipCreate", "l", wNetClientID);
-	PostEvent("NetClient_ShipUpdateSounds", 1000, "l", wNetClientID);
+	// COOP s27: one loop of the random sounds per slot (the ship may be created again: respawn, repair of the masts)
+	if (!CheckAttribute(rClient, "SndLoop") || !sti(rClient.SndLoop))
+	{
+		rClient.SndLoop = 1;
+		PostEvent("NetClient_ShipUpdateSounds", 1000, "l", wNetClientID);
+	}
 
 	RefreshBattleInterface();
 
@@ -350,11 +387,41 @@ void NetClient_OnBot(int iMsg)
 		case NET_BOTOP_INFO:	NetClient_OnBotInfo(iMsg);		break;
 		case NET_BOTOP_REMOVED:	NetClient_OnBotRemoved(iMsg);	break;
 		case NET_BOTOP_NOTE:	NetClient_OnBotNote(iMsg);		break;
+		case NET_BOTOP_LOBBY:	NetClient_OnLobbyBots(iMsg);	break;		// COOP s30
 		case NET_BOTOP_OPTS:
 			bNetCliBotRespawn = (NMGetByte(iMsg) != 0);
+			NetLand_SetBotSkill(NMGetByte(iMsg));		// COOP: the difficulty of the bots (the admin menu can change it)
+			bNetCliLateJoin = (NMGetByte(iMsg) != 0);		// COOP s30
 			Event("NCEvent_BotOpts");
 		break;
 	}
+}
+
+// COOP s30: the bots of the lobby (server\Bots.c: NetServer_LBotsSend): NCLobbyBots.n, b0..: rel, ship, cannon, crew, hull, sails
+object NCLobbyBots;
+
+void NetClient_OnLobbyBots(int iMsg)
+{
+	DeleteAttribute(&NCLobbyBots, "");
+	int n = NMGetByte(iMsg);
+	NCLobbyBots.n = n;
+	for (int k=0; k<n; k++)
+	{
+		string sB = "b" + k;
+		NCLobbyBots.(sB).rel = NMGetByte(iMsg);
+		NCLobbyBots.(sB).ship = NMGetWord(iMsg);
+		NCLobbyBots.(sB).cannon = NMGetByte(iMsg);
+		NCLobbyBots.(sB).crew = NMGetByte(iMsg);
+		NCLobbyBots.(sB).hull = NMGetByte(iMsg);
+		NCLobbyBots.(sB).sails = NMGetByte(iMsg);
+	}
+	Event("NCEvent_LobbyBots");
+}
+
+int NetClient_LobbyBotsNum()
+{
+	if (!CheckAttribute(&NCLobbyBots, "n")) { return 0; }
+	return sti(NCLobbyBots.n);
 }
 
 // names and relation of a bot; comes before its load message, and again when the relation changes
@@ -377,6 +444,7 @@ void NetClient_OnBotInfo(int iMsg)
 	rC.NickName = sNick;
 	rC.Use = false;
 	rC.Team = 0;
+	if (iRel >= NET_BOTREL_TEAM0) { rC.Team = iRel - NET_BOTREL_TEAM0; }		// COOP s28: a bot of a team
 	rC.Kick = false;
 	rC.Ship.Name = sNick;
 	if (iType >= 0 && iType < Net_GetShipsNum())
@@ -408,28 +476,25 @@ void NetClient_OnBotInfo(int iMsg)
 	Event("NCEvent_BotInfo", "l", wID);
 }
 
-// TEST (server\Bots.c: bNetBotRealDelete): the ship of the bot is taken out of the foam, the crew on the deck, the sinking
-// effect and the battle interface (the messages that single player sends when a ship dies: sea_ai\ShipDead.c), and then the
-// NetShip entity is deleted. The slot is not "live" any more, so the loops of the client skip it.
-// How far the deletion goes (for finding what crashes the game: the log shows the last step done, "COOP: cli bot del ...").
-//   0 = nothing is deleted: the ship sinks and stays (the old "Delete")
-//   1 = the crew of the ship is taken off the deck (Sailors is rebuilt without it), the ship sinks and stays
-//   2 = + the foam of Seafoam forgets the ship (the message of single player), the ship sinks and stays
-//   3 = + the ship leaves the battle interface, the ship sinks and stays
-//   4 = + the NetShip entity is deleted (full deletion)
+// The deletion of a NetShip entity on a client WORKS (tested with "Delete" of the admin menu, s27): the crew of the deck is taken
+// off, the ship leaves the battle interface, its sounds are released, the entity is deleted and then the foam is made again.
+// The only thing that crashed was the message of single player to the foam (MSG_SHIP_DELETE of Seafoam, bNetBotDelFoamMsg):
+// Seafoam keeps its own list of the ships, so it is deleted and created again instead (it learns the ships that stay again).
+// All the deletions of ships go this way now: NetClient_ShipEntityDelete / NetClient_ShipEntityRecreate below.
+//   iNetBotDelStage: how far "Delete" of a bot goes (the log shows the last step done, "COOP: cli bot del ...").
+//   0 = nothing is deleted: the ship sinks and stays; 1 = the crew; 2 = + the foam; 3 = + the battle interface; 4 = full deletion
 int iNetBotDelStage = 4;
 
-// The message of single player to the foam (MSG_SHIP_DELETE of Seafoam): the first ship was deleted with it, the game crashed in it
-// at the second one (a manowar; the log ends after "step 1 done"). false = the foam is not told, the NetShip entity is only deleted.
+// The message of single player to the foam (MSG_SHIP_DELETE of Seafoam) crashed the game at the second deletion: keep it false,
+// the foam is made again instead (bNetBotDelRebuildFoam).
 bool bNetBotDelFoamMsg = false;
 
-// EXPERIMENT: after two deletions the game crashed when the third ship was created (the log ends before "cli ship create"), so
-// something that keeps its own list of ships still holds the deleted ones. Like Sailors, the engine objects with their own ship
-// lists are made again right after the deletion (the way they are made at the start of a game). Each one can be switched off
-// to find which of them it is. (If a rebuilt object does not know the ships that stay, those lose a detail: foam / wake / lights.)
+// The engine objects with their own lists of ships that are made again after a deletion. The foam must be (see above); with the
+// tracks and the lights rebuilt too the game crashed in the first frame after the deletion, so they stay (they forget a deleted
+// ship themselves).
 bool bNetBotDelRebuildFoam = true;
-bool bNetBotDelRebuildTracks = true;
-bool bNetBotDelRebuildLights = true;
+bool bNetBotDelRebuildTracks = false;
+bool bNetBotDelRebuildLights = false;
 
 void NetClient_BotDelRebuildEngine(int wID)
 {
@@ -438,6 +503,20 @@ void NetClient_BotDelRebuildEngine(int wID)
 		Trace("COOP: cli bot del " + wID + " rebuild foam");
 		NetClient_DeleteShipFoamEnvironment();
 		NetClient_CreateShipFoamEnvironment(0);
+		// COOP s27: the new foam does not know the ships that stay: they are added again (the way NetClient_LoadCreateShip adds one)
+		for (int iFoam=0; iFoam<NET_MAXCLIENTS; iFoam++)
+		{
+			if (iFoam == wID) { continue; }
+			if (!COOP_CliSlotLive(iFoam)) { continue; }
+			if (!CheckAttribute(&NCClients[iFoam], "CoopReady")) { continue; }
+			if (!sti(NCClients[iFoam].CoopReady)) { continue; }
+			if (!IsEntity(&NCClients[iFoam])) { continue; }
+			if (CheckAttribute(&NCClients[iFoam], "Dead"))
+			{
+				if (sti(NCClients[iFoam].Dead)) { continue; }
+			}
+			SeaFoam.AddNetShip = iFoam;
+		}
 	}
 	if (bNetBotDelRebuildTracks && IsEntity(&NCShipTracks))
 	{
@@ -455,6 +534,119 @@ void NetClient_BotDelRebuildEngine(int wID)
 		NetClient_CreateShipLightsEnvironment(0);
 	}
 	Trace("COOP: cli bot del " + wID + " rebuild done");
+}
+
+// COOP s27: the looped sounds of a ship (water, sails, turn) are released before its entity is deleted (they played on otherwise)
+void NetClient_ShipReleaseSounds(ref rC)
+{
+	if (CheckAttribute(rC, "Ship.Sounds.WaterID"))
+	{
+		if (sti(rC.Ship.Sounds.WaterID) > 0) { ReleaseSound(sti(rC.Ship.Sounds.WaterID)); }
+	}
+	if (CheckAttribute(rC, "Ship.Sounds.SailsID"))
+	{
+		if (sti(rC.Ship.Sounds.SailsID) > 0) { ReleaseSound(sti(rC.Ship.Sounds.SailsID)); }
+	}
+	if (CheckAttribute(rC, "Ship.Sounds.TurnID"))
+	{
+		if (sti(rC.Ship.Sounds.TurnID) > 0) { ReleaseSound(sti(rC.Ship.Sounds.TurnID)); }
+	}
+	rC.Ship.Sounds.WaterID = 0;
+	rC.Ship.Sounds.SailsID = 0;
+	rC.Ship.Sounds.TurnID = 0;
+}
+
+// COOP s27: a camera of this machine looks at the ship (the cameras of net.dll assert when their ship does not exist)
+bool NetClient_ShipCameraOn(int wID)
+{
+	if (wID == wClientID) { return true; }
+	if (CheckAttribute(&NCDeckCamera, "NetID"))
+	{
+		if (sti(NCDeckCamera.NetID) == wID) { return true; }
+	}
+	if (CheckAttribute(&NCShipCamera, "NetID"))
+	{
+		if (sti(NCShipCamera.NetID) == wID) { return true; }
+	}
+	return false;
+}
+
+// COOP s27: the safe deletion of the NetShip entity of a ship on this machine, the steps of "Delete" of the admin menu.
+// bKeepSlot = true: the ship is created again at once (NetClient_ShipEntityRecreate); false: the ship is gone (sunk long ago)
+bool NetClient_ShipEntityDelete(int wID, string sWhy, bool bKeepSlot)
+{
+	ref rC = NetClient_GetClient(wID);
+	if (!bNetClientInGame) { return false; }
+	if (!COOP_CliSlotLive(wID)) { return false; }
+	if (!IsEntity(rC)) { return false; }
+	if (!bKeepSlot)
+	{
+		// the ship camera looks at it (after our death: the killer): it goes back to our own ship, which is never deleted alone
+		if (CheckAttribute(&NCShipCamera, "NetID"))
+		{
+			if (sti(NCShipCamera.NetID) == wID) { NCShipCamera.NetID = wClientID; }
+		}
+		if (NetClient_ShipCameraOn(wID))
+		{
+			Trace("COOP: cli ship del " + wID + " (" + sWhy + ") skipped: a camera of this machine is on it");
+			return false;
+		}
+	}
+	Trace("COOP: cli ship del " + wID + " (" + sWhy + ") start");
+	NetClient_SailorsDeleteShip(wID);
+	SendMessage(&NetBInterface, "ll", BI_IN_DELETE_SHIP, wID);
+	NetClient_ShipReleaseSounds(rC);
+	rC.CoopReady = 0;
+	if (!bKeepSlot)
+	{
+		rC.CoopGame = -1;		// the loops of the client skip the slot
+		rC.ShipGone = true;
+	}
+	DeleteClass(rC);
+	Trace("COOP: cli ship del " + wID + " entity deleted");
+	NetClient_BotDelRebuildEngine(wID);
+	if (!bKeepSlot)
+	{
+		RefreshBattleInterface();
+		NetBI_MainShipAgain();		// COOP s27: the interface keeps our ship as its main one (the ring of the cannons)
+	}
+	Trace("COOP: cli ship del " + wID + " done");
+	return true;
+}
+
+// COOP s27: delete the ship and create it again at x, z, ay (whole masts, sails and hull model): the respawn, the repair of the
+// masts. A ship that is gone (NetClient_ShipEntityDelete with bKeepSlot = false) is only created. false = nothing was done.
+bool NetClient_ShipEntityRecreate(int wID, float x, float z, float ay, string sWhy)
+{
+	if (!bNetClientInGame) { return false; }
+	if (wID < 0 || wID >= NET_MAXCLIENTS) { return false; }
+	ref rC = NetClient_GetClient(wID);
+	if (!CheckAttribute(rC, "Ship.Type")) { return false; }
+	if (sti(rC.Ship.Type) < 0) { return false; }
+	bool bGone = false;
+	if (CheckAttribute(rC, "ShipGone")) { bGone = sti(rC.ShipGone); }
+	if (!bGone)
+	{
+		if (!COOP_CliSlotLive(wID)) { return false; }
+		if (!CheckAttribute(rC, "CoopReady")) { return false; }
+		if (!sti(rC.CoopReady)) { return false; }		// not created yet: the normal creation comes
+		if (!NetClient_ShipEntityDelete(wID, sWhy, true)) { return false; }
+	}
+	rC.CoopGame = iCoopGameNo;
+	rC.ShipGone = false;
+	DeleteAttribute(rC, "MastFall");
+	DeleteAttribute(rC, "Ship.Masts");
+	DeleteAttribute(rC, "Ship.Sink");
+	rC.Ship.Pos.x = x;
+	rC.Ship.Pos.y = 0.0;
+	rC.Ship.Pos.z = z;
+	rC.Ship.Ang.y = ay;
+	NetClient_LoadCreateShip(wID);
+	// the cameras find their ship again (the same NetID, a new entity)
+	if (CheckAttribute(&NCDeckCamera, "NetID")) { NCDeckCamera.NetID = sti(NCDeckCamera.NetID); }
+	if (CheckAttribute(&NCShipCamera, "NetID")) { NCShipCamera.NetID = sti(NCShipCamera.NetID); }
+	Trace("COOP: cli ship " + wID + " created again (" + sWhy + ") at x=" + x + " z=" + z);
+	return true;
 }
 
 void NetClient_BotShipDelete(int wID)
@@ -492,6 +684,11 @@ void NetClient_BotShipDelete(int wID)
 	}
 	if (iNetBotDelStage >= 4)
 	{
+		if (CheckAttribute(&NCShipCamera, "NetID"))		// COOP s27: our camera of the ship does not stay on a deleted ship
+		{
+			if (sti(NCShipCamera.NetID) == wID) { NCShipCamera.NetID = wClientID; }
+		}
+		NetClient_ShipReleaseSounds(rC);		// COOP s27: the water / sails sounds played on
 		rC.CoopReady = 0;
 		rC.CoopGame = -1;
 		Trace("COOP: cli bot del " + wID + " step 4: DeleteClass of the NetShip");

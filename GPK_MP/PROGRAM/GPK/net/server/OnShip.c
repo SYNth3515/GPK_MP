@@ -6,6 +6,11 @@ bool COOP_SrvFloatOk(float f)
 
 #define NET_REPAIR_COOLDOWN			60
 
+// COOP s27: the sunk ships are deleted (the safe way of "Delete" of the admin menu, client\OnClient.c NetClient_ShipEntityDelete)
+#define NET_WRECK_GONE_TIME			180		// s after the sinking (no respawn) the ship is deleted on the clients
+#define NET_WRECK_SINK				1		// 1 = a wrecked ship (respawn mode) sinks and is created again at the respawn; 0 = it stays afloat (old)
+#define NET_REPAIR_MASTS			1		// 1 = the repair brings back the fallen masts (the ship is created again on the server and the clients)
+
 // ============================================================================
 // Auto boarding settings. Perks of single player that are switched on for EVERY captain by default.
 // Set a variable to false to turn that perk off (then it is taken from Perks.<name> of the client, which the lobby does not set yet).
@@ -24,6 +29,8 @@ void NetServer_DeleteShipEnvironment()
 	DelEventHandler("NetServer_MinesTick", "NetServer_MinesTick");
 	DelEventHandler("NetServer_BranderBoom", "NetServer_BranderBoom");
 	DelEventHandler("NetServer_RespawnEvent", "NetServer_RespawnEvent");
+	DelEventHandler("NetServer_WreckGoneEvent", "NetServer_WreckGoneEvent");
+	DelEventHandler("NetServer_ShipRecreateEvent", "NetServer_ShipRecreateEvent");
 	DelEventHandler("NetServer_PerkTick", "NetServer_PerkTick");
 	NetServer_BotsStop();		// COOP: bots (server\Bots.c)
 
@@ -42,6 +49,8 @@ void NetServer_CreateShipEnvironment(int iSMsg)
 	SetEventHandler("NetServer_MinesTick", "NetServer_MinesTick", 0);
 	SetEventHandler("NetServer_BranderBoom", "NetServer_BranderBoom", 0);
 	SetEventHandler("NetServer_RespawnEvent", "NetServer_RespawnEvent", 0);
+	SetEventHandler("NetServer_WreckGoneEvent", "NetServer_WreckGoneEvent", 0);
+	SetEventHandler("NetServer_ShipRecreateEvent", "NetServer_ShipRecreateEvent", 0);
 	SetEventHandler("NetServer_PerkTick", "NetServer_PerkTick", 0);
 	NetServer_BotsStart();		// COOP: bots (server\Bots.c)
 	NetServer_MinesClear();
@@ -62,6 +71,15 @@ void NetServer_OnShip(int wNetClientID, int iMsg)
 	if (wNetClientID < 0 || wNetClientID >= NET_MAXCLIENTS) { return; }
 	if (!NetServer_HasShip(wNetClientID)) { return; }
 	if (NetServer_IsClientDead(rClient) && iSubCode != NSC_SHIP_LOAD_REQUEST) { return; }
+	// COOP s37: the captain fights on the deck (net\Board.c): the ship stands with the sails down, no shot, no order
+	if (NetServer_BDOf(wNetClientID) > 0 && iSubCode != NSC_SHIP_LOAD_REQUEST)
+	{
+		rClient.Ship.SailState = 0.0;
+		rClient.Ship.TurnLeft = 0;
+		rClient.Ship.TurnRight = 0;
+		rClient.Ship.TurnState = 0.0;
+		return;
+	}
 
 	int iOldSailState = makeint(stf(rClient.Ship.SailState) * 2.0);
 	int iOldTurnState = makeint(stf(rClient.Ship.TurnState) * 2.0);
@@ -234,6 +252,7 @@ bool NetServer_IsBoardable(int wAttackerID, int wTargetID)
 
 	if (CheckAttribute(rA, "Dead") && sti(rA.Dead)) { return false; }
 	if (CheckAttribute(rT, "Dead") && sti(rT.Dead)) { return false; }
+	if (NetServer_BDOf(wAttackerID) > 0 || NetServer_BDOf(wTargetID) > 0) { return false; }		// COOP s37: on the deck now
 	if (stf(rA.Ship.HP) <= 0.0) { return false; }
 	if (stf(rT.Ship.HP) <= 0.0) { return false; }
 
@@ -426,6 +445,8 @@ void NetServer_TryBoardPlayer(int wAttackerID, int wTargetID)
 	int iKilledByTarget;
 	int iWinnerLost;
 	int iLoserLost;
+	int iGodSide;
+	bool bAttWins;
 
 	if (sti(NetServer.NoBoarding)) { return; }		// COOP: boarding is switched off on the Create game screen
 	if (!NetServer_IsBoardable(wAttackerID, wTargetID)) { return; }
@@ -449,6 +470,12 @@ void NetServer_TryBoardPlayer(int wAttackerID, int wTargetID)
 	fAttackCrew = stf(rAttacker.Ship.Crew.Quantity);
 	fDefendCrew = stf(rTarget.Ship.Crew.Quantity);
 
+	// COOP s27: immortality of the admin menu: the immortal side (only one of the two) loses nobody, by the muskets too, and
+	// always wins: the other ship loses its whole crew. 0 = none / both, 1 = the attacker is immortal, 2 = the target
+	iGodSide = 0;
+	if (NetServer_IsGod(wAttackerID) == 1 && NetServer_IsGod(wTargetID) == 0) { iGodSide = 1; }
+	if (NetServer_IsGod(wTargetID) == 1 && NetServer_IsGod(wAttackerID) == 0) { iGodSide = 2; }
+
 	// musket volley (LAi_boarding.c, perk MusketsShoot): before the fight a side with the perk shoots 25% of the
 	// enemy crew (not more than its own crew), the enemy Defence skill lowers the losses. Attacker shoots first.
 	bVolley = false;
@@ -461,6 +488,7 @@ void NetServer_TryBoardPlayer(int wAttackerID, int wTargetID)
 		fKill = makeint(fDefendCrew * 0.25);
 		if (fKill > fAttackCrew) { fKill = fAttackCrew; }
 		fKill = makeint(fKill * (2.1 - NetServer_GetDefenceSkill(rTarget)) / 2.0);
+		if (iGodSide == 2) { fKill = 0.0; }		// COOP s27: the immortal target loses nobody
 		fDefendCrew = fDefendCrew - fKill;
 		iKilledByAttacker = makeint(fKill);
 		iAttackerShot = 1;
@@ -471,6 +499,7 @@ void NetServer_TryBoardPlayer(int wAttackerID, int wTargetID)
 		fKill = makeint(fAttackCrew * 0.25);
 		if (fKill > fDefendCrew) { fKill = fDefendCrew; }
 		fKill = makeint(fKill * (2.1 - NetServer_GetDefenceSkill(rAttacker)) / 2.0);
+		if (iGodSide == 1) { fKill = 0.0; }		// COOP s27: the immortal attacker loses nobody
 		fAttackCrew = fAttackCrew - fKill;
 		iKilledByTarget = makeint(fKill);
 		iTargetShot = 1;
@@ -486,6 +515,17 @@ void NetServer_TryBoardPlayer(int wAttackerID, int wTargetID)
 		NetServer_SendBoardVolley(wTargetID, iTargetShot, iAttackerShot, iKilledByTarget, iKilledByAttacker);
 	}
 
+	// COOP s37: the fast boarding is off (Create game): two players fight on the deck with their crews (net\Board.c);
+	// the bots board as before. The immortality of the admin wins at once (as below).
+	if (NetServer_BoardRealOn() && iGodSide == 0)
+	{
+		if (!NetServer_IsBot(wAttackerID) && !NetServer_IsBot(wTargetID))
+		{
+			NetServer_BDStart(wAttackerID, wTargetID);
+			return;
+		}
+	}
+
 	// crew strength like Ship_AutoAbordage (crew experience and morale do not exist in the net mod,
 	// they are the same for both ships there, so they do not change who wins)
 	fAttackPower = 0.1 + NetServer_GetGrappling(rAttacker) * fAttackCrew;
@@ -496,7 +536,11 @@ void NetServer_TryBoardPlayer(int wAttackerID, int wTargetID)
 	fAttackPower = fAttackPower * (1.0 + NET_BOARD_RAND_MIN + Random() * (NET_BOARD_RAND_MAX - NET_BOARD_RAND_MIN));
 	fDefendPower = fDefendPower * (1.0 + NET_BOARD_RAND_MIN + Random() * (NET_BOARD_RAND_MAX - NET_BOARD_RAND_MIN));
 
-	if (fAttackPower >= fDefendPower)
+	bAttWins = false;
+	if (fAttackPower >= fDefendPower) { bAttWins = true; }
+	if (iGodSide == 1) { bAttWins = true; }		// COOP s27: the immortal side wins
+	if (iGodSide == 2) { bAttWins = false; }
+	if (bAttWins)
 	{
 		rWinner = rAttacker; wWinnerID = wAttackerID;
 		rLoser = rTarget;
@@ -513,6 +557,8 @@ void NetServer_TryBoardPlayer(int wAttackerID, int wTargetID)
 		fDeadCrew = fDefendCrew * fAttackPower / (fDefendPower * NET_BOARD_LOSS_DIVIDER);
 	}
 
+	if (iGodSide != 0) { fDeadCrew = 0.0; }		// COOP s27: the immortal winner loses nobody
+
 	// winner loses sailors (replicated to clients with the regular ship update)
 	fNewCrew = fWinnerCrew - fDeadCrew;
 	if (fNewCrew < 1.0) { fNewCrew = 1.0; }
@@ -527,7 +573,7 @@ void NetServer_TryBoardPlayer(int wAttackerID, int wTargetID)
 	// the defeated ship sinks with its whole crew (the clients show 0 crew on the sinking ship)
 	rLoser.Ship.Crew.Quantity = 0;
 
-	Trace("COOP: boarding attacker=" + wAttackerID + " target=" + wTargetID + " crew " + fAttackCrew + " vs " + fDefendCrew + " power " + fAttackPower + " vs " + fDefendPower + " winner=" + wWinnerID + " lost=" + fDeadCrew);
+	Trace("COOP: boarding attacker=" + wAttackerID + " target=" + wTargetID + " crew " + fAttackCrew + " vs " + fDefendCrew + " power " + fAttackPower + " vs " + fDefendPower + " winner=" + wWinnerID + " lost=" + fDeadCrew + " god=" + iGodSide);
 
 	NetServer_SetClientDead(rLoser, NETKILL_BY_BOARDING, wWinnerID);
 }
@@ -565,6 +611,10 @@ void NetServer_Ship2ShipCollision()
 			rEnemyClient.LastCollisionShip = iServerTime;
 		}
 	}
+
+	// COOP: a hit with the BOW breaks the bowsprit (both ships are checked: the bow of each one). server\Fort.c
+	NetServer_BowspritShipTouch(rOurClient, sti(arOurClient.ID), x, z, fPower);
+	NetServer_BowspritShipTouch(rEnemyClient, sti(arEnemyClient.ID), x, z, fPower);
 
 	float fHP = (1.0 - fSlide) * fPower * 3.0;
 	
@@ -624,6 +674,9 @@ float NetServer_OnShipMastDamage()
 	int wOurClientID = GetEventData();
 	int wBallClientID = DST_INVALID;
 
+	// COOP debug: which mast of which hull is hit (to find the bowsprit mast number of each hull)
+	if (NetServer_HasShip(wOurClientID)) { ref rDbgS = NetServer_GetClient(wOurClientID); ref rDbgBase = Net_GetShipByIndex(sti(rDbgS.Ship.Type)); Trace("COOP mast hit: hull " + rDbgBase.Name + ", mast " + iMastNum + ", type " + iDamageType + ", damage " + fDamage); }
+
 	switch (iDamageType)
 	{
 		case NETSHIP_MAST_TOUCH_ISLAND:
@@ -668,6 +721,7 @@ float NetServer_OnShipMastDamage()
 
 	if (fDamage >= 1.0) 
 	{ 
+		if (NetServer_HasShip(wOurClientID)) { NetServer_ShipMastFallen(NetServer_GetClient(wOurClientID), iMastNum); }
 		iSMsg = NMCreate();
 		NMAddByte(iSMsg, NC_SHIP);
 		NMAddByte(iSMsg, NSC_SHIP_MAST_FALL);
@@ -696,6 +750,208 @@ void NetServer_StartRepair(int wNetClientID)
 	rClient.Skills.Repair.Cooldown = iServerTime;
 	
 	Event("NetServer_OnShipRepair", "l", wNetClientID);
+	if (NET_REPAIR_MASTS) { NetServer_ShipRebuildMasts(wNetClientID); }		// COOP s27: the fallen masts come back
+}
+
+// COOP s27: a mast of the ship fell (the engine, the bowsprit): remembered for the repair
+void NetServer_ShipMastFallen(ref rS, int iMastNum)
+{
+	string sM = "m" + iMastNum;
+	rS.Ship.MastsFallen.(sM) = 1;
+}
+
+bool NetServer_ShipHasFallenMasts(ref rS)
+{
+	if (!CheckAttribute(rS, "Ship.MastsFallen")) { return false; }
+	aref arF; makearef(arF, rS.Ship.MastsFallen);
+	return GetAttributesNum(arF) > 0;
+}
+
+// COOP s27: the sails of the ship lose their damage (the attributes of server\Rigging.c: ship.sails.<rey>.<group>): bAll = all
+// of them ("Heal"), else only the sails of the fallen masts (they come back with the mast). Ship.Sails.Color stays.
+void NetServer_ShipSailsHeal(ref rC, bool bAll)
+{
+	if (!CheckAttribute(rC, "Ship.Sails")) { return; }
+	aref arRoot, arGroup, arSail;
+	makearef(arRoot, rC.Ship.Sails);
+	int i, j;
+	for (i=GetAttributesNum(arRoot)-1; i>=0; i--)
+	{
+		arGroup = GetAttributeN(arRoot, i);
+		int n = GetAttributesNum(arGroup);
+		if (n == 0) { continue; }		// Color
+		for (j=n-1; j>=0; j--)
+		{
+			arSail = GetAttributeN(arGroup, j);
+			if (bAll || CheckAttribute(arSail, "mastFall")) { DeleteAttribute(arGroup, GetAttributeName(arSail)); }
+		}
+		if (GetAttributesNum(arGroup) == 0) { DeleteAttribute(arRoot, GetAttributeName(arGroup)); }
+	}
+	rC.Ship.SP = Net_CalculateShipSP(rC);
+}
+
+// COOP s27: the ship has holes in its sails (a sail with damage)
+bool NetServer_ShipSailsDamaged(ref rC)
+{
+	if (!CheckAttribute(rC, "Ship.Sails")) { return false; }
+	aref arRoot, arGroup;
+	makearef(arRoot, rC.Ship.Sails);
+	for (int i=0; i<GetAttributesNum(arRoot); i++)
+	{
+		arGroup = GetAttributeN(arRoot, i);
+		if (GetAttributesNum(arGroup) > 0) { return true; }
+	}
+	return false;
+}
+
+// COOP s27: the engine can not put a fallen mast back, so the ship is deleted and created again at its place: on the server
+// (NetServer_ShipRecreateLater) and on the clients (NSC_SHIP_REBUILD -> NetClient_ShipEntityRecreate)
+void NetServer_ShipRebuildMasts(int wID)
+{
+	NetServer_ShipRebuild(wID, false);
+}
+
+// COOP s27: "Heal" of the admin: the ship is created again also when its sails have holes (the new sails are whole), and all
+// the sail damage goes
+void NetServer_ShipRebuildHeal(int wID)
+{
+	NetServer_ShipRebuild(wID, true);
+}
+
+void NetServer_ShipRebuild(int wID, bool bHeal)
+{
+	if (!NetServer_HasShip(wID)) { return; }
+	ref rC = NetServer_GetClient(wID);
+	if (sti(rC.Dead)) { return; }
+	bool bMasts = NetServer_ShipHasFallenMasts(rC);
+	bool bSails = false;
+	if (bHeal) { bSails = NetServer_ShipSailsDamaged(rC); }
+	NetServer_ShipSailsHeal(rC, bHeal);
+	if (!bMasts && !bSails) { return; }
+	if (!IsEntity(rC)) { return; }		// created again already (the new ship comes in some frames)
+
+	float x = stf(rC.Ship.Pos.x);
+	float z = stf(rC.Ship.Pos.z);
+	float ay = stf(rC.Ship.Ang.y);
+	if (!COOP_SrvFloatOk(x) || !COOP_SrvFloatOk(z) || !COOP_SrvFloatOk(ay)) { return; }
+
+	int iTrM = 0;
+	int iTrS = 0;
+	if (bMasts) { iTrM = 1; }
+	if (bSails) { iTrS = 1; }
+	DeleteAttribute(rC, "Ship.masts");
+	DeleteAttribute(rC, "Ship.MastsFallen");
+	NetServer_ShipRecreateLater(wID, x, z, ay);
+
+	int iSMsg = NMCreate();
+	NMAddByte(iSMsg, NC_SHIP);
+	NMAddByte(iSMsg, NSC_SHIP_REBUILD);
+	NMAddClientID(iSMsg, wID);
+	NMAddFloat(iSMsg, stf(rC.Ship.Pos.x));
+	NMAddFloat(iSMsg, stf(rC.Ship.Pos.z));
+	NMAddFloat(iSMsg, stf(rC.Ship.Ang.y));
+	NetServer_SendToInGame(iSMsg);
+	NMDelete(iSMsg);
+	Trace("COOP: ship " + wID + " rebuilt (masts " + iTrM + ", sails " + iTrS + ") at x=" + rC.Ship.Pos.x + " z=" + rC.Ship.Pos.z);
+}
+
+// COOP s27: the server ship is created again at the SAME place (the reload of the admin, the repair of the masts, "Heal").
+// The engine deletes an entity only at the end of the frame: the new ship created in the same frame stood in the old one, the
+// ship hit itself (log "ship touch: ship N", the ship jumped) and the game froze at the second reload. The old ship is deleted
+// now and the new one is created NET_RECREATE_DELAY ms later (NetServer_ShipRecreateEvent).
+#define NET_RECREATE_DELAY		60
+void NetServer_ShipRecreateLater(int wID, float fX, float fZ, float fAy)
+{
+	ref rC = NetServer_GetClient(wID);
+	float fAng = fAy;
+	while (fAng >= PIm2) { fAng = fAng - PIm2; }
+	while (fAng < 0.0) { fAng = fAng + PIm2; }
+	rC.Ship.Pos.x = fX;
+	rC.Ship.Pos.y = 0.0;		// a new ship must never start with an old / NaN height
+	rC.Ship.Pos.z = fZ;
+	rC.Ship.Ang.y = fAng;
+	rC.Ship.Speed.x = 0.0;
+	rC.Ship.Speed.y = 0.0;
+	rC.Ship.Speed.z = 0.0;
+	rC.LastCollisionShip = -500;
+	rC.LastCollisionIsland = -500;
+	rC.CoopFix = 0;
+	int iGen = 1;
+	if (CheckAttribute(rC, "RecreateGen")) { iGen = sti(rC.RecreateGen) + 1; }
+	rC.RecreateGen = iGen;
+	DeleteClass(rC);
+	PostEvent("NetServer_ShipRecreateEvent", NET_RECREATE_DELAY, "lll", wID, iGen, sti(NetServer.Round));
+	Trace("COOP: server ship " + wID + " deleted, created again in " + NET_RECREATE_DELAY + " ms");
+}
+
+void NetServer_ShipRecreateEvent()
+{
+	int wID = GetEventData();
+	int iGen = GetEventData();
+	int iRound = GetEventData();
+	if (!bServerGameStarted) { return; }
+	if (iRound != sti(NetServer.Round)) { return; }
+	if (wID < 0 || wID >= NET_MAXCLIENTS) { return; }
+	ref rC = NetServer_GetClient(wID);
+	if (!CheckAttribute(rC, "RecreateGen")) { return; }
+	if (sti(rC.RecreateGen) != iGen) { return; }		// a newer recreation comes
+	if (IsEntity(rC)) { return; }		// created already (the respawn)
+	if (!NetServer_HasShip(wID)) { return; }		// the bot is deleted
+	NetServer_CreateShipEntity(wID);
+	NetServer_RestartShipWatch();
+	Trace("COOP: server ship " + wID + " created again");
+}
+
+// COOP s27: the sunk ship is deleted on the clients some time after its death (it stays dead on the server: the respawn,
+// the "Heal" of a bot and a reconnect create it again)
+void NetServer_WreckGoneEvent()
+{
+	int wID = GetEventData();
+	int iLife = GetEventData();
+	int iRound = GetEventData();
+	int iSec = GetEventData();
+
+	if (!bServerGameStarted) { return; }
+	if (iRound != sti(NetServer.Round)) { return; }
+	if (wID < 0 || wID >= NET_MAXCLIENTS) { return; }
+	if (iLife != NetServer_GetShipLife(wID)) { return; }
+	ref rC = NetServer_GetClient(wID);
+	if (!CheckAttribute(rC, "Dead") || !sti(rC.Dead)) { return; }
+	if (CheckAttribute(rC, "ShipGone") && sti(rC.ShipGone)) { return; }
+	rC.ShipGone = true;
+
+	// COOP s27: a sunk bot that will not come back leaves its slot, the way of "Delete" of the admin menu (server\Bots.c)
+	if (NetServer_IsBot(wID))
+	{
+		if (!NetServer_BotWillRespawn(wID) && !NetServer_BotRemoved(wID))
+		{
+			Trace("COOP: sunk bot " + wID + " leaves its slot (" + iSec + " s after the death)");
+			NetServer_BotRemove(wID);
+			return;
+		}
+	}
+
+	int iSMsg = NMCreate();
+	NMAddByte(iSMsg, NC_SHIP);
+	NMAddByte(iSMsg, NSC_SHIP_GONE);
+	NMAddClientID(iSMsg, wID);
+	NetServer_SendToInGame(iSMsg);
+	NMDelete(iSMsg);
+	Trace("COOP: sunk ship " + wID + " deleted on the clients (" + iSec + " s after the death)");
+}
+
+// COOP s27: the dead ship leaves the layer that the cannons of the engine trace (the aim from the third person found the sunk ship)
+void NetServer_ShipNoCannonTarget(ref rS)
+{
+	if (!IsEntity(rS)) { return; }
+	LayerDelObject("ship_cannon_trace", rS);
+	Trace("COOP: dead ship " + rS.ID + " is no cannon target any more");
+}
+
+void NetServer_WreckGoneLater(int wID, int iSec)
+{
+	PostEvent("NetServer_WreckGoneEvent", iSec * 1000 + 500, "llll", wID, NetServer_GetShipLife(wID), sti(NetServer.Round), iSec);
+	Trace("COOP: ship " + wID + " will be deleted in " + iSec + " s");
 }
 
 void NetServer_OnShipRepair()
@@ -713,11 +969,8 @@ void NetServer_OnShipRepair()
 	// restore HP
 	float fPercentHPRestore = Bring2Range(0.0, 0.5, 0.1, 1.0, iSkillRepair / NETSKILL_MAX) / 30.0;
 	int iPlanksPerTick = 20;
-	if (NetServer_PassivePerksFor(wOurClientID))
-	{
-		fPercentHPRestore = fPercentHPRestore * 1.1;		// COOP: passive perk Carpenter (repair skill x1.1)
-		iPlanksPerTick = 18;								// COOP: passive perk Builder (materials x0.9)
-	}
+	if (NetServer_SeaPerk(wOurClientID, NET_SPERK_CARPENTER)) { fPercentHPRestore = fPercentHPRestore * 1.1; }		// COOP: passive perk Carpenter (repair skill x1.1)
+	if (NetServer_SeaPerk(wOurClientID, NET_SPERK_BUILDER)) { iPlanksPerTick = 18; }		// COOP: passive perk Builder (materials x0.9)
 	float fMaxHP = stf(rOurClient.Ship.MaxHP);
 	float fCurHP = stf(rOurClient.Ship.HP);
 	if (fCurHP < fMaxHP)
@@ -781,9 +1034,9 @@ void NetServer_OnShipHullHit()
 	float fCannonDamageMultiply = stf(rCannon.DamageMultiply);		// COOP: missing (thrown / not bought) cannons do not fire at all (server\OnBall.c)
 
 	// COOP: passive perks CriticalShoot (+5%) and CannonProfessional (+10%) of the shooter (sea_ai\AIShip.c)
-	bool bShooterPerks = NetServer_PassivePerksFor(wBallClientID);
-	if (bShooterPerks && rand(19) == 10) { bSeriousBoom = true; }
-	if (bShooterPerks && rand(9) == 4) { bSeriousBoom = true; }
+	// COOP s28: every perk is bought by itself (common\Perks.c)
+	if (NetServer_SeaPerk(wBallClientID, NET_SPERK_CRITICAL) && rand(19) == 10) { bSeriousBoom = true; }
+	if (NetServer_SeaPerk(wBallClientID, NET_SPERK_CANNONPRO) && rand(9) == 4) { bSeriousBoom = true; }
 
 	switch (rBall.Name)
 	{
@@ -804,12 +1057,12 @@ void NetServer_OnShipHullHit()
 	}
 
 	// COOP: passive perk ShipDefenseProfessional of the target: 70% of the critical hits do not happen
-	if (bSeriousBoom && NetServer_PassivePerksFor(wOurClientID) && rand(1000) < 700) { bSeriousBoom = false; }
+	if (bSeriousBoom && NetServer_SeaPerk(wOurClientID, NET_SPERK_DEFENCE) && rand(1000) < 700) { bSeriousBoom = false; }
 
 	if (!bDead)
 	{
 		float fCrewDamage = stf(rBall.DamageCrew) * fCannonDamageMultiply;
-		if (bShooterPerks) { fCrewDamage = fCrewDamage * 1.15; }		// COOP: passive perk CrewDamageUp
+		if (NetServer_SeaPerk(wBallClientID, NET_SPERK_CREWDAMAGE)) { fCrewDamage = fCrewDamage * 1.15; }		// COOP: passive perk CrewDamageUp
 		//float fRigDamage = stf(rBall.DamageRig) * fCannonDamageMultiply * AIShip_isPerksUse(aBallClient.Perks.SailsDamageUp, 1.0, 1.15);
 
 		if (bSeriousBoom)
@@ -918,9 +1171,12 @@ void NetServer_ShipApplyHullHitpoints(ref rOurClient, float fHP, int iKillStatus
 	if (NetServer_IsClientDead(rOurClient)) { return; }
 
 	if (fHP <= 0.0) { return; }
+	if (NetServer_IsGod(sti(rOurClient.ID))) { return; }		// COOP s27: immortality of the admin menu
 
 	// COOP: a respawned ship is safe for a moment
 	if (CheckAttribute(rOurClient, "SpawnProtect") && iServerTime < sti(rOurClient.SpawnProtect)) { return; }
+
+	NetServer_BotProvoked(sti(rOurClient.ID), wBallClientID);		// COOP s28: a neutral bot that is hit becomes an enemy
 
 	if (wBallClientID != DST_INVALID)
 	{
@@ -929,8 +1185,8 @@ void NetServer_ShipApplyHullHitpoints(ref rOurClient, float fHP, int iKillStatus
 
 	// COOP: passive perks like Ship_ApplyHullHitpoints of single player: CannonProfessional of the attacker +30%,
 	// ShipDefenseProfessional of the target -35% (they include HullDamageUp and Basic / AdvancedBattleState)
-	if (wBallClientID != DST_INVALID && wBallClientID != sti(rOurClient.ID) && NetServer_PassivePerksFor(wBallClientID)) { fPlus = 0.3; }
-	if (NetServer_PassivePerksFor(sti(rOurClient.ID))) { fMinus = 0.35; }
+	if (wBallClientID != DST_INVALID && wBallClientID != sti(rOurClient.ID) && NetServer_SeaPerk(wBallClientID, NET_SPERK_CANNONPRO)) { fPlus = 0.3; }
+	if (NetServer_SeaPerk(sti(rOurClient.ID), NET_SPERK_DEFENCE)) { fMinus = 0.35; }
 
 	float fDamageHP = fHP * (1.0 + fPlus - fMinus);
 	fCurHP = stf(rOurClient.Ship.HP) - fDamageHP;
@@ -962,6 +1218,8 @@ void NetServer_SetClientDead(ref rOurClient, int iKillStatus, int wKillerClientI
 {
 	ref rKillerClient;
 	ref rBaseShip, rKillerBaseShip;
+
+	if (NetServer_IsGod(sti(rOurClient.ID))) { return; }		// COOP s27: immortality of the admin menu
 
 	// COOP: respawn mode: the ship is wrecked for a while and comes back (server\OnShip.c: NetServer_SetClientWrecked)
 	// COOP: bots sink, they have no respawn
@@ -1048,6 +1306,8 @@ void NetServer_SetClientDead(ref rOurClient, int iKillStatus, int wKillerClientI
 	NMDelete(iSMsg);
 
 	rOurClient.Dead = true;
+	NetServer_WreckGoneLater(sti(rOurClient.ID), NET_WRECK_GONE_TIME);		// COOP s27
+	NetServer_ShipNoCannonTarget(rOurClient);		// COOP s27: the cannons do not aim at a sunk ship
 
 	// Event
 	//Event(SHIP_DEAD, "l", iDeadCharacterIndex);
@@ -1055,9 +1315,11 @@ void NetServer_SetClientDead(ref rOurClient, int iKillStatus, int wKillerClientI
 
 void NetServer_ShipApplyCrewHitpoints(ref rOurClient, float fCrewHP, int wBallClientID)
 {
+	if (NetServer_IsGod(sti(rOurClient.ID))) { return; }		// COOP s27: immortality of the admin menu
+	NetServer_BotProvoked(sti(rOurClient.ID), wBallClientID);		// COOP s28: grapes on a neutral bot
 	ref rBaseShip = Net_GetShipByIndex(sti(rOurClient.Ship.Type));
 	float fMultiply = Bring2Range(1.0, 0.2, 0.0, 1.0, stf(rOurClient.Skills.Defence) / NETSKILL_MAX);
-	if (NetServer_PassivePerksFor(sti(rOurClient.ID))) { fMultiply = fMultiply * 0.8; }		// COOP: passive perk Doctor2 (includes Doctor1)
+	if (NetServer_SeaPerk(sti(rOurClient.ID), NET_SPERK_DOCTOR)) { fMultiply = fMultiply * 0.8; }		// COOP: passive perk Doctor2 (includes Doctor1)
 	float fNewCrewQuantity = stf(rOurClient.Ship.Crew.Quantity) - fCrewHP * fMultiply;
 	float f5Percent = stf(rBaseShip.MinCrew) * 0.05;
 	if (fNewCrewQuantity < f5Percent) { fNewCrewQuantity = f5Percent; }
@@ -1121,7 +1383,7 @@ void NetServer_ShipUpdateParameters()
 
 		// COOP: passive perk SailingProfessional (includes ShipSpeedUp): x1.20, like SpeedBySkill of single player
 		float fSpeedPerk = 1.0;
-		if (NetServer_PassivePerksFor(wOurClientID)) { fSpeedPerk = 1.20; }
+		if (NetServer_SeaPerk(wOurClientID, NET_SPERK_SAILING)) { fSpeedPerk = 1.20; }
 		rClient.Ship.MaxSpeedZ = fGameSpeed * fMaxSpeedZ * fWindPower * fSpeedFromWeight * fSpeedFromPeople * fTRFromSailDamage * fTRFromSkill * fSpeedFromHp * fSpeedPerk;
 
 		/*if (fWindDotShip < -0.70)
@@ -1145,9 +1407,16 @@ void NetServer_ShipUpdateParameters()
 		//float fFastTurn180 = NetServer_IsPerkUse(rClient.Perks.Turn180, 1.0, 8.0); 
 		// COOP: passive perk SailingProfessional (includes ShipTurnRateUp) x1.20, active perk Turn180 x4 (TurnBySkill of single player)
 		float fTurnPerk = 1.0;
-		if (NetServer_PassivePerksFor(wOurClientID)) { fTurnPerk = 1.20; }
+		if (NetServer_SeaPerk(wOurClientID, NET_SPERK_SAILING)) { fTurnPerk = 1.20; }
 		if (NetServer_ActivePerkIsOn(wOurClientID, NET_APERK_TURN180)) { fTurnPerk = fTurnPerk * 4.0; }
 		rClient.Ship.MaxSpeedY = fGameSpeed * 2.0 * fTRResult * fMaxSpeedY * fTurnPerk;
+		// COOP s37: the ship of a captain who fights on the deck stands still
+		if (NetServer_BDOf(wOurClientID) > 0)
+		{
+			rClient.Ship.MaxSpeedZ = 0.0;
+			rClient.Ship.MaxSpeedY = 0.0;
+			rClient.Ship.SailState = 0.0;
+		}
 
 	//rClient.Ship.MaxSpeedZ = 30.0;
 	//rClient.Ship.MaxSpeedY = 2.6;
@@ -1274,7 +1543,7 @@ void NetServer_CalculateReloadTime(ref rClient)
 	if (sti(rClient.ID) < NET_MAXCLIENTS)
 	{
 		if (NetServer_ActivePerkIsOn(sti(rClient.ID), NET_APERK_IMMEDIATERELOAD)) { fMultiply = fMultiply * 0.5; }
-		else { if (NetServer_PassivePerksFor(sti(rClient.ID))) { fMultiply = fMultiply * 0.9; } }
+		else { if (NetServer_SeaPerk(sti(rClient.ID), NET_SPERK_FASTRELOAD)) { fMultiply = fMultiply * 0.9; } }
 	}
 	else
 	{
@@ -1348,8 +1617,8 @@ void NetServer_CannonRecalculateParameters(ref rClient)
 	rClient.Ship.Cannons.SpeedV0 = stf(rCannon.SpeedV0) * stf(rBall.SpeedV0);
 	// COOP: passive perk LongRangeShoot (the fort of the hard difficulty has it too)
 	bool bLongRange = false;
-	if (sti(rClient.ID) < NET_MAXCLIENTS) { bLongRange = NetServer_PassivePerksFor(sti(rClient.ID)); }
-	if (sti(rClient.ID) == NET_FORTCLIENT) { bLongRange = NetServer_PassivePerksFor(NET_FORTCLIENT); }
+	if (sti(rClient.ID) < NET_MAXCLIENTS) { bLongRange = NetServer_SeaPerk(sti(rClient.ID), NET_SPERK_LONGRANGE); }
+	if (sti(rClient.ID) == NET_FORTCLIENT) { bLongRange = NetServer_SeaPerk(NET_FORTCLIENT, NET_SPERK_LONGRANGE); }
 	if (bLongRange) { rClient.Ship.Cannons.SpeedV0 = stf(rClient.Ship.Cannons.SpeedV0) * 1.15; }
 }
 
@@ -1369,6 +1638,38 @@ bool NetServer_PassivePerksFor(int wClientID)
 	return true;
 }
 
+// COOP s28: one sea perk of a ship (common\Perks.c: NET_SPERK_*): the switches of the server give all of them to everybody,
+// otherwise the perks the captain has bought (the bots and the fort have none of their own)
+bool NetServer_SeaPerk(int wClientID, int iPerk)
+{
+	if (wClientID == NET_FORTCLIENT)
+	{
+		if (iPerk < NET_SPERK_PASSIVE_NUM) { return NetServer_FortHard(); }
+		return false;
+	}
+	if (wClientID < 0 || wClientID >= NET_MAXCLIENTS) { return false; }
+	if (iPerk < NET_SPERK_PASSIVE_NUM)
+	{
+		if (sti(NetServer.PassivePerks)) { return true; }
+	}
+	else
+	{
+		if (sti(NetServer.ActivePerks)) { return true; }
+	}
+	if (!CheckAttribute(&NSClients[wClientID], "SeaPerks")) { return false; }
+	return Net_SeaPerkBit(sti(NSClients[wClientID].SeaPerks), iPerk);
+}
+
+// the ship has at least one active perk (the command menu, the cooldown states)
+bool NetServer_AnyActivePerk(int wClientID)
+{
+	for (int iAP=0; iAP<NET_APERK_NUM; iAP++)
+	{
+		if (NetServer_SeaPerk(wClientID, NET_SPERK_ACTIVE0 + iAP)) { return true; }
+	}
+	return false;
+}
+
 int NetServer_GetShipLife(int wClientID)
 {
 	if (wClientID < 0 || wClientID >= NET_TOTALCLIENTS) { return 0; }
@@ -1378,7 +1679,7 @@ int NetServer_GetShipLife(int wClientID)
 
 bool NetServer_ActivePerkIsOn(int wClientID, int iPerk)
 {
-	if (!sti(NetServer.ActivePerks)) { return false; }
+	if (!NetServer_SeaPerk(wClientID, NET_SPERK_ACTIVE0 + iPerk)) { return false; }		// COOP s28: bought or the switch
 	if (wClientID < 0 || wClientID >= NET_MAXCLIENTS) { return false; }
 	string sAttr = "APerk.p" + iPerk + ".Until";
 	if (!CheckAttribute(&NSClients[wClientID], sAttr)) { return false; }
@@ -1407,15 +1708,15 @@ void NetServer_SendPerkState(int wClientID, int iPerk)
 
 void NetServer_SendAllPerkStates(int wClientID)
 {
-	if (!sti(NetServer.ActivePerks)) { return; }
+	if (!NetServer_AnyActivePerk(wClientID)) { return; }		// COOP s28
 	for (int i=0; i<NET_APERK_NUM; i++) { NetServer_SendPerkState(wClientID, i); }
 }
 
 // client pressed an active perk in the command menu
 void NetServer_UseActivePerk(int wClientID, int iPerk)
 {
-	if (!sti(NetServer.ActivePerks)) { return; }
 	if (iPerk < 0 || iPerk >= NET_APERK_NUM) { return; }
+	if (!NetServer_SeaPerk(wClientID, NET_SPERK_ACTIVE0 + iPerk)) { return; }		// COOP s28: bought or the switch
 	if (!NetServer_ShipIsAlive(wClientID)) { return; }
 
 	ref rClient = NetServer_GetClient(wClientID);
@@ -1465,7 +1766,7 @@ float NetServer_HullPlanksPerPercent(ref rClient)
 	float fRet = 8.0 - stf(rShip.Class);
 	float fHP = stf(rShip.HP) / 700.0;
 	if (fHP > fRet) { fRet = fHP; }
-	if (NetServer_PassivePerksFor(sti(rClient.ID))) { fRet = fRet * 0.9; }
+	if (NetServer_SeaPerk(sti(rClient.ID), NET_SPERK_BUILDER)) { fRet = fRet * 0.9; }
 	return fRet;
 }
 
@@ -1474,7 +1775,7 @@ float NetServer_SailClothPerPercent(ref rClient)
 {
 	ref rShip = Net_GetShipByIndex(sti(rClient.Ship.Type));
 	float fRet = 8.0 - stf(rShip.Class);
-	if (NetServer_PassivePerksFor(sti(rClient.ID))) { fRet = fRet * 0.9; }
+	if (NetServer_SeaPerk(sti(rClient.ID), NET_SPERK_BUILDER)) { fRet = fRet * 0.9; }
 	return fRet;
 }
 
@@ -1596,7 +1897,17 @@ void NetServer_SetClientWrecked(ref rOurClient, int iKillStatus, int wKillerClie
 	rOurClient.Ship.Sink.Speed.x = 0.0;
 	rOurClient.Ship.Sink.Speed.y = 0.0;
 	rOurClient.Ship.Sink.Speed.z = 0.0;
+	int iWreckSink = 0;
+	if (NET_WRECK_SINK)
+	{
+		// COOP s27: the wreck sinks like a ship of the game without respawn; the respawn creates it again (server and clients)
+		iWreckSink = 1;
+		rOurClient.Ship.Sink.Speed.y = 0.35;
+		rOurClient.Ship.Sink.Speed.x = 0.017 * (frnd() * 2.0 - 1.0);
+		rOurClient.Ship.Sink.Speed.z = 0.017 * (frnd() * 2.0 - 1.0);
+	}
 	rOurClient.WreckedNow = true;
+	if (iWreckSink) { NetServer_ShipNoCannonTarget(rOurClient); }		// COOP s27: a sinking wreck is not a target (the respawn creates it again)
 	rOurClient.Dead = true;
 	rOurClient.Life = NetServer_GetShipLife(wDeadID) + 1;
 	rOurClient.Ship.HP = 1.0;
@@ -1626,12 +1937,18 @@ void NetServer_SetClientWrecked(ref rOurClient, int iKillStatus, int wKillerClie
 	NMAddClientID(iSMsg, wKillerClientID);
 	NMAddByte(iSMsg, bDetonate);
 	NMAddByte(iSMsg, iSeconds);
+	NMAddByte(iSMsg, iWreckSink);
+	NMAddFloat(iSMsg, stf(rOurClient.Ship.Sink.Speed.x));
+	NMAddFloat(iSMsg, stf(rOurClient.Ship.Sink.Speed.y));
+	NMAddFloat(iSMsg, stf(rOurClient.Ship.Sink.Speed.z));
 	NetServer_SendToInGame(iSMsg);
 	NMDelete(iSMsg);
 
 	Trace("COOP: ship " + wDeadID + " wrecked by " + wKillerClientID + ", respawn in " + iSeconds + " s");
 
 	PostEvent("NetServer_RespawnEvent", iSeconds * 1000, "lll", wDeadID, NetServer_GetShipLife(wDeadID), sti(NetServer.Round));
+	// COOP s27: the respawn creates the ship again; if it does not come (the player left, the bot respawn was switched off) the wreck goes
+	NetServer_WreckGoneLater(wDeadID, iSeconds);
 }
 
 // COOP: seconds between the death and the respawn (slider of the Create game screen, 10..180)
@@ -1685,6 +2002,8 @@ void NetServer_RespawnShip(int wID)
 	DeleteAttribute(rC, "Ship.Sink");
 	DeleteAttribute(rC, "Ship.sails");		// sail damage of the old ship (the new entity has whole sails)
 	DeleteAttribute(rC, "Ship.masts");
+	DeleteAttribute(rC, "Ship.MastsFallen");
+	rC.ShipGone = false;
 	DeleteAttribute(rC, "Ship.GoodsHeld");
 	DeleteAttribute(rC, "Ship.AmmoLast");
 

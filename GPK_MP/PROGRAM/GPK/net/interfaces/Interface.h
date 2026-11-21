@@ -8,6 +8,7 @@
 #define NET_MAX_SERVERS		4096
 
 bool bFG_Deathmatch = true;
+bool bFG_LandDuel = true;		// COOP s27: the filter "Сухопутная дуэль" of the list of the servers
 bool bFG_TeamDeathmatch = true;
 bool bFG_DefendConvoy = true;
 bool bFG_CaptureTheFort = true;

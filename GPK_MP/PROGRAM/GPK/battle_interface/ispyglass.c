@@ -12,6 +12,7 @@ object objISpyGlass;
 bool bNetTelescopeOn = false;	// the telescope is switched on (Telescope_Request)
 bool bSpyFortShown = false;		// the panel shows the fort now
 int iSpyFortGen = 0;				// generation of the timer NetClient_SpyFortTick
+string sSpyShownKey = "";		// COOP s27: the data the panel of the fort shows now ("" = hidden): sent again only when it changes
 
 bool ISpyGlass_IsNet()
 {
@@ -383,6 +384,7 @@ void SetSpyGlassData()
 
 void ResetSpyGlassData()
 {
+	sSpyShownKey = "";
 	SendMessage(&objISpyGlass,"ll",MSG_ISG_VISIBLE,false);
 }
 

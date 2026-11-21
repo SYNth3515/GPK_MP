@@ -284,6 +284,12 @@ bool LAi_CharacterIsFire()
 		LAi_tmp_return_bool = true;
 		return true;
 	}
+	// COOP: the puppet of a bot of another player the same (it never took the blade out: an empty hand, no health bar)
+	if(CheckAttribute(chr, "NetLandBotPup"))
+	{
+		LAi_tmp_return_bool = true;
+		return true;
+	}
 	string func = chr.chr_ai.tmpl;
 	if(func == "") return;
 	//Исполнение
@@ -298,6 +304,12 @@ bool LAi_CharacterIsFight()
 	// COOP: land duel (net\Land.c): the puppet of a player is moved by the stay / goto / runto templates, and their
 	// IsFight answers "no" - the sword could never be drawn. The puppet draws it when its player does.
 	if(CheckAttribute(chr, "NetLandID"))
+	{
+		LAi_tmp_return_bool = true;
+		return true;
+	}
+	// COOP: the puppet of a bot of another player the same (it never took the blade out: an empty hand, no health bar)
+	if(CheckAttribute(chr, "NetLandBotPup"))
 	{
 		LAi_tmp_return_bool = true;
 		return true;
@@ -397,6 +409,8 @@ void LAi_Character_Dead_Process(aref chr)
 	else
 	{
 		//Доигрались...
+		// COOP: the land duel of the net game: the hero dies by the rules of the duel (a respawn), never the game over
+		if (NetLand_HeroDiedByGame()) { return; }
 		if(!LAi_IsBoardingProcess())
 		{
 			if (loadedLocation.type == "town")

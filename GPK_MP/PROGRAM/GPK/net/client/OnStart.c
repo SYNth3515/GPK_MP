@@ -61,7 +61,18 @@ void NetClient_Heartbeat()
 {
 	iCoopHb = iCoopHb + 1;
 	ref rCoopMe = NetClient_GetClient(wClientID);
-	Trace("COOP: hb " + iCoopHb + " cam=" + Camera.Pos.x + "," + Camera.Pos.y + "," + Camera.Pos.z + " camAy=" + Camera.Ang.y + " ship=" + rCoopMe.Ship.Pos.x + "," + rCoopMe.Ship.Pos.y + "," + rCoopMe.Ship.Pos.z);
+	// COOP s30: our ship may not exist yet (it comes with its load message): no attribute errors every half second
+	string sCoopShip = "none";
+	if (CheckAttribute(rCoopMe, "Ship.Pos.x") && CheckAttribute(rCoopMe, "Ship.Pos.y") && CheckAttribute(rCoopMe, "Ship.Pos.z"))
+	{
+		sCoopShip = rCoopMe.Ship.Pos.x + "," + rCoopMe.Ship.Pos.y + "," + rCoopMe.Ship.Pos.z;
+	}
+	string sCoopCam = "none";
+	if (CheckAttribute(&Camera, "Pos.x") && CheckAttribute(&Camera, "Ang.y"))
+	{
+		sCoopCam = Camera.Pos.x + "," + Camera.Pos.y + "," + Camera.Pos.z + " camAy=" + Camera.Ang.y;
+	}
+	Trace("COOP: hb " + iCoopHb + " cam=" + sCoopCam + " ship=" + sCoopShip);
 	if (bNetTelescopeOn) { PostEvent("NetClient_SpyFortUpdate", 1); }	// COOP v3.1: backup driver of the fort check
 	PostEvent("NetClient_Heartbeat", 500);
 }
@@ -70,8 +81,8 @@ void NetClient_Heartbeat()
 void NetClient_OnEndGame()
 {
 	NetLand_ClientStop();		// COOP: land duel (Land.c): the location goes away first
+	NetBoard_ClientReset();		// COOP s37: the deck of a boarding: the sea layer is not frozen any more
 	bNetClientInGame = false;
-	bNetCliBotRespawn = false;
 	DeleteAttribute(&NCPerks, "");
 	DelEventHandler("NetClient_PerkNotify", "NetClient_PerkNotify");
 	NetClient_SailorsDelete();		// COOP: crew first, then the NetShip entities it points to
@@ -80,6 +91,7 @@ void NetClient_OnEndGame()
 	{
 		// COOP: ships of players who left the game (Use = 0) are alive entities too: delete them with the rest of the sea
 		if (!sti(NCClients[i].Use) && !COOP_CliSlotLive(i)) { continue; }
+		Trace("COOP: end: ship " + i);		// COOP s30: the exit crashed (ntdll) after "cli sailors delete": where exactly
 		DeleteClass(&NCClients[i]);
 		DeleteAttribute(&NCClients[i], "CoopGame");
 	}
@@ -91,20 +103,35 @@ void NetClient_OnEndGame()
 		DeleteAttribute(&NCClients[iBotSlot], "BotTex");
 	}
 
+	Trace("COOP: end: weather");
 	NetClient_DeleteWeatherEnvironment();
+	Trace("COOP: end: island");
 	NetClient_DeleteIslandEnvironment();
+	Trace("COOP: end: balls");
 	NetClient_DeleteBallsEnvironment();
+	Trace("COOP: end: rigging");
 	NetClient_DeleteRiggingEnvironment();
+	Trace("COOP: end: cameras");
 	NetClient_DeleteCamerasEnvironment();
+	Trace("COOP: end: ship env");
 	NetClient_DeleteShipEnvironment();
+	Trace("COOP: end: ship lights");
 	NetClient_DeleteShipLightsEnvironment();
+	Trace("COOP: end: fort");
 	NetClient_DeleteFortEnvironment();
+	Trace("COOP: end: time");
 	NetClient_DeleteTimeEnvironment();
+	Trace("COOP: end: battle interface");
 	NetClient_DeleteBattleInterface();
+	Trace("COOP: end: interface");
 	NetClient_DeleteInterfaceEnvironment();
+	Trace("COOP: end: foam");
 	NetClient_DeleteShipFoamEnvironment();
+	Trace("COOP: end: sea creatures");
 	NetClient_DeleteSeaCreaturesEnvironment();
+	Trace("COOP: end: chat");
 	NetClient_DeleteChatEnvironment();
+	Trace("COOP: end: client done");
 
 	DelEventHandler("NetClient_Heartbeat", "NetClient_Heartbeat");
 	iNetMusicGen = iNetMusicGen + 1;
@@ -139,7 +166,7 @@ void NetClient_OnDisconnect()
 
 // COOP: морские эффекты из одиночки (sea.c: Sharks, SinkEffect, PeopleOnShip); графика у каждого игрока своя, не синхронизируется
 int iCoopFxSharks = 1;			// акулы (самостоятельный класс Sharks); раньше стояли на месте: см. заглушку sea ниже
-int iCoopFxSinkEffect = 0;		// 0 по умолчанию: класс SINKEFFECT работает с кораблями движка ship.dll, а в мультиплеере корабли NetShip из net.dll
+int iCoopFxSinkEffect = 1;		// 1 = sinking effect of single player (planks, bubbles); needs the patched sink_effect.dll (looks for NetShip); 0 = off
 int iCoopFxPeopleOnShip = 0;	// 0 по умолчанию: PEOPLE_ON_SHIP тоже привязан к кораблям и персонажам одиночной игры
 
 // COOP: акулы (SeaCreatures.dll) на каждом кадре ищут по ИМЕНИ КЛАССА "sea" (из одиночки), а в мультиплеере вода - это "NetSea".
@@ -299,6 +326,7 @@ void NetClient_OnGameOver(int iMsg)
 	{
 		if (!bNetClientInGame) { return; }
 		string sDrawText = "Ничья! Последние два корабля пошли ко дну одновременно.";
+		if (bNetLandActive) { sDrawText = "Ничья!"; }		// COOP: land duel
 		NetClient_ChatAddSystemLine(sDrawText);
 		Log_SetStringToLog(sDrawText);
 		Log_SetStringToLog(LanguageConvertString(iLangNetClient, "NetGO_GameGoesOn"));

@@ -27,11 +27,10 @@ bool COOP_CliYBad(ref rC)
 int iCoopCliNaNLeave = 1;
 bool bCoopCliLeaving = false;
 
-// COOP: the NetShip entity must NOT be deleted and recreated on a client (an attempt crashed the game right after the
-// "recreating" line): the original code never deletes it either (see NetClient_Drop) because the rigging, the foam,
-// the battle interface and the ship pointer keep references to it. Writing y into the attributes does not help either
-// (the engine keeps its own value), so this only logs, and leaves when OUR OWN ship stays NaN. A NaN height of the other
-// player's ship is only logged: our camera and controls are fine then.
+// COOP: a NaN height is only logged here, and the game leaves when OUR OWN ship stays NaN. (s27: the old note said that the
+// deletion of a NetShip on a client crashes the game: that was the foam, which keeps its own list of the ships. The safe
+// deletion is client\OnClient.c NetClient_ShipEntityDelete / NetClient_ShipEntityRecreate: the foam is made again after it.)
+// A NaN height of the other player's ship is only logged: our camera and controls are fine then.
 void COOP_CliShipWatch()
 {
 	int i;

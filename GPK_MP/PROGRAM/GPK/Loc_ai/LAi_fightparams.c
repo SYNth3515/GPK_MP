@@ -17,6 +17,8 @@
 //Расчитать повреждение для персонажа
 float LAi_CalcDamageForBlade(aref attack, aref enemy, string attackType, bool isBlocked)
 {
+	// COOP: the land duel of the net game: the butt of a musket is a heavy blade there (net\Land.c)
+	if (NetLand_IsActive()) { if (NetLand_IsMusketeer(attack)) { return NetLand_MusketMeleeDamage(attack, enemy, attackType, isBlocked); } }
 	//Расчитываем повреждение от сабли
 	float min = 10.0;
 	float max = 10.0;
@@ -718,6 +720,8 @@ bool npc_return_tmpb;
 float LAi_NPC_GetAttackActive()
 {
 	aref chr = GetEventData();
+	float fNLAi = NetLand_AiParam(chr, "attack");		// COOP: land duel bots (net\Land.c)
+	if (fNLAi >= 0.0) { npc_return_tmp = fNLAi; return npc_return_tmp; }
 	if(CheckAttribute(chr, "NetLandID")) { npc_return_tmp = 0.0; return npc_return_tmp; }
 	float level = LAi_GetCharacterFightLevel(chr);
 	npc_return_tmp = 0.3 + level*0.7;
@@ -730,6 +734,8 @@ float LAi_NPC_GetAttackActive()
 float LAi_NPC_GetAttackWeightFast()
 {
 	aref chr = GetEventData();
+	float fNLAi = NetLand_AiParam(chr, "fast");		// COOP: land duel bots (net\Land.c)
+	if (fNLAi >= 0.0) { npc_return_tmp = fNLAi; return npc_return_tmp; }
 	npc_return_tmp = 20.0;
 	npc_return_tmp = npc_return_tmp * (0.8 + (0.1 * MOD_SKILL_ENEMY_RATE));
 	return npc_return_tmp;
@@ -740,6 +746,8 @@ float LAi_NPC_GetAttackWeightFast()
 float LAi_NPC_GetAttackWeightForce()
 {
 	aref chr = GetEventData();
+	float fNLAi = NetLand_AiParam(chr, "force");		// COOP: land duel bots (net\Land.c)
+	if (fNLAi >= 0.0) { npc_return_tmp = fNLAi; return npc_return_tmp; }
 	npc_return_tmp = 50.0;
 	npc_return_tmp = npc_return_tmp * (0.8 + (0.1 * MOD_SKILL_ENEMY_RATE));
 	return npc_return_tmp;
@@ -750,6 +758,8 @@ float LAi_NPC_GetAttackWeightForce()
 float LAi_NPC_GetAttackWeightRound()
 {
 	aref chr = GetEventData();
+	float fNLAi = NetLand_AiParam(chr, "round");		// COOP: land duel bots (net\Land.c)
+	if (fNLAi >= 0.0) { npc_return_tmp = fNLAi; return npc_return_tmp; }
 	npc_return_tmp = 20.0;
 	npc_return_tmp = npc_return_tmp * (0.8 + (0.1 * MOD_SKILL_ENEMY_RATE));
 	return npc_return_tmp;
@@ -760,6 +770,8 @@ float LAi_NPC_GetAttackWeightRound()
 float LAi_NPC_GetAttackWeightBreak()
 {
 	aref chr = GetEventData();
+	float fNLAi = NetLand_AiParam(chr, "break");		// COOP: land duel bots (net\Land.c)
+	if (fNLAi >= 0.0) { npc_return_tmp = fNLAi; return npc_return_tmp; }
 	npc_return_tmp = 20.0;
 	npc_return_tmp = npc_return_tmp * (0.6 + (0.1 * MOD_SKILL_ENEMY_RATE));
 	return npc_return_tmp;
@@ -770,6 +782,8 @@ float LAi_NPC_GetAttackWeightBreak()
 float LAi_NPC_GetAttackWeightFeint()
 {
 	aref chr = GetEventData();
+	float fNLAi = NetLand_AiParam(chr, "feint");		// COOP: land duel bots (net\Land.c)
+	if (fNLAi >= 0.0) { npc_return_tmp = fNLAi; return npc_return_tmp; }
 	npc_return_tmp = 10.0; //30 boal fix
 	npc_return_tmp = npc_return_tmp * (0.6 + (0.1 * MOD_SKILL_ENEMY_RATE));
 	return npc_return_tmp;
@@ -781,6 +795,8 @@ float LAi_NPC_GetAttackWeightFeint()
 float LAi_NPC_GetAttackDefence()
 {
 	aref chr = GetEventData();
+	float fNLAi = NetLand_AiParam(chr, "defence");		// COOP: land duel bots (net\Land.c)
+	if (fNLAi >= 0.0) { npc_return_tmp = fNLAi; return npc_return_tmp; }
 	// COOP: land duel (net\Land.c): the puppet defends as long as its player holds the block, and never by itself
 	if(CheckAttribute(chr, "NetLandID"))
 	{
@@ -808,6 +824,8 @@ float LAi_NPC_GetAttackDefence()
 float LAi_NPC_GetDefenceWeightBlock()
 {
 	aref chr = GetEventData();
+	float fNLAi = NetLand_AiParam(chr, "block");		// COOP: land duel bots (net\Land.c)
+	if (fNLAi >= 0.0) { npc_return_tmp = fNLAi; return npc_return_tmp; }
 	npc_return_tmp = 80.0;
 	npc_return_tmp = npc_return_tmp * (0.5 + (0.05 * MOD_SKILL_ENEMY_RATE));   // boal
 	return npc_return_tmp;
@@ -819,6 +837,8 @@ float LAi_NPC_GetDefenceWeightBlock()
 float LAi_NPC_GetDefenceWeightParry()
 {
 	aref chr = GetEventData();
+	float fNLAi = NetLand_AiParam(chr, "parry");		// COOP: land duel bots (net\Land.c)
+	if (fNLAi >= 0.0) { npc_return_tmp = fNLAi; return npc_return_tmp; }
 	npc_return_tmp = 20.0; // 40 boal
 	npc_return_tmp = npc_return_tmp * (0.6 + (0.1 * MOD_SKILL_ENEMY_RATE));
 	return npc_return_tmp;
@@ -829,6 +849,8 @@ float LAi_NPC_GetDefenceWeightParry()
 bool LAi_NPC_EnableRecoil()
 {
 	aref chr = GetEventData();
+	float fNLAi = NetLand_AiParam(chr, "recoil");		// COOP: a hard land bot is not staggered (net\Land.c)
+	if (fNLAi >= 0.0) { npc_return_tmpb = (fNLAi > 0.5); return npc_return_tmpb; }
 	npc_return_tmpb = true;
 	return npc_return_tmpb;
 }
@@ -840,6 +862,8 @@ bool LAi_NPC_EnableRecoil()
 float LAi_NPC_GetFireActive()
 {
 	aref chr = GetEventData();
+	float fNLAi = NetLand_AiParam(chr, "fire");		// COOP: land duel bots (net\Land.c)
+	if (fNLAi >= 0.0) { npc_return_tmp = fNLAi; return npc_return_tmp; }
 	if(CheckAttribute(chr, "NetLandID")) { npc_return_tmp = 0.0; return npc_return_tmp; }
 	float level = LAi_GetCharacterGunLevel(chr);
 	npc_return_tmp = 0.001 + level*0.06;
@@ -928,7 +952,7 @@ bool LAi_ChrAttackAction()
 	string attackType = GetEventData();
 	float curEnergy = Lai_CharacterGetEnergy(attack);
 	float needEnergy = LAi_CalcUseEnergyForBlade(attack, attackType);
-	if(curEnergy >= needEnergy)
+	if(curEnergy >= needEnergy && !NetLand_StunGate(attack))		// COOP: a hit reaction / a dodge of the land duel is not broken by a swing
 	{
 		npc_return_tmpb = true;
 		NetLand_AttackStart(attack, attackType);		// COOP: land duel (net\Land.c): the swing begins, the others see it now

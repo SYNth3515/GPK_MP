@@ -1,0 +1,9 @@
+; COOP s30: the hero of the main menu (interface\mainmenu.c): the idle of Jessika.ani that loops
+animation = Jessika.an
+
+[mm_idle]
+speed = 1.0
+type = normal
+loop = true
+start_time = 1867
+end_time = 1922

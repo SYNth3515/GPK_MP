@@ -21,16 +21,22 @@ void NetServer_OnCamera(int wNetClientID, int iMsg)
 			NMAddByte(iSMsg, NC_CAMERA);
 			NMAddByte(iSMsg, NSC_DECK_CAMERA_UPDATE);
 			NMAddByte(iSMsg, sti(rClient.IsCanFire));
-			NMAddByte(iSMsg, NetServer_GetTeamRelation(iOurTeam, iCurrentTargetTeam));
+			NMAddByte(iSMsg, NetServer_GetTeamRelation(iOurTeam, iCurrentTargetTeam));		// COOP s34: 3 = neutral too
 			NetServer_SendMessage(wNetClientID, iSMsg, false);
 			NMDelete(iSMsg);
 		break;
 	}
 }
 
+// the colour of the crosshair of the deck camera (net.dll: 0 Colors.Default, 1 Colors.Friend, 2 Colors.Enemy; COOP s34: 3 = neutral,
+// the client shows it with Colors.Default = grey, client\Cameras.c). COOP s34: the bots: before, an allied bot (Team 5, not the
+// team of the player) was an enemy, a neutral one too
 int NetServer_GetTeamRelation(int iOurTeam, int iCurrentTargetTeam)
 {
 	if (iCurrentTargetTeam == -1) return 0;							// nothing selected
+	if (iCurrentTargetTeam == NetServer_BotTeamOf(NET_BOTREL_ALLY)) return 1;		// an allied bot
+	if (iCurrentTargetTeam == NetServer_BotTeamOf(NET_BOTREL_ENEMY)) return 2;		// an enemy bot
+	if (iCurrentTargetTeam == NetServer_BotTeamOf(NET_BOTREL_NEUTRAL)) return 3;	// a neutral bot
 	if (sti(NetServer.GameType) == NETGAME_DEATHMATCH) return 2;	// enemy
 	if (iOurTeam != iCurrentTargetTeam) return 2;					// enemy
 	return 1;														// friend

@@ -12,7 +12,7 @@
 #define CONVOY_POINT_RADIUS		40.0
 
 #define NET_TEST_DWORD			12345678		// hack
-#define NET_SCRIPT_VERSION		104
+#define NET_SCRIPT_VERSION		106		// COOP s36: the packets of the NPC of the host (s35 ones crashed the client)
 
 string sUserFacesPath = "net\faces\";
 string sUserSailsPath = "net\sails\";

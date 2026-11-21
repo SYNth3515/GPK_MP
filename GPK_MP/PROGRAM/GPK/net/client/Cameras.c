@@ -1,5 +1,10 @@
 object	NCShipCamera, NCDeckCamera;
 
+// COOP s34: the colours of the crosshair of the deck camera (alpha 0 as before: the technique "Crosshair" does not use it)
+#define NET_CROSS_DEFAULT	16776960	// argb(0, 255, 255, 0): yellow, nothing under the crosshair
+#define NET_CROSS_NEUTRAL	10526880	// argb(0, 160, 160, 160): grey, a neutral ship
+bool bNetCrossNeutral = false;
+
 void NetClient_DeleteCamerasEnvironment()
 {
 	DeleteClass(&NCDeckCamera);
@@ -48,10 +53,11 @@ void NetClient_CreateCamerasEnvironment(int iMsg)
 	NCDeckCamera.Crosshair.Technique = "Crosshair";
 	NCDeckCamera.Crosshair.SubTexX = 1;
 	NCDeckCamera.Crosshair.SubTexY = 1;
-	NCDeckCamera.Crosshair.Colors.Default = argb(0, 255, 255, 255);
+	NCDeckCamera.Crosshair.Colors.Default = NET_CROSS_DEFAULT;		// COOP s34: yellow (was white, it looked grey)
 	NCDeckCamera.Crosshair.Colors.Enemy = argb(0, 255, 0, 0);
 	NCDeckCamera.Crosshair.Colors.Friend = argb(0, 0, 255, 0);
-	NCDeckCamera.Crosshair.Colors.Neutral = argb(0, 128, 128, 128);
+	NCDeckCamera.Crosshair.Colors.Neutral = NET_CROSS_NEUTRAL;		// net.dll does not read it: see NetClient_OnCamera
+	bNetCrossNeutral = false;
 
 	NCDeckCamera.Telescope.Texture = "Eye_BestTub.tga";
 	NCDeckCamera.Telescope.Technique = "Telescope";
@@ -120,7 +126,17 @@ void NetClient_OnCamera(int iSMsg)
 	{
 		case NSC_DECK_CAMERA_UPDATE: 
 			NCDeckCamera.IsCanFire = NMGetByte(iSMsg);
-			NCDeckCamera.CurrentTargetRelation = NMGetByte(iSMsg);
+			// COOP s34: 3 = a neutral ship. net.dll knows 0 / 1 / 2 only: the colour "Default" turns grey for it
+			int iCamRel = NMGetByte(iSMsg);
+			bool bCamNeutral = (iCamRel == 3);
+			if (bCamNeutral != bNetCrossNeutral)
+			{
+				bNetCrossNeutral = bCamNeutral;
+				if (bCamNeutral) { NCDeckCamera.Crosshair.Colors.Default = NET_CROSS_NEUTRAL; }
+				else { NCDeckCamera.Crosshair.Colors.Default = NET_CROSS_DEFAULT; }
+			}
+			if (iCamRel < 0 || iCamRel > 2) { iCamRel = 0; }
+			NCDeckCamera.CurrentTargetRelation = iCamRel;
 		break;
 	}
 }
@@ -136,6 +152,10 @@ void NetClient_SetDieCameraEvent()
 	DelEventHandler("NetClient_SetDieCameraEvent", "NetClient_SetDieCameraEvent");
 
 	int wKillerID = GetEventData();
+	// COOP s27: the ship of the killer may be deleted by now (sunk long ago): the camera of net.dll asserts on a missing ship
+	if (wKillerID < 0 || wKillerID >= NET_MAXCLIENTS) { return; }
+	if (!COOP_CliSlotLive(wKillerID)) { return; }
+	if (!IsEntity(&NCClients[wKillerID])) { return; }
 	NCShipCamera.NetID = wKillerID;
 }
 

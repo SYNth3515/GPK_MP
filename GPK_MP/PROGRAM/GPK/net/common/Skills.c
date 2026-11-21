@@ -14,6 +14,8 @@ int Net_GetSkillCost(int iSkillIndex, int iNumSkillPoints)
 	return sti(NetSkills[iSkillIndex].Cost) * iNumSkillPoints;
 }
 
+// COOP s28: the prices of the skills x10 (one point; the first point is free in the buy screen). All six skills at 10 cost
+// 9 * 9000 = 81000 (the budget of a full fast manowar, see common\Perks.c)
 void Net_InitSkills()
 {
 	ref rS;
@@ -21,27 +23,27 @@ void Net_InitSkills()
 
 	makeref(rS, NetSkills[n]); n++;
 	rS.Name = "Accuracy";
-	rS.Cost = 150;
+	rS.Cost = 1500;
 
 	makeref(rS, NetSkills[n]); n++;
 	rS.Name = "Cannons";
-	rS.Cost = 150;
+	rS.Cost = 1500;
 
 	makeref(rS, NetSkills[n]); n++;
 	rS.Name = "Sailing";
-	rS.Cost = 100;
+	rS.Cost = 1000;
 	
 	makeref(rS, NetSkills[n]); n++;
 	rS.Name = "Defence";
-	rS.Cost = 150;
+	rS.Cost = 1500;
 
 	makeref(rS, NetSkills[n]); n++;
 	rS.Name = "Repair";
-	rS.Cost = 200;
+	rS.Cost = 2000;
 
 	makeref(rS, NetSkills[n]); n++;
 	rS.Name = "Grappling";
-	rS.Cost = 150;
+	rS.Cost = 1500;
 
 	iNetSkillsNum = n;
 }

@@ -1,5 +1,18 @@
 int iSecondsToStartGame = -1;
 
+// COOP s30: the choice of the lobby of the player wID to wTo (server\ServerInfo.c sends all of them to a new lobby)
+void NetServer_SendChoice(int wTo, int wID)
+{
+	if (!CheckAttribute(&NSClients[wID], "LobbyChoice")) { return; }
+	int iSMsg = NMCreate();
+	NMAddByte(iSMsg, NC_CLIENT);
+	NMAddByte(iSMsg, NSC_CLIENT_CHOICE);
+	NMAddClientID(iSMsg, wID);
+	NMAddString(iSMsg, NSClients[wID].LobbyChoice, 250);
+	NetServer_SendMessage(wTo, iSMsg, true);
+	NMDelete(iSMsg);
+}
+
 void NetServer_OnBuy(int wNetClientID, int iMsg)
 {
 	int iSMsg;
@@ -10,7 +23,26 @@ void NetServer_OnBuy(int wNetClientID, int iMsg)
 
 	switch (iSubCode)
 	{
+		case NSC_BUY_CHOICE:		// COOP s30: the choice of the lobby: kept and sent to every lobby
+			string sChoice = NMGetString(iMsg);
+			rClient.LobbyChoice = sChoice;
+			NetServer_SendChoice(DST_ALL, wNetClientID);
+			return;
+		break;
 		case NSC_BUY_SHIPCHANGE:
+			// COOP s30: the lobby of a player who reconnects sends the ship of his profile, but his ship is in the game already:
+			// a new type here changed the ship of the slot on every machine while the old model stayed (crashes, freezes,
+			// a crew of another ship). The ship of the running game never changes this way.
+			if (bServerGameStarted)
+			{
+				bool bShipInGame = NetServer_HasShip(wNetClientID);
+				if (NetServer_IsInGame(wNetClientID)) { bShipInGame = true; }
+				if (bShipInGame)
+				{
+					Trace("COOP: ship change of " + wNetClientID + " ignored, the ship is in the game");
+					return;
+				}
+			}
 			rClient.Ship.Type = NMGetWord(iMsg);
 			iSMsg = NMCreate();
 			NMAddByte(iSMsg, NC_PLAYERINFO);
@@ -49,6 +81,7 @@ void NetServer_OnBuy_TeamChangeRequest(int wNetClientID, int iMsg)
 		if (NetServer_IsInGame(wNetClientID)) { return; }
 	}
 	if (iNewTeam < 0 || iNewTeam >= 4) { return; }
+	if (NetServer_LandMode() && iNewTeam >= sti(NetServer.NumTeams)) { return; }		// COOP: land duel: only the teams of the game
 
 	rClient.Team = iNewTeam;
 	rClient.BuyReady = false;
@@ -138,6 +171,19 @@ void NetServer_OnCommandStartGame(int wNetClientID)
 		if (CheckAttribute(&NSClients[wNetClientID], "Reconnect") && sti(NSClients[wNetClientID].Reconnect) && NetServer_HasShip(wNetClientID))
 		{
 			NetServer_LateJoin(wNetClientID, true);
+			return;
+		}
+
+		// COOP s31: the host went to the lobby (NetServer_ClientToLobby): he comes back even if "Join during the game" is off
+		bool bBackToGame = false;
+		if (CheckAttribute(&NSClients[wNetClientID], "BackToGame")) { bBackToGame = sti(NSClients[wNetClientID].BackToGame); }
+		NSClients[wNetClientID].BackToGame = false;
+
+		// COOP s30: "Join during the game" is off: a new player waits in the lobby for the next game
+		if (!NetServer_LateJoinOn() && !bBackToGame)
+		{
+			NSClients[wNetClientID].JoinRequested = false;
+			NetServer_SayTo(wNetClientID, "¬ход во врем€ игры выключен: дождитесь следующей игры");
 			return;
 		}
 
@@ -271,6 +317,16 @@ void NetServer_OnBuy_FullInfo(int wNetClientID, int iMsg)
 	// COOP: percent of the cannons bought in the lobby (sent as percent + 1; 0 = an old client = all cannons)
 	int iCannonsPercent = NMGetByte(iMsg) - 1;
 	if (iCannonsPercent < 0 || iCannonsPercent > 100) { iCannonsPercent = 100; }
+
+	// COOP s28: the sea perks bought in the lobby, a bit mask (common\Perks.c: NET_SPERK_*)
+	int iSeaPerks = NMGetDword(iMsg);
+	if (iSeaPerks < 0 || iSeaPerks >= Net_SeaPerkPow2(NET_SPERK_NUM)) { iSeaPerks = 0; }
+	rClient.SeaPerks = iSeaPerks;
+	for (i=0; i<NET_SPERK_NUM; i++)
+	{
+		if (Net_SeaPerkBit(iSeaPerks, i)) { iCredit = iCredit + Net_GetSeaPerkCost(i); }
+	}
+	Trace("COOP: buy of " + wNetClientID + ": sea perks " + iSeaPerks);
 
 	if (iShipType < 0 || iShipType >= Net_GetShipsNum()) { iShipType = 0; }		// COOP: never a broken ship type
 	ref rShip = Net_GetShipByIndex(iShipType);

@@ -1,15 +1,18 @@
 
+#define PS_TABLE_ROWS	4		// COOP s30: the rows of the profiles table (PlayerSettings.ini)
+
 void InitInterface(string iniName)
 {
 	int i;
 
 	GameInterface.title = "titleNetPlayerSettings";
 
-	EnumerateIcons("resource\textures\" + sUserFacesPath, "*.tga.tx", "FACESLIST", 0);
+	// COOP s30: only the icons with a model of the game: the empty face, the portraits with a skin, the NPC skins (the icons
+	// of NET\Faces had no model: "a pirate by the slot")
+	GameInterface.FACESLIST.ListSize = 0;
 	PS_AppendDefaultFaceIcon();
 	PS_AppendPortraitIcons();
-	EnumerateIcons("resource\textures\" + sUserSailsPath, "*.tga.tx", "SAILSLIST", 0);
-	EnumerateIcons("resource\textures\" + sUserFlagsPath, "*.tga.tx", "FLAGSLIST", 0);
+	PS_AppendNpcIcons();		// COOP: the NPC skins without a portrait (net\Land.c: NetLand_NpcModel), after all the portraits
 
 	SetEventHandler("GetInterfaceTexture", "ScrollGetTexture", 0);
 	SetEventHandler("OnSave", "PS_OnSave", 0);
@@ -20,18 +23,111 @@ void InitInterface(string iniName)
 	SetEventHandler("TableSelectChange", "PS_TableSelectChange", 0);	
 
 	SetEventHandler("frame", "PS_CheckButtons", 0);
-
-	// fill colors list
-	for (i=0; i<SAILS_COLOR_QUANTITY; i++)
-	{
-		string attrName = "pic" + (i + 1);
-		GameInterface.COLORSLIST.(attrName).name1 = SailsColors[i].icon;
-	}
-	GameInterface.COLORSLIST.ListSize = SAILS_COLOR_QUANTITY;
+	// COOP: "Персонаж": the loadout of the land duel in the profile (net\Land.c: NetLand_UiLo*)
+	SetEventHandler("OnPsLoadout", "PS_LoOpen", 0);
+	SetEventHandler("OnPsShip", "PS_ShipOpen", 0);
+	SetEventHandler("OnPsPreview", "PS_Preview", 0);		// COOP: the preview of the skin
+	SetEventHandler("OnLoApply", "PS_LoApply", 0);
+	SetEventHandler("OnLoBack", "PS_LoBack", 0);
+	SetEventHandler("CheckButtonChange", "PS_CheckButtonChange", 0);
+	// COOP s30: the hero of the 3D scene behind the screen (net\MenuScene.c): the arrows turn him, "+" / "-" move the camera
+	SetEventHandler("OnPsRotL", "PS_RotL", 0);
+	SetEventHandler("OnPsRotR", "PS_RotR", 0);
+	SetEventHandler("OnPsZoomIn", "PS_ZoomIn", 0);
+	SetEventHandler("OnPsZoomOut", "PS_ZoomOut", 0);
+	SetEventHandler("NetPS_PortraitsDone", "PS_PortraitsDone", 0);		// COOP s30: /portraits (net\MenuScene.c)
+	NetLand_UiLoRegister(true);
 
 	SendMessage(&GameInterface, "ls", MSG_INTERFACE_INIT, iniName);
 
+	// COOP s30: the scene of the main menu behind the screen, the camera in front of the hero (from the ship screen it flies back)
+	NetPS_SceneEnsure();
+	NetPS_SetView(0);
+
 	PS_FillProfilesTable();
+	PS_RestoreFromShip();
+	XI_WindowShow("WND_LOADOUT", false);
+	XI_WindowDisable("WND_LOADOUT", true);
+}
+
+void PS_RotL() { NetPS_Turn(-1); }
+void PS_RotR() { NetPS_Turn(1); }
+void PS_ZoomIn() { NetPS_Zoom(1); }
+void PS_ZoomOut() { NetPS_Zoom(-1); }
+
+// COOP s30: back from the ship screen: the name, the password and the face that were typed here (maybe not saved yet)
+void PS_RestoreFromShip()
+{
+	if (!CheckAttribute(&NetPSEdit, "Ret")) { return; }
+	GameInterface.EDITBOX_PLAYERNAME.str = NetPSEdit.Ret.Name;
+	GameInterface.EDITBOX_PLAYERPASSWORD.str = NetPSEdit.Ret.Password;
+	ScrollImage_SetPosition("FACESLIST", sti(NetPSEdit.Ret.Face));
+	DeleteAttribute(&NetPSEdit, "Ret");
+}
+
+// COOP s30: the ship settings of the edited profile (NetPSEdit, net\MenuScene.c): the ship screen changes them
+string PS_EditStr(string sAttr, string sDef)
+{
+	if (CheckAttribute(&NetPSEdit, sAttr)) { return NetPSEdit.(sAttr); }
+	return sDef;
+}
+
+string PS_ShipNameOf(string sNick)
+{
+	string sN = PS_EditStr("ShipName", "");
+	if (sN == "") { sN = sNick; }
+	return sN;
+}
+
+// COOP: the loadout of the profile that is edited (its nick), with the money of the profile: one million
+void PS_LoOpen()
+{
+	sNetLandProfNick = GameInterface.EDITBOX_PLAYERNAME.str;
+	iNetLandBudgetOverride = 1000000;
+	DeleteAttribute(&oNetLandLo, "");
+	XI_WindowShow("WND_LOADOUT", true);
+	XI_WindowDisable("WND_LOADOUT", false);
+	NetLand_UiLoOpen();
+}
+
+// COOP: "Корабль": the lobby screen without a server edits the ship of this profile (Buy.c: Buy_ProfModeInit)
+void PS_ShipOpen()
+{
+	string sNick = GameInterface.EDITBOX_PLAYERNAME.str;
+	if (sNick == "") { sNick = NetLand_ProfNick(); }
+	sNetBuyProfNick = sNick;
+	bNetBuyProfile = true;
+	NetPSEdit.Ret.Name = GameInterface.EDITBOX_PLAYERNAME.str;
+	NetPSEdit.Ret.Password = GameInterface.EDITBOX_PLAYERPASSWORD.str;
+	NetPSEdit.Ret.Face = GameInterface.FACESLIST.current;
+	IDoExit(RC_INTERFACE_NET_BUY);		// the 3D scene stays: the camera flies to the ship
+}
+
+void PS_LoBack()
+{
+	bNetLandUiLo = false;
+	XI_WindowShow("WND_LOADOUT", false);
+	XI_WindowDisable("WND_LOADOUT", true);
+	sNetLandProfNick = "";
+	iNetLandBudgetOverride = 0;
+	DeleteAttribute(&oNetLandLo, "");		// the next server loads it again (with its money)
+	SetCurrentNode("BUTTON_PS_LOADOUT");
+}
+
+void PS_LoApply()
+{
+	NetLand_ProfSaveLo();
+	Log_SetStringToLog("Снаряжение сохранено в профиле " + NetLand_ProfNick());
+	iNetMMHeroGen++;		// net\MenuScene.c: the hero of the scene in the new loadout
+	PS_LoBack();
+}
+
+void PS_CheckButtonChange()
+{
+	string sNode = GetEventData();
+	int iNum = GetEventData();
+	int iState = GetEventData();
+	NetLand_UiLoCheck(sNode, iState);
 }
 
 // Ensure the built-in faceless avatar is available even if the file enumerator omits it.
@@ -64,17 +160,154 @@ void PS_AppendPortraitIcons()
 	string sDirectory = "resource\textures\interfaces\portraits\256\";
 	int iCount = NFFindFiles(&oPortraits, sDirectory, "face_*.tga.tx", false);
 	int iStart = sti(GameInterface.FACESLIST.ListSize);
+	int iAdded = 0;
 	for (int i=0; i<iCount; i++)
 	{
 		string sSource = "f" + i;
-		string sTarget = "pic" + (iStart + i + 1);
+		string sPName = oPortraits.(sSource).Name;
+		if (NetLand_FaceModel(sPName) == "") { continue; }		// COOP s30: a portrait without a skin
+		string sTarget = "pic" + (iStart + iAdded + 1);
 		GameInterface.FACESLIST.(sTarget).name1 = oPortraits.(sSource).FilePath;
 		GameInterface.FACESLIST.(sTarget).FileName = oPortraits.(sSource).FileName;
-		GameInterface.FACESLIST.(sTarget).FileName.Name = oPortraits.(sSource).Name;
+		GameInterface.FACESLIST.(sTarget).FileName.Name = sPName;
 		GameInterface.FACESLIST.(sTarget).FileName.Ext = oPortraits.(sSource).Ext;
+		iAdded++;
 	}
+	iCount = iAdded;
 	GameInterface.FACESLIST.ListSize = iStart + iCount;
 	Trace("PlayerSettings: added single-player portraits: " + iCount);
+}
+
+// COOP: the NPC skins (net\Land.c: NetLand_NpcModel) after all the icons, with the icon NET\Faces\face0; the profile keeps "npc_N"
+void PS_AppendNpcIcons()
+{
+	object oNpcFace;
+	// COOP s30: the NPC skins have no portrait: the empty face of NET\Faces
+	int iFound = NFFindFiles(&oNpcFace, "resource\textures\" + sUserFacesPath, "_emptyface_.tga.tx", false);
+	if (iFound <= 0) { Trace("PlayerSettings: no _emptyface_ icon, the NPC skins are not shown"); return; }
+	// COOP s30: the portraits made by /portraits (interfaces\portraits\256\npc_N.tga.tx), the empty face for the rest
+	object oNpcPort, oNpcMap;
+	int iPortN = NFFindFiles(&oNpcPort, "resource\textures\interfaces\portraits\256\", "npc_*.tga.tx", false);
+	int j;
+	for (j=0; j<iPortN; j++)
+	{
+		string sPf = "f" + j;
+		string sPn = oNpcPort.(sPf).Name;
+		oNpcMap.(sPn) = sPf;
+	}
+	string sSrc = "f0";
+	int iStart = sti(GameInterface.FACESLIST.ListSize);
+	int iNpcN = NetLand_NpcCount();
+	int iNpcAdded = 0;
+	for (int i=0; i<iNpcN; i++)
+	{
+		if (NetLand_NpcHidden(i + 1)) { continue; }		// COOP s35
+		iNpcAdded++;
+		string sTarget = "pic" + (iStart + iNpcAdded);
+		string sNpcName = "npc_" + (i + 1);
+		if (CheckAttribute(&oNpcMap, sNpcName))
+		{
+			string sPSrc = oNpcMap.(sNpcName);
+			GameInterface.FACESLIST.(sTarget).name1 = oNpcPort.(sPSrc).FilePath;
+			GameInterface.FACESLIST.(sTarget).FileName = oNpcPort.(sPSrc).FileName;
+			GameInterface.FACESLIST.(sTarget).FileName.Ext = oNpcPort.(sPSrc).Ext;
+		}
+		else
+		{
+			GameInterface.FACESLIST.(sTarget).name1 = oNpcFace.(sSrc).FilePath;
+			GameInterface.FACESLIST.(sTarget).FileName = oNpcFace.(sSrc).FileName;
+			GameInterface.FACESLIST.(sTarget).FileName.Ext = oNpcFace.(sSrc).Ext;
+		}
+		GameInterface.FACESLIST.(sTarget).FileName.Name = sNpcName;
+	}
+	GameInterface.FACESLIST.ListSize = iStart + iNpcAdded;
+	Trace("PlayerSettings: added NPC skins: " + iNpcAdded);
+}
+
+// COOP: the model of the chosen face under the faces (the NPC skins have one icon for all)
+int iPsSkinShown = -2;
+void PS_ShowSkin()
+{
+	int iCur = sti(GameInterface.FACESLIST.current);
+	if (iCur == iPsSkinShown) { return; }
+	iPsSkinShown = iCur;
+	string sPos = "pic" + (iCur + 1);
+	string sFaceS = "";
+	if (CheckAttribute(&GameInterface, "FACESLIST." + sPos + ".FileName.Name")) { sFaceS = GameInterface.FACESLIST.(sPos).FileName.Name; }
+	string sMdl = NetLand_FaceModel(sFaceS);
+	if (sMdl == "") { sMdl = "пират (по слоту)"; }
+	SetFormatedText("TEXT_PS_SKIN", "Скин: " + sMdl);
+}
+
+// COOP: "Предпросмотр" under the faces: the chosen skin with the loadout of this profile in the big cabin, alone, with an immortal
+// doll of the same skin in front of the hero (net\Land.c: NetPreview_*). The choice is not saved in the profile
+// COOP s30: the name "/portraits" + "Предпросмотр": the screenshots of all the NPC skins for their portraits (net\MenuScene.c:
+// NetPS_Portraits*), the screen hides itself while they are taken
+void PS_PortNodes(bool bOn)
+{
+	SetNodeUsing("FRAME_NICK", bOn);
+	SetNodeUsing("FRAME_PROFILES", bOn);
+	SetNodeUsing("EDITBOX_PLAYERNAME", bOn);
+	SetNodeUsing("EDITBOX_PLAYERPASSWORD", bOn);
+	SetNodeUsing("INFO_BORDER", bOn);
+	SetNodeUsing("FACESLIST", bOn);
+	SetNodeUsing("FACESLIST_LEFT", bOn);
+	SetNodeUsing("FACESLIST_RIGHT", bOn);
+	SetNodeUsing("BUTTON_SAVE", bOn);
+	SetNodeUsing("BUTTON_DELETE", bOn);
+	SetNodeUsing("BUTTON_SELECT", bOn);
+	SetNodeUsing("BUTTON_CANCEL", bOn);
+	SetNodeUsing("STRINGS_CAPTION", bOn);
+	SetNodeUsing("TABLE_PROFILES", bOn);
+	SetNodeUsing("SCROLL_PROFILES", bOn);
+	SetNodeUsing("BUTTON_PS_ROTL", bOn);
+	SetNodeUsing("BUTTON_PS_ROTR", bOn);
+	SetNodeUsing("BUTTON_PS_ZOOMIN", bOn);
+	SetNodeUsing("BUTTON_PS_ZOOMOUT", bOn);
+	SetNodeUsing("BUTTON_PS_LOADOUT", bOn);
+	SetNodeUsing("BUTTON_PS_SHIP", bOn);
+	SetNodeUsing("BUTTON_PS_PREVIEW", bOn);
+	SetNodeUsing("TEXT_PS_SKIN", bOn);
+}
+
+void PS_PortraitsDone()
+{
+	PS_PortNodes(true);
+	GameInterface.EDITBOX_PLAYERNAME.str = "";
+	SetCurrentNode("BUTTON_CANCEL");
+}
+
+void PS_Preview()
+{
+	if (GameInterface.EDITBOX_PLAYERNAME.str == "/portraits")
+	{
+		PS_PortNodes(false);
+		NetPS_PortraitsStart();
+		return;
+	}
+	if (NetPreview_Busy())		// COOP s32 (net\Land.c)
+	{
+		SetFormatedText("TEXT_PS_SKIN", "Предпросмотр недоступен: запущен сервер. Закройте его в лобби");
+		return;
+	}
+	string sNick = GameInterface.EDITBOX_PLAYERNAME.str;
+	if (sNick == "") { sNick = NetLand_ProfNick(); }
+	string sShipN = PS_ShipNameOf("Preview");
+	string sFacePos = "pic" + (sti(GameInterface.FACESLIST.current) + 1);
+
+	NetClient.SailColor = NetPS_EditSailColor();
+	NetClient.NickName = sNick;
+	NetClient.ShipName = sShipN;
+	NetClient.Password = GameInterface.EDITBOX_PLAYERPASSWORD.str;
+	NetClient.FaceImage = GameInterface.FACESLIST.(sFacePos).FileName.Name;
+	NetClient.FlagImage = PS_EditStr("ImageFlag", "_emptyflag_");
+	NetClient.SailImage = PS_EditStr("ImageSail", "_emptysail_");
+	DeleteAttribute(&oNetLandLo, "");		// the loadout of this profile is read again at the start
+	Trace("COOP: preview of the skin <" + NetClient.FaceImage + "> of " + sNick);
+
+	NetPS_SceneDelete();		// net\MenuScene.c
+	NetPreview_Begin(1);
+	IDoExit(RC_INTERFACE_NET_FINDGAME);
 }
 
 void PS_FillProfilesTable()
@@ -135,9 +368,9 @@ void PS_FillProfilesTable()
         GameInterface.TABLE_PROFILES.select = iSelected;
 
         // Keep the selected row visible.
-        if (iSelected > 22)
+        if (iSelected > PS_TABLE_ROWS)
         {
-            GameInterface.TABLE_PROFILES.top = iSelected - 22;
+            GameInterface.TABLE_PROFILES.top = iSelected - PS_TABLE_ROWS;
         }
         else
         {
@@ -171,27 +404,27 @@ void PS_LoadProfile(int iSelected)
     aref arProfiles;
     makearef(arProfiles, NCProfiles.Profiles);
 
+    if (iSelected > GetAttributesNum(arProfiles)) return;		// COOP: an empty row of the table
+
     aref arProfile;
     arProfile = GetAttributeN(arProfiles, iSelected - 1);
 
     GameInterface.EDITBOX_PLAYERNAME.str = arProfile.Name;
     GameInterface.EDITBOX_PLAYERPASSWORD.str = arProfile.Password;
-    GameInterface.EDITBOX_PLAYERSHIPNAME.str = arProfile.ShipName;
 
-    // Sail color.
-    ScrollImage_SetPosition("COLORSLIST", sti(arProfile.ColorSail));
+    // COOP s30: the ship name, the sails and the flag are edited in the ship screen (the window "Герб/Паруса/Флаг")
+    DeleteAttribute(&NetPSEdit, "ShipName");
+    DeleteAttribute(&NetPSEdit, "ColorSail");
+    DeleteAttribute(&NetPSEdit, "ImageFlag");
+    DeleteAttribute(&NetPSEdit, "ImageSail");
+    if (CheckAttribute(arProfile, "ShipName")) { NetPSEdit.ShipName = arProfile.ShipName; }
+    if (CheckAttribute(arProfile, "ColorSail")) { NetPSEdit.ColorSail = arProfile.ColorSail; }
+    if (CheckAttribute(arProfile, "ImageFlag")) { NetPSEdit.ImageFlag = arProfile.ImageFlag; }
+    if (CheckAttribute(arProfile, "ImageSail")) { NetPSEdit.ImageSail = arProfile.ImageSail; }
 
     // Avatar.
     ScrollImage_SetPosition("FACESLIST",
         PS_FindIndex("FACESLIST", arProfile.ImageFace));
-
-    // Flag.
-    ScrollImage_SetPosition("FLAGSLIST",
-        PS_FindIndex("FLAGSLIST", arProfile.ImageFlag));
-
-    // Sails.
-    ScrollImage_SetPosition("SAILSLIST",
-        PS_FindIndex("SAILSLIST", arProfile.ImageSail));
 }
 
 void PS_TableSelectChange()
@@ -216,10 +449,18 @@ int PS_FindIndex(string sControl, string sName)
 
 void PS_CheckButtons()
 {
+	PS_ShowSkin();		// COOP
+	// COOP s30: the hero of the chosen face with the loadout of the typed nick, the ship of that profile (net\MenuScene.c)
+	string sPsNick = GameInterface.EDITBOX_PLAYERNAME.str;
+	if (sPsNick == "") { sPsNick = NetLand_ProfNick(); }
+	string sPsFacePos = "pic" + (sti(GameInterface.FACESLIST.current) + 1);
+	string sPsFace = "";
+	if (CheckAttribute(&GameInterface, "FACESLIST." + sPsFacePos + ".FileName.Name")) { sPsFace = GameInterface.FACESLIST.(sPsFacePos).FileName.Name; }
+	NetPS_WantHero(sPsFace, sPsNick);
+	NetPS_WantProfShip(sPsNick);
 	// check for Save button
 	bool bSave = true;
 	if (GameInterface.EDITBOX_PLAYERNAME.str == "") { bSave = false; }
-	if (GameInterface.EDITBOX_PLAYERSHIPNAME.str == "") { bSave = false; }
 	Button_SetEnable("BUTTON_SAVE", bSave);
 
 	// check for Select button
@@ -237,18 +478,16 @@ void PS_OnSave()
 	NCProfiles.Profiles.(sNick).Name = sNick;
 
 	NCProfiles.Profiles.(sNick).Password = GameInterface.EDITBOX_PLAYERPASSWORD.str;
-	NCProfiles.Profiles.(sNick).ShipName = GameInterface.EDITBOX_PLAYERSHIPNAME.str;
+	NCProfiles.Profiles.(sNick).ShipName = PS_ShipNameOf(sNick);
 
 	string sFacePos = "pic" + (sti(GameInterface.FACESLIST.current) + 1);
 	NCProfiles.Profiles.(sNick).ImageFace = GameInterface.FACESLIST.(sFacePos).FileName.Name;
 
-	string sSailPos = "pic" + (sti(GameInterface.SAILSLIST.current) + 1);
-	NCProfiles.Profiles.(sNick).ImageSail = GameInterface.SAILSLIST.(sSailPos).FileName.Name; 
-
-	string sFlagPos = "pic" + (sti(GameInterface.FLAGSLIST.current) + 1);
-	NCProfiles.Profiles.(sNick).ImageFlag = GameInterface.FLAGSLIST.(sFlagPos).FileName.Name;
-
-	NCProfiles.Profiles.(sNick).ColorSail = GameInterface.COLORSLIST.current;
+	// COOP s30: the sails and the flag of the ship screen (NetPSEdit); a new profile without them: the white sails, no pictures
+	NCProfiles.Profiles.(sNick).ImageSail = PS_EditStr("ImageSail", "_emptysail_");
+	NCProfiles.Profiles.(sNick).ImageFlag = PS_EditStr("ImageFlag", "_emptyflag_");
+	NCProfiles.Profiles.(sNick).ColorSail = PS_EditStr("ColorSail", "0");
+	PS_MakeCurrent();		// COOP s34: the saved profile is the current one
 
 	PS_FillProfilesTable();
 }
@@ -264,19 +503,19 @@ void PS_OnDelete()
 	}
 }
 
-void PS_OnSelect()
+// COOP s34: the edited profile becomes the current one (NetClient and NCProfiles.LastProfile). "Сохранить" did not do it:
+// after Save + Preview the game came back to the old profile (Net_Stop deletes NetClient, it is read again from LastProfile)
+void PS_MakeCurrent()
 {
 	string sFacePos = "pic" + (sti(GameInterface.FACESLIST.current) + 1);
-	string sSailPos = "pic" + (sti(GameInterface.SAILSLIST.current) + 1);
-	string sFlagPos = "pic" + (sti(GameInterface.FLAGSLIST.current) + 1);
 
-	NetClient.SailColor = sti(SailsColors[sti(GameInterface.COLORSLIST.current)].Color);
+	NetClient.SailColor = NetPS_EditSailColor();
 	NetClient.NickName = GameInterface.EDITBOX_PLAYERNAME.str;
-	NetClient.ShipName = GameInterface.EDITBOX_PLAYERSHIPNAME.str;
+	NetClient.ShipName = PS_ShipNameOf(GameInterface.EDITBOX_PLAYERNAME.str);
 	NetClient.Password = GameInterface.EDITBOX_PLAYERPASSWORD.str;
 	NetClient.FaceImage = GameInterface.FACESLIST.(sFacePos).FileName.Name;
-	NetClient.FlagImage = GameInterface.FLAGSLIST.(sFlagPos).FileName.Name;
-	NetClient.SailImage = GameInterface.SAILSLIST.(sSailPos).FileName.Name;
+	NetClient.FlagImage = PS_EditStr("ImageFlag", "_emptyflag_");
+	NetClient.SailImage = PS_EditStr("ImageSail", "_emptysail_");
 
 	NCProfiles.LastProfile.SailColor = NetClient.SailColor;
 	NCProfiles.LastProfile.NickName = NetClient.NickName;
@@ -285,12 +524,22 @@ void PS_OnSelect()
 	NCProfiles.LastProfile.FaceImage = NetClient.FaceImage;
 	NCProfiles.LastProfile.FlagImage = NetClient.FlagImage;
 	NCProfiles.LastProfile.SailImage = NetClient.SailImage;
+	DeleteAttribute(&NCClients[wClientID], "LandModel");		// net\Land.c: the skin is taken from the face again
+}
 
+void PS_OnSelect()
+{
+	// COOP s32: "Выбрать" = "Сохранить" + the exit to FindGame
+	if (GameInterface.EDITBOX_PLAYERNAME.str != "") { PS_OnSave(); }
+	else { PS_MakeCurrent(); }
+
+	NetPS_SceneDelete();		// COOP s30: net\MenuScene.c
 	IDoExit(RC_INTERFACE_NET_FINDGAME);
 }
 
 void PS_OnCancel()
 {
+	NetPS_SceneDelete();		// COOP s30: net\MenuScene.c
 	IDoExit(RC_INTERFACE_NET_FINDGAME);
 }
 
@@ -305,10 +554,23 @@ void IDoExit(int exitCode)
 	DelEventHandler("TableSelectChange", "PS_TableSelectChange");	
 
 	DelEventHandler("frame", "PS_CheckButtons");
+	DelEventHandler("OnPsLoadout", "PS_LoOpen");
+	DelEventHandler("OnPsShip", "PS_ShipOpen");
+	DelEventHandler("OnPsPreview", "PS_Preview");
+	DelEventHandler("OnLoApply", "PS_LoApply");
+	DelEventHandler("OnLoBack", "PS_LoBack");
+	DelEventHandler("CheckButtonChange", "PS_CheckButtonChange");
+	DelEventHandler("OnPsRotL", "PS_RotL");
+	DelEventHandler("OnPsRotR", "PS_RotR");
+	DelEventHandler("OnPsZoomIn", "PS_ZoomIn");
+	DelEventHandler("OnPsZoomOut", "PS_ZoomOut");
+	DelEventHandler("NetPS_PortraitsDone", "PS_PortraitsDone");
+	NetLand_UiLoRegister(false);
+	bNetLandUiLo = false;
+	sNetLandProfNick = "";
+	iNetLandBudgetOverride = 0;
 
 	NFDelGroupTextures("FACESLIST");
-	NFDelGroupTextures("SAILSLIST");
-	NFDelGroupTextures("FLAGSLIST");
 
 	interfaceResultCommand = exitCode;
 	

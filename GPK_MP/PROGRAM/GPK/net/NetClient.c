@@ -21,6 +21,11 @@
 #include "GPK\Net\Client\OnClient.c"
 #include "GPK\Net\Client\Admin.c"
 #include "GPK\Net\Land.c"
+#include "GPK\Net\LandNpc.c"		// COOP s35: the NPC of the location are the ones of the host
+#include "GPK\Net\Board.c"		// COOP s37: the real boarding: the captains fight on the deck
+#include "GPK\Net\MenuScene.c"		// COOP s30: the 3D scene of the menu behind the profile screens
+#include "GPK\Net\LandTdm.c"		// COOP s27: the locations of TDM for the land duel
+#include "GPK\Net\NetInfo.c"		// COOP s31: the right click shows a description (loadout, buy screen)
 #include "GPK\Net\Client\ServerInfo.c"
 #include "GPK\Net\Client\PlayerInfo.c"
 
@@ -68,6 +73,21 @@ void Net_ClientFirstInit()
 	NetClient.ClientLastPacketIndex = 0;
 }
 
+// COOP s32: the chosen profile (the button "Выбрать") into NetClient. Also after a preview: it put the unsaved face of the
+// profile screen into NetClient, FindGame and the menu showed it after that
+void NetClient_LoadLastProfile()
+{
+	if (!CheckAttribute(&NCProfiles, "LastProfile")) { return; }
+	NetClient.SailColor = NCProfiles.LastProfile.SailColor;
+	NetClient.NickName = NCProfiles.LastProfile.NickName;
+	NetClient.ShipName = NCProfiles.LastProfile.ShipName;
+	NetClient.Password = NCProfiles.LastProfile.Password;
+	NetClient.FaceImage = NCProfiles.LastProfile.FaceImage;
+	NetClient.FlagImage = NCProfiles.LastProfile.FlagImage;
+	NetClient.SailImage = NCProfiles.LastProfile.SailImage;
+	DeleteAttribute(&NCClients[wClientID], "LandModel");		// net\Land.c: the skin is taken from the face again
+}
+
 void Net_DeleteClient()
 {
 	// COOP: tell the server that we leave (the running game parks our ship for a reconnect at once, without waiting for
@@ -102,6 +122,7 @@ void Net_DeleteClient()
 
 void Net_CreateClient()
 {
+	DeleteAttribute(&NCLobbyBots, "");		// COOP s30: the bots of the lobby of the last server
 	for (int i=0; i<NET_TOTALCLIENTS; i++)
 	{
 		DeleteAttribute(&NCClients[i], "");
@@ -165,6 +186,7 @@ void Net_CreateClient()
 	NCServer.GameRunning = false;		// COOP: values of the common server info
 	NCServer.Respawn = false;
 	NCServer.NoBoarding = false;
+	NCServer.FastBoarding = true;		// COOP s37
 	NCServer.PassivePerks = false;
 	NCServer.ActivePerks = false;
 	DeleteAttribute(&NCPerks, "");
@@ -178,16 +200,7 @@ void Net_CreateClient()
 	DeleteAttribute(&NCProfiles, "");
 	Net_LoadFile(false, &NCProfiles, "Profiles.nsv");
 
-	if (CheckAttribute(&NCProfiles, "LastProfile"))
-	{
-		NetClient.SailColor = NCProfiles.LastProfile.SailColor;
-		NetClient.NickName = NCProfiles.LastProfile.NickName;
-		NetClient.ShipName = NCProfiles.LastProfile.ShipName;
-		NetClient.Password = NCProfiles.LastProfile.Password;
-		NetClient.FaceImage = NCProfiles.LastProfile.FaceImage;
-		NetClient.FlagImage = NCProfiles.LastProfile.FlagImage;
-		NetClient.SailImage = NCProfiles.LastProfile.SailImage;
-	}
+	NetClient_LoadLastProfile();
 
 	// load client inet servers list
 	DeleteAttribute(&NCInetServers, "");

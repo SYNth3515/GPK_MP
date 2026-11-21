@@ -1933,7 +1933,7 @@ void Net_InitShips()
 	refShip.SailorCrew					= 500;
 	refShip.SpeedRate					= 15.2;
 	refShip.TurnRate        			= 40.0;
-	refShip.Cost           			= 500000;
+	refShip.Cost           			= 420000;		// COOP s29: 500000 -> 420000 (a full fast manowar and the dearest loadout: 900 000)
 	refShip.HP              			= 6700;
 	refShip.SP              			= 100;
 	refship.EmblemedSails.normalTex = "ships\parus_common_torn.tga";
@@ -2010,7 +2010,7 @@ void Net_InitShips()
 	refShip.MinCrew         			= 160;
 	refShip.SpeedRate					= 14.2;
 	refShip.TurnRate        			= 30.0;
-	refShip.Cost           			= 500000;
+	refShip.Cost           			= 420000;		// COOP s29: 500000 -> 420000 (a full fast manowar and the dearest loadout: 900 000)
 	refShip.HP              			= 15000;
 	refShip.SP              			= 2500;
 	refShip.AbordageLocation			= "BOARDING_BATTLESHIP";
@@ -2065,7 +2065,7 @@ void Net_InitShips()
 	refShip.Cannon          			= CANNON_TYPE_CANNON_LBS42;
 	refShip.MaxCaliber      			= 42;
 	refShip.Weight								= Tonnes2CWT(3200);
-	refShip.Capacity        			= 6750;
+	refShip.Capacity        			= 7000;		// COOP s28: 6750 -> 7000: 48 pounders, the full crew, 1000 of every ammo and powder, 500 planks and sailcloth (6830)
 	refShip.CannonsQuantity				= 106;
 	refShip.rcannon 							= 46;
 	refShip.lcannon 							= 46;
@@ -2079,7 +2079,7 @@ void Net_InitShips()
 	refShip.SailorCrew					= 800;
 	refShip.SpeedRate					= 13.0;
 	refShip.TurnRate        			= 32.0;
-	refShip.Cost           			= 520000;
+	refShip.Cost           			= 440000;		// COOP s29: 520000 -> 440000 (a full fast manowar and the dearest loadout: 900 000)
 	refShip.HP              			= 9700;
 	refShip.SP              			= 100;
 	refship.EmblemedSails.normalTex = "ships\parus_silk.tga";

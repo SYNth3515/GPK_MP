@@ -84,6 +84,10 @@ void LAi_type_stay_CharacterUpdate(aref chr, float dltTime)
 			LAi_SetWarriorTypeNoGroup(chr);
 		}
 		//<<--штурм Панамы
+		// COOP s35: a character of the net land duel (a harmless bot, the doll of the preview) is not afraid: the animations of the
+		// musket and of the special ladies have no "afraid", the engine wrote an error at every frame (the host slowed down in the
+		// small cabins, where an enemy is always near)
+		if(i < num && CheckAttribute(chr, "NetLandSkin")) i = num;
 		if(i < num)
 		{
 			if(chr.chr_ai.tmpl != LAI_TMPL_ANI)

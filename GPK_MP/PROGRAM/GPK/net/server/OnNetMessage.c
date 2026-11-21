@@ -141,6 +141,17 @@ void NetServer_OnBroadcast(int dwIP, int wPort, int iMsg)
 	if (byCallbackCode == NSC_BROADCAST_INET && sti(NetServer.InetServer) != true) { return; }
 
 	int iSMsg = NMCreate();
+	// COOP s27: the button "Подробно" of the list of the servers: all the parameters of this server
+	if (byCallbackCode == NSC_BROADCAST_DETAILS)
+	{
+		NMAddByte(iSMsg, NC_BROADCAST);
+		NMAddByte(iSMsg, byCallbackCode);
+		NMAddDword(iSMsg, iBroadcastTime);
+		NMAddString(iSMsg, Net_DetailsCode(), 256);
+		NetServer_SendMessageDirect(dwIP, wPort, iSMsg);
+		NMDelete(iSMsg);
+		return;
+	}
 	NMAddByte(iSMsg, NC_BROADCAST);
 	NMAddByte(iSMsg, byCallbackCode);
 	NMAddDword(iSMsg, iBroadcastTime);

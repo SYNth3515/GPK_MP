@@ -11,6 +11,9 @@ void NetServer_OnServerInfo(int wNetClientID, int iMsg)
 		case NSC_SERVERINFO_TOPLIST_PLAYER:
 			NetServer_OnServerInfo_SendTopListInfo(wNetClientID, iMsg);
 		break;
+		case NSC_SERVERINFO_DETAILS:		// COOP s27: the button "Подробно" of the lobby
+			NetServer_SendDetails(wNetClientID);
+		break;
 	}
 }
 
@@ -23,6 +26,13 @@ void NetServer_GetFullServerInfo(int wNetClientID)
 	NetServer_OnServerInfo_SendSkillsInfo(wNetClientID);
 	NetServer_OnServerInfo_SendPerksInfo(wNetClientID);
 	NetServer_OnServerInfo_SendGoodsInfo(wNetClientID);
+	NetServer_LBotsSend(wNetClientID);		// COOP s30: the bots of the lobby (server\Bots.c)
+	for (int iCh=0; iCh<NET_MAXCLIENTS; iCh++)		// COOP s30: the choices of the other lobbies (server\Buy.c)
+	{
+		if (iCh == wNetClientID) { continue; }
+		if (!sti(NSClients[iCh].Use)) { continue; }
+		NetServer_SendChoice(wNetClientID, iCh);
+	}
 
 	// COOP: a player who reconnects to the running game gets his ship back right after the server info
 	if (bServerGameStarted && wNetClientID >= 0 && wNetClientID < NET_MAXCLIENTS)
@@ -49,13 +59,16 @@ void NetServer_OnServerInfo_SendCommonServerInfo(int wNetClientID)
 	NMAddDword(iSMsg, sti(NetServer.Credit));
 	NMAddByte(iSMsg, sti(NetServer.GameSpeed));
 	NMAddString(iSMsg, NetServer.WeatherID, 32);
-	NMAddString(iSMsg, NetServer.IslandID, 32);
+	NMAddString(iSMsg, NetServer_AdvertisedIsland(), 32);		// COOP: a land duel shows its location
 	// COOP: game state and the switches of the Create game screen
 	NMAddByte(iSMsg, bServerGameStarted);
 	NMAddByte(iSMsg, sti(NetServer.Respawn));
 	NMAddByte(iSMsg, sti(NetServer.NoBoarding));
 	NMAddByte(iSMsg, sti(NetServer.PassivePerks));
 	NMAddByte(iSMsg, sti(NetServer.ActivePerks));
+	int iFastB = 1;		// COOP s37: the fast boarding (the lobby shows the loadout of the deck when it is off)
+	if (CheckAttribute(&NetServer, "FastBoarding")) { iFastB = sti(NetServer.FastBoarding); }
+	NMAddByte(iSMsg, iFastB);
 	NetServer_SendMessage(wNetClientID, iSMsg, true);
 	NMDelete(iSMsg);
 }
@@ -218,6 +231,41 @@ void NetServer_OnServerInfo_SendTopListInfo(int wNetClientID, int iMsg)
 	NMAddDword(iSMsg, sti(arPlayer.ShipsSunk));
 	NMAddByte(iSMsg, MakeInt(stf(arPlayer.Accuracy) * 100.0));
 	NMAddDword(iSMsg, sti(arPlayer.TotalDamage));
+	NetServer_SendMessage(wNetClientID, iSMsg, true);
+	NMDelete(iSMsg);
+}
+
+// COOP s27: all the parameters of the server in one line for the window "Подробно" (the list of the servers, the lobby):
+// "GPKI|game type|land location|island|teams|speed*100|round time|respawn|respawn s|weather id|tornado|no boarding|
+// passive perks|active perks|bots|start position|money|max class|players|max players|running". The client makes the text
+// (client\ServerInfo.c: Net_DetailsShow)
+string Net_DetailsCode()
+{
+	string sLand = "";
+	if (CheckAttribute(&NetServer, "LandLoc")) { sLand = NetServer.LandLoc; }
+	int iSpeed = makeint(stf(NetServer.GameSpeed) * 100.0 + 0.5);
+	int iTorn = 0;
+	if (CheckAttribute(&NetServer, "Tornado")) { iTorn = sti(NetServer.Tornado); }
+	int iBot = 2;
+	if (CheckAttribute(&NetServer, "BotSkill")) { iBot = sti(NetServer.BotSkill); }
+	int iRun = 0;
+	if (bServerGameStarted) { iRun = 1; }
+	string s = "GPKI|" + NetServer.GameType + "|" + sLand + "|" + NetServer.IslandID + "|" + NetServer.NumTeams + "|" + iSpeed;
+	s = s + "|" + NetServer.TimeLimit + "|" + NetServer.Respawn + "|" + NetServer.RespawnTime + "|" + NetServer.WeatherID + "|" + iTorn;
+	s = s + "|" + NetServer.NoBoarding + "|" + NetServer.PassivePerks + "|" + NetServer.ActivePerks + "|" + iBot + "|" + NetServer.StartPosition;
+	s = s + "|" + NetServer.Credit + "|" + NetServer.MaxShipClass + "|" + NetServer_GetClientsNum() + "|" + NetServer.MaxClients + "|" + iRun;
+	int iFastD = 1;
+	if (CheckAttribute(&NetServer, "FastBoarding")) { iFastD = sti(NetServer.FastBoarding); }
+	s = s + "|" + iFastD;		// COOP s37: field 21
+	return s;
+}
+
+void NetServer_SendDetails(int wNetClientID)
+{
+	int iSMsg = NMCreate();
+	NMAddByte(iSMsg, NC_SERVERINFO);
+	NMAddByte(iSMsg, NSC_SERVERINFO_DETAILS);
+	NMAddString(iSMsg, Net_DetailsCode(), 256);
 	NetServer_SendMessage(wNetClientID, iSMsg, true);
 	NMDelete(iSMsg);
 }

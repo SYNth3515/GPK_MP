@@ -35,6 +35,7 @@ void COOP_SrvShipWatch()
 	{
 		if (!NetServer_HasShip(i)) { continue; }		// COOP: lobby players of the running game have no ship, parked ships do
 		ref rC = NetServer_GetClient(i);
+		if (NetServer_NoclipUsed(rC)) { continue; }		// COOP s27: the noclip of the admin puts the ship anywhere (server\Admin.c)
 		if (COOP_SrvYBad(rC) && sti(rC.CoopFix) < 6) { COOP_SrvRecreateShip(i); }
 	}
 	if (iCoopSrvWatchTicks < 14) { PostEvent("COOP_SrvShipWatch", 700); }
@@ -90,10 +91,10 @@ void NetServer_TimeUpAnnounce()
 	int iBestDamage = -1;
 	for (i=0; i<NET_MAXCLIENTS; i++)
 	{
-		if (!sti(NSClients[i].Use)) { continue; }
+		if (!NetServer_TeamSideSlot(i)) { continue; }		// COOP s28: the damage of the team bots goes to their team
 		int iDamage = 0;
 		if (CheckAttribute(&NSClients[i], "Stat.DamageInflicted")) { iDamage = sti(NSClients[i].Stat.DamageInflicted); }
-		if (iDamage > iBestDamage) { iBestDamage = iDamage; iBestID = i; }
+		if (sti(NSClients[i].Use) && iDamage > iBestDamage) { iBestDamage = iDamage; iBestID = i; }
 		int iTeam = sti(NSClients[i].Team);
 		if (iTeam >= 0 && iTeam < 4) { iTeamDamage[iTeam] = iTeamDamage[iTeam] + iDamage; }
 	}
@@ -102,6 +103,17 @@ void NetServer_TimeUpAnnounce()
 	for (i=1; i<4; i++)
 	{
 		if (iTeamDamage[i] > iTeamDamage[iBestTeam]) { iBestTeam = i; }
+	}
+
+	// COOP: in Defend the convoy the time is up and the convoy ship is not in the point: the defenders kept it
+	// from reaching, so the defending team wins even with less damage (a convoy ship inside the point is still a red win)
+	if (sti(NetServer.GameType) == NETGAME_CONVOY)
+	{
+		iBestTeam = 1;
+		iBestID = DST_INVALID;
+		int iConvoyAtPoint = 0;
+		if (NetServer_ConvoyReached()) { iBestTeam = 0; iConvoyAtPoint = 1; }
+		Trace("COOP: time is up in Defend the convoy, the convoy is at the point=" + iConvoyAtPoint + ", winner team=" + iBestTeam);
 	}
 
 	NetServer.GameOver = true;

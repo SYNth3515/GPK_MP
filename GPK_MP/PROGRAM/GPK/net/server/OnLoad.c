@@ -356,17 +356,17 @@ void NetServer_MinesTick()
 }
 
 // ---------- brander ----------
-// COOP: the brander is an active perk of single player: it works only with the "All active perks" switch
-bool NetServer_BranderAllowed()
+// COOP: the brander is an active perk of single player: the "All active perks" switch or (s28) the perk bought in the lobby
+bool NetServer_BranderAllowed(int wClientID)
 {
 	if (!bNetBranderAllowed) { return false; }
-	return sti(NetServer.ActivePerks) != 0;
+	return NetServer_SeaPerk(wClientID, NET_SPERK_BRANDER);
 }
 
 // first press: the brander is armed for NET_BRANDER_ARM_TIME ms. If the ship is boarded in this time, the brander goes off
 void NetServer_ShipBranderArm(int wClientID)
 {
-	if (!NetServer_BranderAllowed()) { return; }
+	if (!NetServer_BranderAllowed(wClientID)) { return; }
 	ref rClient = NetServer_GetClient(wClientID);
 	if (NetServer_IsClientDead(rClient)) { return; }
 	rClient.Ship.BranderArmUntil = iServerTime + NET_BRANDER_ARM_TIME;
@@ -374,7 +374,7 @@ void NetServer_ShipBranderArm(int wClientID)
 
 bool NetServer_BranderIsArmed(ref rClient)
 {
-	if (!NetServer_BranderAllowed()) { return false; }
+	if (!NetServer_BranderAllowed(sti(rClient.ID))) { return false; }
 	if (!CheckAttribute(rClient, "Ship.BranderArmUntil")) { return false; }
 	return iServerTime < sti(rClient.Ship.BranderArmUntil);
 }
@@ -387,7 +387,7 @@ bool NetServer_BranderIsActive(ref rClient)
 
 void NetServer_ShipBrander(int wClientID)
 {
-	if (!NetServer_BranderAllowed()) { return; }
+	if (!NetServer_BranderAllowed(wClientID)) { return; }
 	ref rClient = NetServer_GetClient(wClientID);
 	if (NetServer_IsClientDead(rClient)) { return; }
 	if (!CheckAttribute(rClient, "Ship.BranderActive")) { rClient.Ship.BranderActive = 0; }

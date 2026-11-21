@@ -2,6 +2,7 @@ object NSBalls;
 
 int iServerBallIndex;
 int iServerCurrentBallIndex;
+object NSFortBalls;		// COOP s27: the indexes of the last balls of the fort (see NSBalls.iBallIndex below)
 
 void NetServer_DeleteBallsEnvironment()
 {
@@ -402,6 +403,16 @@ void NetServer_OnCannonFire()
 	NSBalls.y = y;
 	NSBalls.z = z;
 	NSBalls.iBallIndex = iServerBallIndex;
+	// COOP s27: the balls of the fort are remembered by their index: when such a ball touches the fort model (at the muzzle)
+	// the client plays no hit effect (server\Fort.c: NetServer_OnFortHit). 64 slots, the newest index wins its slot.
+	if (CheckAttribute(arClient, "ID"))
+	{
+		if (sti(arClient.ID) == NET_FORTCLIENT)
+		{
+			string sFortBallSlot = "s" + (iServerBallIndex - (iServerBallIndex / 64) * 64);
+			NSFortBalls.(sFortBallSlot) = iServerBallIndex;
+		}
+	}
 	NSBalls.ClientID = arClient.index;
 	NSBalls.Type = rBall.Name;
 

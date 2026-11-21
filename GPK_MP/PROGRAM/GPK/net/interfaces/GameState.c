@@ -56,6 +56,7 @@ void INetInterfaceControlProcess()
 void UpdateTable()
 {
 	//PostEvent( "eventSetGameState", 1, "l", 0 );
+	if (NetLand_IsActive()) { UpdateTableLand(); return; }
 	object tmpData;
 
 	for( int n=0; n<NET_MAXCLIENTS; n++ )
@@ -109,13 +110,44 @@ void UpdateTable()
 					case 2: tmpData.winstate = "Потоплен"; break;
 				}
 			}
-			if (rClient.Use != "1") { tmpData.winstate = "Вышел"; }
+			if (rClient.Use != "1" && !NetClient_IsBotID(n)) { tmpData.winstate = "Вышел"; }		// COOP s28: a bot did not leave
 
 			AddToTable( sti(rClient.ID), &tmpData );
 		}
 	}
 
 	PostEvent( "evUpdateTable", 1000 ); // запуск обновления данных через 3 сек.
+}
+
+// COOP: the land duel (net\Land.c): the players, their kills, deaths and the damage they have done
+void UpdateTableLand()
+{
+	object tmpL;
+	for (int n=0; n<NET_MAXPLAYERS; n++)
+	{
+		ref rC = &NCClients[n];
+		if (!CheckAttribute(rC, "Use")) { continue; }
+		if (rC.Use != "1") { continue; }
+		if (!CheckAttribute(rC, "NickName")) { continue; }
+		DeleteAttribute(&tmpL, "");
+		tmpL.land = 1;
+		tmpL.facetexture = "";
+		if (CheckAttribute(rC, "UserData.Face.Texture")) { tmpL.facetexture = rC.UserData.Face.Texture; }
+		tmpL.playername = rC.NickName;
+		tmpL.shipname = "";
+		if (CheckAttribute(rC, "LandLo.Level")) { tmpL.shipname = "Уровень " + rC.LandLo.Level; }
+		if (n == wClientID) { tmpL.shipname = "Уровень " + NetLand_LoLevel(); }
+		tmpL.shiptype = 0;
+		tmpL.Team = 0;
+		if (CheckAttribute(rC, "Team")) { tmpL.Team = rC.Team; }
+		tmpL.damage = NetLand_StatValue(n, "Dmg");
+		tmpL.accuracy = "-";
+		tmpL.scoretext = "Убийства: " + NetLand_StatValue(n, "Kills") + "\nСмерти: " + NetLand_StatValue(n, "Deaths");
+		tmpL.winstate = "Жив";
+		if (NetLand_StatValue(n, "Dead") == 1) { tmpL.winstate = "Мёртв"; }
+		AddToTable(n, &tmpL);
+	}
+	PostEvent("evUpdateTable", 1000);
 }
 
 void EventProcessAddToTable()
@@ -187,8 +219,9 @@ void AddToTable(int wClientID, aref arData)
 	GameInterface.TABLE_LIST.(row).td1.icon2.group = sShipGroup;
 	GameInterface.TABLE_LIST.(row).td1.icon2.image = "ship";
 	GameInterface.TABLE_LIST.(row).td1.str = arData.playername + "\n" + arData.shipname;
+	if (CheckAttribute(arData, "land")) { DeleteAttribute(&GameInterface, "TABLE_LIST." + row + ".td1.icon2"); }
 	//GameInterface.TABLE_LIST.(row).td3.icon.texture = arData.teamtexture;
-	if (sti(NCServer.GameType) == NETGAME_DEATHMATCH)
+	if (sti(NCServer.GameType) == NETGAME_DEATHMATCH && !NetLand_TeamGame())		// COOP: a team land duel shows the teams
 	{
 		GameInterface.TABLE_LIST.(row).td3.icon.group = "NET_TEAMICONS";
 		GameInterface.TABLE_LIST.(row).td3.icon.image = "no_team";

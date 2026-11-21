@@ -48,6 +48,12 @@ void ChatS_OnSend()
 		ICancelProcedure();
 		return;
 	}
+	// COOP: the commands of this machine (net\Land.c), they do not go to the chat
+	if (NetLand_ChatCmd(sMessage))
+	{
+		ICancelProcedure();
+		return;
+	}
 
 	int iSMsg = NMCreate();
 	NMAddClientID(iSMsg, wClientID);

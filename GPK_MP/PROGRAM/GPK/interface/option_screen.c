@@ -86,6 +86,7 @@ void ProcessOkExit()
 	SaveGameOptions();
 	ProcessExit();
 	Event("eventChangeOption");
+	Music_Reapply();		// COOP s28: the old / the new music at once
 
 	// change sea settings
 	SetSeaGridStep(stf(InterfaceStates.SeaDetails));
@@ -181,6 +182,14 @@ void IReadVariableAfterInit()
 		nEnabledSimpleSea = sti(InterfaceStates.SimpleSea);
 	}
 	SendMessage(&GameInterface,"lslll",MSG_INTERFACE_MSG_TO_NODE,"SIMPLESEA_CHECKBOX", 2, 1, nEnabledSimpleSea );
+
+	// COOP s28: the old music, the crew hidden from the deck camera (multiplayer)
+	int nOldMusic = 0;
+	if( CheckAttribute(&InterfaceStates,"OldMusic") ) { nOldMusic = sti(InterfaceStates.OldMusic); }
+	SendMessage(&GameInterface,"lslll",MSG_INTERFACE_MSG_TO_NODE,"OLDMUSIC_CHECKBOX", 2, 1, nOldMusic );
+	int nHideDeckCrew = 0;
+	if( CheckAttribute(&InterfaceStates,"HideDeckCrew") ) { nHideDeckCrew = sti(InterfaceStates.HideDeckCrew); }
+	SendMessage(&GameInterface,"lslll",MSG_INTERFACE_MSG_TO_NODE,"DECKCREW_CHECKBOX", 2, 1, nHideDeckCrew );
 }
 
 void SetControlsTabMode(int nMode)
@@ -329,6 +338,9 @@ void procCheckBoxChange()
 			InterfaceStates.SimpleSea = bBtnState;
 		}
 	}
+
+	if( sNodName == "OLDMUSIC_CHECKBOX" ) { InterfaceStates.OldMusic = bBtnState; }		// COOP s28
+	if( sNodName == "DECKCREW_CHECKBOX" ) { InterfaceStates.HideDeckCrew = bBtnState; }		// COOP s28
 }
 
 void procSlideChange()
@@ -765,6 +777,14 @@ void ShowInfo()
 
 	switch (sNode)
 	{
+		case "OLDMUSIC_CHECKBOX":
+			sHeader = XI_ConvertString("Old Music");
+			sText1 = XI_ConvertString("Old Music_descr");
+		break;
+		case "DECKCREW_CHECKBOX":
+			sHeader = XI_ConvertString("Hide Deck Crew");
+			sText1 = XI_ConvertString("Hide Deck Crew_descr");
+		break;
 		case "GAMMA_SLIDE":
 			sHeader = XI_ConvertString("gamma");
 			sText1 = XI_ConvertString("gamma_descr");

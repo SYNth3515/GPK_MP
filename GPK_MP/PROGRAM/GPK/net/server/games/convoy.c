@@ -1,3 +1,23 @@
+// COOP: the ship of the convoy (and nobody else) is inside the point of the mode: the convoy team has won.
+// Works in a solo game too: the sides do not have to meet for the objective of the mode.
+bool NetServer_ConvoyReached()
+{
+	if (sti(NetServer.GameType) != NETGAME_CONVOY) { return false; }	// COOP: the check is safe for every mode
+	if (sti(NetServer.ConvoyShipID) == DST_INVALID) { return false; }
+
+	ref rClient = NetServer_GetClient(sti(NetServer.ConvoyShipID));
+	if (!sti(rClient.Use)) { return false; }		// COOP: the convoy captain left the game
+	if (stf(rClient.Ship.hp) <= 0.0) { return false; }
+	if (sti(rClient.Team) != 0) { return false; }		// COOP: the captain changed to the defending team
+
+	float x = stf(rClient.Ship.Pos.x);
+	float z = stf(rClient.Ship.Pos.z);
+	float fDistance = GetDistance2D(x, z, stf(NetServer.ConvoyPoint.x), stf(NetServer.ConvoyPoint.z));
+	if (fDistance > CONVOY_POINT_RADIUS) { return false; }
+
+	return true;
+}
+
 bool NetServer_CheckGameOver_Convoy()
 {
 	int i;

@@ -1285,7 +1285,7 @@ void SetNewModelToChar(ref chref)
     {
     	if(CheckAttribute(chref, "model"))
         {
-            SendMessage(chref, "lss",   MSG_CHARACTER_SETMODEL, chref.model, chref.model.animation);
+            SendMessage(chref, "lss",   MSG_CHARACTER_SETMODEL, chref.model, Character_AnimFile(chref));	// COOP s30
         }
         if(CheckAttribute(chref, "equip.gun"))
         {

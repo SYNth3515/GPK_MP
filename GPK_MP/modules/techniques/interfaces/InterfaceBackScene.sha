@@ -1,0 +1,80 @@
+
+// COOP s30: the camera of the menu flies (interface\mainmenu.c), the sea is drawn after the menu. The soft edges of the letters
+// wrote the depth and cut holes in the sea. p0 draws the colour without the depth, p1 draws the solid letters again with the depth
+block InterfaceBackScene_Menu()
+{
+	technique t0
+	{
+		pass p0
+		{
+			CullMode = none;
+			FogEnable = false;
+			ZWriteEnable = false;
+			AlphaTestEnable = true;
+			AlphaBlendEnable = true;
+			AlphaRef = 1
+			SrcBlend = srcalpha;
+			DestBlend = invsrcalpha;
+
+			ColorOp[0] = SelectArg1;
+			ColorArg1[0] = texture;
+
+			AlphaOp[0] = SelectArg1;
+			AlphaArg1[0] = texture;
+
+			ColorOp[1] = disable;
+
+			Render.Draw
+			Restore.States
+		}
+		pass p1
+		{
+			CullMode = none;
+			FogEnable = false;
+			ZWriteEnable = true;
+			AlphaTestEnable = true;
+			AlphaBlendEnable = true;
+			AlphaRef = 160
+			SrcBlend = srcalpha;
+			DestBlend = invsrcalpha;
+
+			ColorOp[0] = SelectArg1;
+			ColorArg1[0] = texture;
+
+			AlphaOp[0] = SelectArg1;
+			AlphaArg1[0] = texture;
+
+			ColorOp[1] = disable;
+
+			Render.Draw
+			Restore.States
+		}
+	}
+}
+
+block InterfaceBackScene_Logo()
+{
+	technique t0
+	{
+		pass p0
+		{
+			CullMode = ccw;
+			FogEnable = false;
+			AlphaTestEnable = true;
+			AlphaBlendEnable = true;
+			SrcBlend = srcalpha;
+			DestBlend = invsrcalpha;
+			
+			ColorOp[0] = SelectArg1;
+			ColorArg1[0] = texture;
+
+			AlphaOp[0] = SelectArg1;
+			AlphaArg1[0] = texture;
+
+			ColorOp[1] = disable;
+
+			Render.Draw
+			Restore.States
+		}
+	}
+}

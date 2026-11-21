@@ -69,7 +69,7 @@ void FreezeMainNetLayers(bool bFreeze)
 		LayerFreeze("Net_Realize",true);
 		//LayerFreeze("Net_Execute",true);
 	} else {
-		LayerFreeze("Net_Realize",false);
+		if (!bNetBoardDuel) { LayerFreeze("Net_Realize",false); }		// COOP s37: the sea stays hidden behind the boarding deck
 		//LayerFreeze("Net_Execute",false);
 	}
 }

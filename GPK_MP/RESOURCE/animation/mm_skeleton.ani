@@ -1,0 +1,9 @@
+; COOP s30: the hero of the main menu (interface\mainmenu.c): the idle of skeleton.ani that loops
+animation = skeleton.an
+
+[mm_idle]
+speed = 1.0
+type = normal
+loop = true
+start_time = 1225
+end_time = 1285

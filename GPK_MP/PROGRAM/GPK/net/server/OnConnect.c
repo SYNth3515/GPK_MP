@@ -46,6 +46,7 @@ void NetServer_DropClient(int wNetClientID)
 	rClient.Use = false;
 	rClient.InGame = false;
 	rClient.JoinRequested = false;
+	NetServer_BDLeft(wNetClientID);		// COOP s37: a captain on the deck has left: the other one wins
 
 	// COOP: the player left the running game: his ship stays (it can not be deleted on the clients) and waits for a reconnect.
 	// It drops the sails and stops; it can still be shot and sunk.

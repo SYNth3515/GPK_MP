@@ -10,8 +10,18 @@ void NetClient_OnPlayerInfo(int iMsg)
 		case NSC_PLAYERINFO_SHIPCHANGE:
 			wNetClientID = NMGetClientID(iMsg);
 			rClient = NetClient_GetClient(wNetClientID);
-			rClient.Ship.Type = NMGetWord(iMsg);
-			Event("NCEvent_PlayerInfo_ShipType", "ll", wNetClientID, sti(rClient.Ship.Type));
+			int iNewShipType = NMGetWord(iMsg);
+			// COOP s30: the ship of the slot sails in this game: its type never changes (an old server sent the lobby ship of
+			// a player who reconnects)
+			if (bNetClientInGame && IsEntity(rClient))
+			{
+				Trace("COOP: cli ship change of " + wNetClientID + " ignored, the ship is in the game");
+			}
+			else
+			{
+				rClient.Ship.Type = iNewShipType;
+				Event("NCEvent_PlayerInfo_ShipType", "ll", wNetClientID, sti(rClient.Ship.Type));
+			}
 		break;
 		case NSC_PLAYERINFO_BUYREADY:
 			wNetClientID = NMGetClientID(iMsg);

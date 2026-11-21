@@ -237,10 +237,10 @@ void Net_InitCannons()
 	rCannon.picture = "cannons12";
 	rCannon.caliber = 48;
 	rCannon.ReloadTime = 40;
-	rCannon.Cost = 1000;
+	rCannon.Cost = 600;		// COOP s29: 1000 -> 600, upgrades 200 / 400 -> 120 / 250
 	rCannon.Upgrade1 = 0;
-	rCannon.Upgrade2 = 200;
-	rCannon.Upgrade3 = 400;
+	rCannon.Upgrade2 = 120;
+	rCannon.Upgrade3 = 250;
 	rCannon.Weight = 120;
 	rCannon.SPWeight = 30;
 	rCannon.FireAngMax = 0.60;

@@ -1,0 +1,9 @@
+; COOP s30: the hero of the main menu (interface\mainmenu.c): the idle of mushketer.ani that loops
+animation = mushketer.an
+
+[mm_idle]
+speed = 1.0
+type = normal
+loop = true
+start_time = 50
+end_time = 94

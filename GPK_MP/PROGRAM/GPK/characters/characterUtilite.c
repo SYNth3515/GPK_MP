@@ -2312,7 +2312,7 @@ void EquipCharacterByItem(ref chref, string itemID)
 	{
 		if(groupName == BLADE_ITEM_TYPE && itemID != "unarmed") return;
 		
-		if(chref.index != GetMainCharacterIndex())
+		if(chref.index != GetMainCharacterIndex() && !CheckAttribute(chref, "NetLandSkin"))	// COOP s34: the net players / bots take any musket
 		{
 			if (chref.id == "OffMushketer")
 			{

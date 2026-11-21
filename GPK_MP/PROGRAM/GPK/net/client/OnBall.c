@@ -201,6 +201,12 @@ void NetClient_OnBallHitMast(int iMsg, int iBallIndex)
 	NCBalls.ClientDel = iBallIndex;
 }
 
+// COOP s28: a volley of the fort (dozens of bombs, the hard fort has 15% critical hits) made several heavy explosions with
+// flying barrels and men (CreateBlast) and a crew flight for every ball at once: the game froze. The heavy explosion is
+// made at most once in iCoopBoomPause ms (the others are a light flash), the critical hit line in the chat as well.
+int iCoopBoomLast = -100000;
+int iCoopBoomPause = 1500;
+
 void NetClient_OnBallHitHull(int iMsg, int iBallIndex)
 {
 	int wOurClientID = NMGetClientID(iMsg);
@@ -252,16 +258,21 @@ void NetClient_OnBallHitHull(int iMsg, int iBallIndex)
 		}
 	}
 
-	// if critical hit
+	// if critical hit (COOP s28: the heavy explosion and its line not more often than every iCoopBoomPause ms)
 	if (bSeriousBoom)
 	{
-		// fort can do it
-		NetClient_ChatAddGameMessage("Net_CriticalHit", rgbGameMessage, 2, wBallClientID, wOurClientID);
-	}
-
-	if (bSeriousBoom)
-	{
-		NetClient_ShipSeriousBoom(x, y, z);
+		int iBoomNow = Net_GetTickCount();
+		int iBoomAgo = iBoomNow - iCoopBoomLast;
+		if (iBoomAgo < 0 || iBoomAgo >= iCoopBoomPause)
+		{
+			iCoopBoomLast = iBoomNow;
+			NetClient_ChatAddGameMessage("Net_CriticalHit", rgbGameMessage, 2, wBallClientID, wOurClientID);		// fort can do it
+			NetClient_ShipSeriousBoom(x, y, z);
+		}
+		else
+		{
+			CreateParticleSystem("blast_inv", x, y, z, 0.0, 0.0, 0.0, 0);
+		}
 	}
 
 	NCBalls.ClientDel = iBallIndex;

@@ -1,3 +1,15 @@
+// COOP s30: a line of the server to one player (DST_ALL: to everybody), shown as a system line of the chat
+void NetServer_SayTo(int wTo, string sText)
+{
+	int iSMsg = NMCreate();
+	NMAddByte(iSMsg, NC_SAY);
+	NMAddByte(iSMsg, NSC_SAY_SYSTEM);
+	NMAddClientID(iSMsg, 0);
+	NMAddString(iSMsg, sText, 256);
+	NetServer_SendMessage(wTo, iSMsg, true);
+	NMDelete(iSMsg);
+}
+
 void NetServer_OnSay(int wNetClientID, int iMsg)
 {
 	int iSubCode = NMGetByte(iMsg);
@@ -19,6 +31,8 @@ void NetServer_OnSay(int wNetClientID, int iMsg)
 	{
 		case NSC_SAY_CHAT:
 			NetServer_SendMessage(DST_ALL, iSMsg, false);
+			break;
+		case NSC_SAY_SYSTEM:		// only the server sends them
 			break;
 		case NSC_SAY_PERSON:
 			int wToClientID = NMGetClientID(iMsg);

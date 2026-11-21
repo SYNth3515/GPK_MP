@@ -106,12 +106,20 @@ void NetClient_SailorsDeckApply()
 	if (!isEntity(&Sailors)) { return; }
 	int iHide = 0;
 	if (!bCoopSailorsAlwaysVisible && !bSeePeoplesOnDeck && sti(NCDeckCamera.On)) { iHide = 1; }
+	if (NetClient_SailorsHideOption() && sti(NCDeckCamera.On)) { iHide = 1; }		// COOP s28: the check box of the options
 	if (iHide == iCoopSailorsDeckApplied) { return; }
 	iCoopSailorsDeckApplied = iHide;
 	// Sailors.dll applies the hide flag only when the attribute is written: 0 first, so that it really changes
 	Sailors.IsOnDeck = 0;
 	Sailors.IsOnDeck = iHide;
 	Trace("COOP: sailors dbg IsOnDeck=" + iHide + " deckCamera=" + NCDeckCamera.On + " alwaysVisible=" + bCoopSailorsAlwaysVisible);
+}
+
+// COOP s28: the check box of the options: the crew of the ships is not drawn from the deck camera (it hid the target)
+bool NetClient_SailorsHideOption()
+{
+	if (!CheckAttribute(&InterfaceStates, "HideDeckCrew")) { return false; }
+	return sti(InterfaceStates.HideDeckCrew) != 0;
 }
 
 // called when the camera is switched (client\Cameras.c)
@@ -264,10 +272,19 @@ void NetClient_SailorsCrewCheck()
 }
 
 // the ball hit the hull at x,y,z: sailors close to this place fly away (single player: Ship_Walk_Hull_Damage)
+int iCoopSailorsHitPause = 400;		// COOP s28: ms between two flights of the crew of one ship (a volley of the fort froze the game)
+
 void NetClient_SailorsHullHit(int wID, float x, float y, float z)
 {
 	if (!isEntity(&Sailors)) { return; }
 	if (!NetClient_SailorsHasShip(wID)) { return; }
+	int iSailHitNow = Net_GetTickCount();
+	if (CheckAttribute(&NCClients[wID], "CoopSailHitAt"))
+	{
+		int iSailHitAgo = iSailHitNow - sti(NCClients[wID].CoopSailHitAt);
+		if (iSailHitAgo >= 0 && iSailHitAgo < iCoopSailorsHitPause) { return; }
+	}
+	NCClients[wID].CoopSailHitAt = iSailHitNow;
 	SendMessage(&Sailors, "lafff", MSG_PEOPLES_ON_SHIP_HULLHIT, &NCClients[wID], x, y, z);
 }
 

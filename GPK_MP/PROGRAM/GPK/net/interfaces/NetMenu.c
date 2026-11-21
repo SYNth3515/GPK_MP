@@ -12,6 +12,10 @@ int iNMBotCrew = 100;
 int iNMBotHull = 100;
 int iNMBotSails = 100;
 int iNMBotRel = NET_BOTREL_ENEMY;
+int iNMBotLevel = 10;			// COOP: land duel: the level of the new bot
+string sNMBotGun = "";			// and its gun ("": none)
+int iNMBotFace = -1;			// COOP: land duel: the skin (portrait) of the new bot
+string sNMBotBlade = "";		// and its blade
 int iNMBotsTimerGen = 0;
 bool bNetMenuLoadout = false;		// COOP: land duel loadout window (net\Land.c)
 
@@ -25,6 +29,8 @@ void InitInterface(string iniName)
 	SetEventHandler("OnNetMenuReturn", "IReturnToGame", 0);
 	SetEventHandler("OnNetMenuOptions", "NetMenu_OpenOptions", 0);	// COOP: button "Options"
 	SetEventHandler("exitCancel", "NetMenu_Cancel", 0);
+	SetEventHandler("NetInfoShow", "NetMenu_InfoShow", 0);		// COOP s31: the right click in the loadout: a description (net/NetInfo.c)
+	SetEventHandler("MouseRClickUp", "NetInfo_Hide", 0);
 
 	SetEventHandler("OnNetMenuAdmin", "NetMenu_OpenAdmin", 0);
 	SetEventHandler("OnAdminBack", "NetMenu_Back", 0);
@@ -93,9 +99,27 @@ void InitInterface(string iniName)
     SetEventHandler("OnLo15Inc", "NetMenu_Lo15Inc", 0);
     SetEventHandler("OnLo16Dec", "NetMenu_Lo16Dec", 0);
     SetEventHandler("OnLo16Inc", "NetMenu_Lo16Inc", 0);
+    SetEventHandler("OnLo17Dec", "NetMenu_Lo17Dec", 0);
+    SetEventHandler("OnLo17Inc", "NetMenu_Lo17Inc", 0);
+    SetEventHandler("OnLo18Dec", "NetMenu_Lo18Dec", 0);
+    SetEventHandler("OnLo18Inc", "NetMenu_Lo18Inc", 0);
+    SetEventHandler("OnLo19Dec", "NetMenu_Lo19Dec", 0);
+    SetEventHandler("OnLo19Inc", "NetMenu_Lo19Inc", 0);
+    SetEventHandler("OnLo20Dec", "NetMenu_Lo20Dec", 0);
+    SetEventHandler("OnLo20Inc", "NetMenu_Lo20Inc", 0);
+    SetEventHandler("OnLo21Dec", "NetMenu_Lo21Dec", 0);
+    SetEventHandler("OnLo21Inc", "NetMenu_Lo21Inc", 0);
+    SetEventHandler("OnLo22Dec", "NetMenu_Lo22Dec", 0);
+    SetEventHandler("OnLo22Inc", "NetMenu_Lo22Inc", 0);
+    SetEventHandler("OnLo23Dec", "NetMenu_Lo23Dec", 0);		// COOP: the armor
+    SetEventHandler("OnLo23Inc", "NetMenu_Lo23Inc", 0);
     // COOP: bots
     SetEventHandler("OnAdmBotAdd", "NetMenu_OpenBotAdd", 0);
     SetEventHandler("OnAdmBots", "NetMenu_OpenBots", 0);
+    SetEventHandler("OnAdmNoclip", "NetMenu_OnAdmNoclip", 0);		// COOP s27: noclip of the admin (client\Admin.c)
+    SetEventHandler("OnAdmFreecam", "NetMenu_OnAdmFreecam", 0);		// COOP s27: free camera of the admin (client\Admin.c)
+    SetEventHandler("OnAdmGod", "NetMenu_OnAdmGod", 0);
+    SetEventHandler("OnAdmLobby", "NetMenu_OnAdmLobby", 0);		// COOP s30: everybody back to the lobby		// COOP s27: immortality of the selected player
     SetEventHandler("OnBotBack", "NetMenu_BotBack", 0);
     SetEventHandler("OnBotShipPrev", "NetMenu_OnBotShipPrev", 0);
     SetEventHandler("OnBotShipNext", "NetMenu_OnBotShipNext", 0);
@@ -113,11 +137,14 @@ void InitInterface(string iniName)
     SetEventHandler("OnBotsAlly", "NetMenu_OnBotsAlly", 0);
     SetEventHandler("OnBotsEnemy", "NetMenu_OnBotsEnemy", 0);
     SetEventHandler("OnBotsNeutral", "NetMenu_OnBotsNeutral", 0);
+    SetEventHandler("OnBotsTeam", "NetMenu_OnBotsTeam", 0);		// COOP s28: the bot goes to a team
     SetEventHandler("OnBotsBring", "NetMenu_OnBotsBring", 0);
     SetEventHandler("OnBotsGoTo", "NetMenu_OnBotsGoTo", 0);
     SetEventHandler("OnBotsHeal", "NetMenu_OnBotsHeal", 0);
     SetEventHandler("OnBotsDestroy", "NetMenu_OnBotsDestroy", 0);
     SetEventHandler("OnBotsDelete", "NetMenu_OnBotsDelete", 0);
+    SetEventHandler("OnBotsSkillDec", "NetMenu_OnBotsSkillDec", 0);
+    SetEventHandler("OnBotsSkillInc", "NetMenu_OnBotsSkillInc", 0);
     SetEventHandler("NCEvent_BotInfo", "NetMenu_FillBots", 0);
     SetEventHandler("NCEvent_ShipDead", "NetMenu_FillBots", 0);
     SetEventHandler("CheckButtonChange", "NetMenu_CheckButtonChange", 0);		// COOP: switch "Bot respawn"
@@ -137,6 +164,8 @@ void IDoExit(int exitCode)
 	DelEventHandler("OnNetMenuReturn", "IReturnToGame");
 	DelEventHandler("OnNetMenuOptions", "NetMenu_OpenOptions");
 	DelEventHandler("exitCancel", "NetMenu_Cancel");
+	DelEventHandler("NetInfoShow", "NetMenu_InfoShow");
+	DelEventHandler("MouseRClickUp", "NetInfo_Hide");
 
 	DelEventHandler("OnNetMenuAdmin", "NetMenu_OpenAdmin");
 	DelEventHandler("OnAdminBack", "NetMenu_Back");
@@ -205,9 +234,27 @@ void IDoExit(int exitCode)
     DelEventHandler("OnLo15Inc", "NetMenu_Lo15Inc");
     DelEventHandler("OnLo16Dec", "NetMenu_Lo16Dec");
     DelEventHandler("OnLo16Inc", "NetMenu_Lo16Inc");
+    DelEventHandler("OnLo17Dec", "NetMenu_Lo17Dec");
+    DelEventHandler("OnLo17Inc", "NetMenu_Lo17Inc");
+    DelEventHandler("OnLo18Dec", "NetMenu_Lo18Dec");
+    DelEventHandler("OnLo18Inc", "NetMenu_Lo18Inc");
+    DelEventHandler("OnLo19Dec", "NetMenu_Lo19Dec");
+    DelEventHandler("OnLo19Inc", "NetMenu_Lo19Inc");
+    DelEventHandler("OnLo20Dec", "NetMenu_Lo20Dec");
+    DelEventHandler("OnLo20Inc", "NetMenu_Lo20Inc");
+    DelEventHandler("OnLo21Dec", "NetMenu_Lo21Dec");
+    DelEventHandler("OnLo21Inc", "NetMenu_Lo21Inc");
+    DelEventHandler("OnLo22Dec", "NetMenu_Lo22Dec");
+    DelEventHandler("OnLo22Inc", "NetMenu_Lo22Inc");
+    DelEventHandler("OnLo23Dec", "NetMenu_Lo23Dec");
+    DelEventHandler("OnLo23Inc", "NetMenu_Lo23Inc");
     // COOP: bots
     DelEventHandler("OnAdmBotAdd", "NetMenu_OpenBotAdd");
     DelEventHandler("OnAdmBots", "NetMenu_OpenBots");
+    DelEventHandler("OnAdmNoclip", "NetMenu_OnAdmNoclip");
+    DelEventHandler("OnAdmFreecam", "NetMenu_OnAdmFreecam");
+    DelEventHandler("OnAdmGod", "NetMenu_OnAdmGod");
+    DelEventHandler("OnAdmLobby", "NetMenu_OnAdmLobby");
     DelEventHandler("OnBotBack", "NetMenu_BotBack");
     DelEventHandler("OnBotShipPrev", "NetMenu_OnBotShipPrev");
     DelEventHandler("OnBotShipNext", "NetMenu_OnBotShipNext");
@@ -225,11 +272,14 @@ void IDoExit(int exitCode)
     DelEventHandler("OnBotsAlly", "NetMenu_OnBotsAlly");
     DelEventHandler("OnBotsEnemy", "NetMenu_OnBotsEnemy");
     DelEventHandler("OnBotsNeutral", "NetMenu_OnBotsNeutral");
+    DelEventHandler("OnBotsTeam", "NetMenu_OnBotsTeam");
     DelEventHandler("OnBotsBring", "NetMenu_OnBotsBring");
     DelEventHandler("OnBotsGoTo", "NetMenu_OnBotsGoTo");
     DelEventHandler("OnBotsHeal", "NetMenu_OnBotsHeal");
     DelEventHandler("OnBotsDestroy", "NetMenu_OnBotsDestroy");
     DelEventHandler("OnBotsDelete", "NetMenu_OnBotsDelete");
+    DelEventHandler("OnBotsSkillDec", "NetMenu_OnBotsSkillDec");
+    DelEventHandler("OnBotsSkillInc", "NetMenu_OnBotsSkillInc");
     DelEventHandler("NCEvent_BotInfo", "NetMenu_FillBots");
     DelEventHandler("NCEvent_ShipDead", "NetMenu_FillBots");
     DelEventHandler("CheckButtonChange", "NetMenu_CheckButtonChange");
@@ -241,12 +291,27 @@ void IDoExit(int exitCode)
 
 void ICancelProcedure()
 {
+	// COOP s31: the host leaves the game: only he goes to the lobby, the game goes on and he can join it again
+	// (client\OnConnect.c NetClient_LeaveToLobby); all players go to the lobby by "В лобби" of the admin menu only
+	// (not a preview, net\Land.c: Esc closes its server, the lobby would start it again at once)
+	if (bNetHostExitToLobby && NetServer_IsStarted() && iNetPreview <= 0)
+	{
+		IDoExit(RC_INTERFACE_DO_NOTHING);
+		SetEventHandler("NetClient_LeaveToLobby", "NetClient_LeaveToLobby", 0);
+		PostEvent("NetClient_LeaveToLobby", 1);
+		return;
+	}
 	// COOP: leaving the running game from the in-game net menu also goes to the main menu (see EndGame.c)
 	Net_Stop();
 
 	IDoExit( RC_INTERFACE_NET_EXIT );
 
 	ReturnToMainMenu();
+}
+
+void NetMenu_InfoShow()
+{
+	NetInfo_Land(GetCurrentNode());
 }
 
 void IReturnToGame()
@@ -280,6 +345,7 @@ void NetMenu_Show(string sWindow)
 	bNetMenuBotAdd = (sWindow == "botadd");		// COOP: bots
 	bNetMenuBots = (sWindow == "bots");
 	bNetMenuLoadout = (sWindow == "loadout");
+	bNetLandUiLo = bNetMenuLoadout;
 
 	XI_WindowShow("WND_NETMENU", sWindow == "main");
 	XI_WindowDisable("WND_NETMENU", sWindow != "main");
@@ -295,6 +361,7 @@ void NetMenu_Show(string sWindow)
 
 	XI_WindowShow("WND_BOTS", bNetMenuBots);
 	XI_WindowDisable("WND_BOTS", !bNetMenuBots);
+	if (bNetMenuBots) { SetNodeUsing("BTN_BOTS_TEAM", NetMenu_BotTeamsNum() > 0); }		// COOP s28: only in the team games
 
 	XI_WindowShow("WND_LOADOUT", bNetMenuLoadout);
 	XI_WindowDisable("WND_LOADOUT", !bNetMenuLoadout);
@@ -392,6 +459,8 @@ void NetMenu_FillTable()
 	GameInterface.TABLE_ADMIN.hr.td2.scale = 0.85;
 	GameInterface.TABLE_ADMIN.hr.td3.str = XI_ConvertString("capNetAdmin_ColMute");
 	GameInterface.TABLE_ADMIN.hr.td3.scale = 0.85;
+	GameInterface.TABLE_ADMIN.hr.td4.str = XI_ConvertString("capNetAdmin_ColGod");		// COOP s27
+	GameInterface.TABLE_ADMIN.hr.td4.scale = 0.85;
 
 	int iRow = 0;
 	for (i=0; i<NET_MAXCLIENTS; i++)
@@ -414,6 +483,9 @@ void NetMenu_FillTable()
 		GameInterface.TABLE_ADMIN.(sRow).td1.str = sName;
 		GameInterface.TABLE_ADMIN.(sRow).td2.str = sAdmin;
 		GameInterface.TABLE_ADMIN.(sRow).td3.str = sMute;
+		string sGod = "";
+		if (NetMenu_Flag(i, "God")) { sGod = "+"; }
+		GameInterface.TABLE_ADMIN.(sRow).td4.str = sGod;
 	}
 
 	if (iRow > 0)
@@ -486,13 +558,21 @@ void NetMenu_UpdateEnv()
 
 	SetFormatedText("TEXT_ADM_WEATHER", XI_ConvertString("capNetAdmin_Weather") + ": " + XI_ConvertString(NetMenu_WeatherKey(iNetCliAdminWeatherType)));
 	SetFormatedText("TEXT_ADM_TIME", XI_ConvertString("capNetAdmin_Time") + ": " + XI_ConvertString(NetMenu_TimeKey(iNetCliAdminTime)));
-	SetFormatedText("TEXT_ADM_SPEED", XI_ConvertString("capNetAdmin_Speed") + ": " + iNetCliAdminSpeed + "x");
+	SetFormatedText("TEXT_ADM_SPEED", XI_ConvertString("capNetAdmin_Speed") + ": " + NetClient_AdminSpeedText(fNetCliAdminSpeed) + "x");
 	SetFormatedText("TEXT_ADM_WINDDIR", XI_ConvertString("capNetAdmin_WindDir") + ": " + iDegrees);
 	SetFormatedText("TEXT_ADM_WINDPWR", XI_ConvertString("capNetAdmin_WindPower") + ": " + makeint(fNetCliAdminWindSpeed));
 }
 
 void NetMenu_OnKick() { NetMenu_Act(NET_ADMIN_KICK, true, 0.0); }
 void NetMenu_OnMute() { NetMenu_Act(NET_ADMIN_MUTE, true, 0.0); }
+void NetMenu_OnAdmGod() { NetMenu_Act(NET_ADMIN_GOD, true, 0.0); }		// COOP s27
+
+// COOP s30: the game ends for everybody, the lobby opens (server\OnStart.c: NetServer_ReturnToLobby)
+void NetMenu_OnAdmLobby()
+{
+	if (!bNetClientIsAdmin) { return; }
+	NetClient_AdminSend(NET_ADMIN_TOLOBBY, DST_INVALID, 0.0);
+}
 void NetMenu_OnTpTo() { NetMenu_Act(NET_ADMIN_TP_TO, true, 0.0); }
 void NetMenu_OnBring() { NetMenu_Act(NET_ADMIN_TP_BRING, true, 0.0); }
 void NetMenu_OnMake() { NetMenu_Act(NET_ADMIN_MAKE_ADMIN, true, 0.0); }
@@ -516,8 +596,10 @@ void NetMenu_OnWindSpdInc() { NetMenu_Act(NET_ADMIN_WIND_SPEED, false, 1.0); }
 void NetMenu_OpenLoadout()
 {
 	if (!NetLand_IsActive()) { return; }
+	NetLand_LoSheathe(false);		// the sword goes away while the loadout is chosen
 	NetLand_LoInit();
 	NetMenu_Show("loadout");
+	SetNodeUsing("PIC_LO_FACE", true);
 	NetMenu_LoUpdate();
 	SetCurrentNode("BTN_LO_APPLY");
 }
@@ -527,57 +609,20 @@ void NetMenu_LoBack()
 	NetMenu_Show("main");
 }
 
-void NetMenu_LoUpdate()
-{
-	if (!bNetMenuLoadout) { return; }
-	for (int r=0; r<17; r++)
-	{
-		SetFormatedText("TEXT_LO_" + r, NetLand_LoRowText(r));
-	}
-	SetFormatedText("TEXT_LO_HP", NetLand_LoHPText());
-	SetFormatedText("TEXT_LO_INFO", NetLand_LoInfoText());
-	NetMenu_LoFillPerks();
-}
-
-void NetMenu_LoFillPerks()
-{
-	int iSelected = 1;
-	if (CheckAttribute(&GameInterface, "TABLE_LO_PERKS.select")) { iSelected = sti(GameInterface.TABLE_LO_PERKS.select); }
-	Table_Clear("TABLE_LO_PERKS", false, true, false);
-	if (NetLand_PerksChosen()) { GameInterface.TABLE_LO_PERKS.hr.td1.str = "Перки (очки за уровни)"; }
-	else { GameInterface.TABLE_LO_PERKS.hr.td1.str = "Перки: выданы сервером"; }
-	GameInterface.TABLE_LO_PERKS.hr.td1.scale = 0.85;
-	for (int i=0; i<13; i++)
-	{
-		string sRow = "tr" + (i + 1);
-		GameInterface.TABLE_LO_PERKS.(sRow).td1.str = NetLand_LoPerkRowText(i);
-		GameInterface.TABLE_LO_PERKS.(sRow).td1.scale = 0.85;
-	}
-	if (iSelected < 1 || iSelected > 13) { iSelected = 1; }
-	GameInterface.TABLE_LO_PERKS.select = iSelected;
-	Table_UpdateWindow("TABLE_LO_PERKS");
-}
-
-void NetMenu_LoStep(int iRow, int iDir)
-{
-	if (!bNetMenuLoadout) { return; }
-	NetLand_LoStep(iRow, iDir);
-	NetMenu_LoUpdate();
-}
-
-void NetMenu_LoPerk()
-{
-	if (!bNetMenuLoadout) { return; }
-	int iSelected = 0;
-	if (CheckAttribute(&GameInterface, "TABLE_LO_PERKS.select")) { iSelected = sti(GameInterface.TABLE_LO_PERKS.select); }
-	NetLand_LoPerkToggle(iSelected - 1);
-	NetMenu_LoUpdate();
-}
+void NetMenu_LoUpdate() { NetLand_UiLoUpdate(); }
+void NetMenu_LoStep(int iRow, int iDir) { NetLand_UiLoStep(iRow, iDir); }
+void NetMenu_LoPerk() { NetLand_UiLoPerk(); }
 
 void NetMenu_LoApply()
 {
 	if (!bNetMenuLoadout) { return; }
+	if (!NetLand_LoChangeAllowed())
+	{
+		Log_SetStringToLog("Снаряжение меняется только при включённом респавне");
+		return;
+	}
 	NetLand_LoApply();
+	NetLand_ProfSaveLo();
 	Log_SetStringToLog("Снаряжение применено");
 	IReturnToGame();
 }
@@ -616,8 +661,56 @@ void NetMenu_Lo15Dec() { NetMenu_LoStep(15, -1); }
 void NetMenu_Lo15Inc() { NetMenu_LoStep(15, 1); }
 void NetMenu_Lo16Dec() { NetMenu_LoStep(16, -1); }
 void NetMenu_Lo16Inc() { NetMenu_LoStep(16, 1); }
+void NetMenu_Lo17Dec() { NetMenu_LoStep(17, -1); }
+void NetMenu_Lo17Inc() { NetMenu_LoStep(17, 1); }
+void NetMenu_Lo18Dec() { NetMenu_LoStep(18, -1); }
+void NetMenu_Lo18Inc() { NetMenu_LoStep(18, 1); }
+void NetMenu_Lo19Dec() { NetMenu_LoStep(19, -1); }
+void NetMenu_Lo19Inc() { NetMenu_LoStep(19, 1); }
+void NetMenu_Lo20Dec() { NetMenu_LoStep(20, -1); }
+void NetMenu_Lo20Inc() { NetMenu_LoStep(20, 1); }
+void NetMenu_Lo21Dec() { NetMenu_LoStep(21, -1); }
+void NetMenu_Lo21Inc() { NetMenu_LoStep(21, 1); }
+void NetMenu_Lo22Dec() { NetMenu_LoStep(22, -1); }		// COOP: the antidote
+void NetMenu_Lo22Inc() { NetMenu_LoStep(22, 1); }
+void NetMenu_Lo23Dec() { NetMenu_LoStep(23, -1); }		// COOP: the armor
+void NetMenu_Lo23Inc() { NetMenu_LoStep(23, 1); }
 
 // ================= bots (COOP: server\Bots.c) =================
+
+// COOP s28: the teams a bot can join in this game (0 = no team game). Like server\Bots.c: NetServer_BotTeamsNum
+int NetMenu_BotTeamsNum()
+{
+	if (NetLand_IsActive())
+	{
+		if (NetLand_TeamGame()) { return 2; }
+		return 0;
+	}
+	if (!CheckAttribute(&NCServer, "GameType")) { return 0; }
+	if (sti(NCServer.GameType) == NETGAME_DEATHMATCH) { return 0; }
+	int iN = 2;
+	if (CheckAttribute(&NCServer, "NumTeams")) { iN = sti(NCServer.NumTeams); }
+	if (iN < 2) { iN = 2; }
+	if (iN > 4) { iN = 4; }
+	return iN;
+}
+
+bool NetMenu_BotRelOk(int iRel)
+{
+	if (iRel >= NET_BOTREL_ALLY && iRel <= NET_BOTREL_NEUTRAL) { return true; }
+	if (iRel < NET_BOTREL_TEAM0) { return false; }
+	return (iRel - NET_BOTREL_TEAM0) < NetMenu_BotTeamsNum();
+}
+
+// the relation as the windows show it: "Союзник" / "Враг" / "Нейтрал" / "Команда: Красная"
+string NetMenu_RelName(int iRel)
+{
+	if (iRel >= NET_BOTREL_TEAM0 && iRel < NET_BOTREL_TEAM0 + 4)
+	{
+		return "Команда: " + XI_ConvertString("nteam_" + NetTeamName[iRel - NET_BOTREL_TEAM0]);
+	}
+	return XI_ConvertString(NetMenu_RelKey(iRel));
+}
 
 string NetMenu_RelKey(int iRel)
 {
@@ -678,6 +771,8 @@ void NetMenu_OpenBotAdd()
 void NetMenu_BotAddUpdate()
 {
 	if (!bNetMenuBotAdd) { return; }
+	if (NetLand_IsActive()) { NetMenu_BotAddUpdateLand(); return; }
+	NetMenu_BotLandNodes(false);
 
 	ref rShip = Net_GetShipByIndex(iNMBotShip);
 	string sShipName = rShip.Name;
@@ -703,7 +798,50 @@ void NetMenu_BotAddUpdate()
 	SetFormatedText("TEXT_BOT_CREW", XI_ConvertString("capNetAdmin_BotCrew") + ": " + iNMBotCrew + "%");
 	SetFormatedText("TEXT_BOT_HULL", XI_ConvertString("capNetAdmin_BotHull") + ": " + iNMBotHull + "%");
 	SetFormatedText("TEXT_BOT_SAILS", XI_ConvertString("capNetAdmin_BotSails") + ": " + iNMBotSails + "%");
-	SetFormatedText("TEXT_BOT_REL", XI_ConvertString("capNetAdmin_BotRel") + ": " + XI_ConvertString(NetMenu_RelKey(iNMBotRel)));
+	SetFormatedText("TEXT_BOT_REL", XI_ConvertString("capNetAdmin_BotRel") + ": " + NetMenu_RelName(iNMBotRel));
+}
+
+// COOP: a land duel: the "ship" is the skin of the bot (the portraits like the icon of a player), the "cannon" its blade
+void NetMenu_BotLandNodes(bool bLand)
+{
+	SetNodeUsing("BTN_BOT_GUN_PREV", bLand);
+	SetNodeUsing("PICTURE_BOT_GUN", bLand);
+	SetNodeUsing("TEXT_BOT_GUN", bLand);
+	SetNodeUsing("BTN_BOT_GUN_NEXT", bLand);
+	SetNodeUsing("TEXT_BOT_HULL", !bLand);
+	SetNodeUsing("BTN_BOT_HULL_DEC", !bLand);
+	SetNodeUsing("BTN_BOT_HULL_INC", !bLand);
+	SetNodeUsing("TEXT_BOT_SAILS", !bLand);
+	SetNodeUsing("BTN_BOT_SAILS_DEC", !bLand);
+	SetNodeUsing("BTN_BOT_SAILS_INC", !bLand);
+}
+
+void NetMenu_BotAddUpdateLand()
+{
+	if (iNMBotFace < 0) { iNMBotFace = NetLand_BotNextFace(-1, 1); }
+	if (sNMBotBlade == "") { sNMBotBlade = NetLand_NextItem("", BLADE_ITEM_TYPE, 1, false); }
+	SetNewPicture("PICTURE_BOT_SHIP", "interfaces\portraits\256\face_" + iNMBotFace + ".tga");
+	SetFormatedText("TEXT_BOT_SHIP", "Скин: " + NetLand_FaceToModel(iNMBotFace));
+	SetFormatedText("TEXT_BOT_SHIPINFO", "Стрелками выберите лицо и клинок бота");
+	string sBladeName = sNMBotBlade;
+	int iBl = GetItemIndex(sNMBotBlade);
+	if (iBl >= 0)
+	{
+		SetNewGroupPicture("PICTURE_BOT_CANNON", Items[iBl].picTexture, "itm" + Items[iBl].picIndex);
+		sBladeName = NetLand_ItemTitle(sNMBotBlade);
+	}
+	SetFormatedText("TEXT_BOT_CANNON", "Клинок: " + sBladeName);
+	SetFormatedText("TEXT_BOT_CREW", "Уровень: " + iNMBotLevel);
+	string sGunName = "нет";
+	if (sNMBotGun != "") { sGunName = NetLand_ItemTitle(sNMBotGun); }
+	SetFormatedText("TEXT_BOT_GUN", "Пистолет: " + sGunName);
+	// the gun like the blade: its icon and arrows; the hull and the sails mean nothing here
+	NetMenu_BotLandNodes(true);
+	int iGn = -1;
+	if (sNMBotGun != "") { iGn = GetItemIndex(sNMBotGun); }
+	if (iGn >= 0) { SetNodeUsing("PICTURE_BOT_GUN", true); SetNewGroupPicture("PICTURE_BOT_GUN", Items[iGn].picTexture, "itm" + Items[iGn].picIndex); }
+	else { SetNodeUsing("PICTURE_BOT_GUN", false); }
+	SetFormatedText("TEXT_BOT_REL", XI_ConvertString("capNetAdmin_BotRel") + ": " + NetMenu_RelName(iNMBotRel));
 }
 
 int NetMenu_BotPercent(int iValue, int iDelta)
@@ -714,28 +852,64 @@ int NetMenu_BotPercent(int iValue, int iDelta)
 	return iValue;
 }
 
-void NetMenu_OnBotShipPrev() { iNMBotShip = NetMenu_BotNextShip(iNMBotShip, -1); NetMenu_BotAddUpdate(); }
-void NetMenu_OnBotShipNext() { iNMBotShip = NetMenu_BotNextShip(iNMBotShip, 1); NetMenu_BotAddUpdate(); }
-void NetMenu_OnBotCannonPrev() { iNMBotCannon = NetMenu_BotNextCannon(iNMBotCannon, -1); NetMenu_BotAddUpdate(); }
-void NetMenu_OnBotCannonNext() { iNMBotCannon = NetMenu_BotNextCannon(iNMBotCannon, 1); NetMenu_BotAddUpdate(); }
-void NetMenu_OnBotCrewDec() { iNMBotCrew = NetMenu_BotPercent(iNMBotCrew, -10); NetMenu_BotAddUpdate(); }
-void NetMenu_OnBotCrewInc() { iNMBotCrew = NetMenu_BotPercent(iNMBotCrew, 10); NetMenu_BotAddUpdate(); }
-void NetMenu_OnBotHullDec() { iNMBotHull = NetMenu_BotPercent(iNMBotHull, -10); NetMenu_BotAddUpdate(); }
-void NetMenu_OnBotHullInc() { iNMBotHull = NetMenu_BotPercent(iNMBotHull, 10); NetMenu_BotAddUpdate(); }
+void NetMenu_OnBotShipPrev()
+{
+	if (NetLand_IsActive()) { iNMBotFace = NetLand_BotNextFace(iNMBotFace, -1); NetMenu_BotAddUpdate(); return; }
+	iNMBotShip = NetMenu_BotNextShip(iNMBotShip, -1); NetMenu_BotAddUpdate();
+}
+void NetMenu_OnBotShipNext()
+{
+	if (NetLand_IsActive()) { iNMBotFace = NetLand_BotNextFace(iNMBotFace, 1); NetMenu_BotAddUpdate(); return; }
+	iNMBotShip = NetMenu_BotNextShip(iNMBotShip, 1); NetMenu_BotAddUpdate();
+}
+void NetMenu_OnBotCannonPrev()
+{
+	if (NetLand_IsActive()) { sNMBotBlade = NetLand_NextItem(sNMBotBlade, BLADE_ITEM_TYPE, -1, false); NetMenu_BotAddUpdate(); return; }
+	iNMBotCannon = NetMenu_BotNextCannon(iNMBotCannon, -1); NetMenu_BotAddUpdate();
+}
+void NetMenu_OnBotCannonNext()
+{
+	if (NetLand_IsActive()) { sNMBotBlade = NetLand_NextItem(sNMBotBlade, BLADE_ITEM_TYPE, 1, false); NetMenu_BotAddUpdate(); return; }
+	iNMBotCannon = NetMenu_BotNextCannon(iNMBotCannon, 1); NetMenu_BotAddUpdate();
+}
+void NetMenu_OnBotCrewDec()
+{
+	if (NetLand_IsActive()) { iNMBotLevel = iNMBotLevel - 1; if (iNMBotLevel < 1) { iNMBotLevel = 50; } NetMenu_BotAddUpdate(); return; }
+	iNMBotCrew = NetMenu_BotPercent(iNMBotCrew, -10); NetMenu_BotAddUpdate();
+}
+void NetMenu_OnBotCrewInc()
+{
+	if (NetLand_IsActive()) { iNMBotLevel = iNMBotLevel + 1; if (iNMBotLevel > 50) { iNMBotLevel = 1; } NetMenu_BotAddUpdate(); return; }
+	iNMBotCrew = NetMenu_BotPercent(iNMBotCrew, 10); NetMenu_BotAddUpdate();
+}
+void NetMenu_OnBotHullDec()
+{
+	if (NetLand_IsActive()) { sNMBotGun = NetLand_NextItem(sNMBotGun, GUN_ITEM_TYPE, -1, true); NetMenu_BotAddUpdate(); return; }
+	iNMBotHull = NetMenu_BotPercent(iNMBotHull, -10); NetMenu_BotAddUpdate();
+}
+void NetMenu_OnBotHullInc()
+{
+	if (NetLand_IsActive()) { sNMBotGun = NetLand_NextItem(sNMBotGun, GUN_ITEM_TYPE, 1, true); NetMenu_BotAddUpdate(); return; }
+	iNMBotHull = NetMenu_BotPercent(iNMBotHull, 10); NetMenu_BotAddUpdate();
+}
 void NetMenu_OnBotSailsDec() { iNMBotSails = NetMenu_BotPercent(iNMBotSails, -10); NetMenu_BotAddUpdate(); }
 void NetMenu_OnBotSailsInc() { iNMBotSails = NetMenu_BotPercent(iNMBotSails, 10); NetMenu_BotAddUpdate(); }
 
+// COOP s28: ally, enemy, neutral and (in a team game) the teams of the game
 void NetMenu_OnBotRelPrev()
 {
+	int iLast = NET_BOTREL_NEUTRAL;
+	if (NetMenu_BotTeamsNum() > 0) { iLast = NET_BOTREL_TEAM0 + NetMenu_BotTeamsNum() - 1; }
 	iNMBotRel = iNMBotRel - 1;
-	if (iNMBotRel < NET_BOTREL_ALLY) { iNMBotRel = NET_BOTREL_NEUTRAL; }
+	if (iNMBotRel < NET_BOTREL_ALLY) { iNMBotRel = iLast; }
+	if (!NetMenu_BotRelOk(iNMBotRel)) { iNMBotRel = NET_BOTREL_NEUTRAL; }
 	NetMenu_BotAddUpdate();
 }
 
 void NetMenu_OnBotRelNext()
 {
 	iNMBotRel = iNMBotRel + 1;
-	if (iNMBotRel > NET_BOTREL_NEUTRAL) { iNMBotRel = NET_BOTREL_ALLY; }
+	if (!NetMenu_BotRelOk(iNMBotRel)) { iNMBotRel = NET_BOTREL_ALLY; }
 	NetMenu_BotAddUpdate();
 }
 
@@ -743,6 +917,19 @@ void NetMenu_OnBotRelNext()
 void NetMenu_OnBotDoAdd()
 {
 	if (!bNetMenuBotAdd) { return; }
+	if (NetLand_IsActive())
+	{
+		// the face goes as the ship, the blade (its index) as the hull and the sails
+		int iBlIdx = GetItemIndex(sNMBotBlade);
+		if (iBlIdx < 0) { iBlIdx = 0; }
+		// the gun: its index + 1 (0: none), the low byte as the crew, the high part in the ship word above the face
+		int iGunN = 0;
+		if (sNMBotGun != "") { iGunN = GetItemIndex(sNMBotGun) + 1; }
+		if (iGunN < 0) { iGunN = 0; }
+		int iShipW = iNMBotFace + 512 * (iGunN / 256);
+		NetClient_AdminBotAdd(iShipW, iNMBotLevel, iGunN - (iGunN / 256) * 256, iBlIdx - (iBlIdx / 256) * 256, iBlIdx / 256, iNMBotRel);
+		return;
+	}
 	NetClient_AdminBotAdd(iNMBotShip, iNMBotCannon, iNMBotCrew, iNMBotHull, iNMBotSails, iNMBotRel);
 }
 
@@ -759,6 +946,8 @@ void NetMenu_BotOptsUpdate()
 {
 	bNMBotOptSync = true;
 	CheckButton_SetState("CHECKBUTTON_BOTRESPAWN", 1, bNetCliBotRespawn);
+	CheckButton_SetState("CHECKBUTTON_ADM_LATEJOIN", 1, bNetCliLateJoin);		// COOP s30
+	SetFormatedText("TEXT_BOTS_SKILL", "Боты: " + NetMenu_BotSkillName(NetLand_GetBotSkill()));
 	bNMBotOptSync = false;
 }
 
@@ -772,6 +961,26 @@ void NetMenu_CheckButtonChange()
 	{
 		NetClient_AdminSend(NET_ADMIN_BOT_RESPAWN, DST_INVALID, makefloat(bChecked));
 	}
+	if (sNode == "CHECKBUTTON_ADM_LATEJOIN" && !bNMBotOptSync)		// COOP s30
+	{
+		NetClient_AdminSend(NET_ADMIN_LATEJOIN, DST_INVALID, makefloat(bChecked));
+	}
+	// COOP: the poison on the blade (the loadout)
+	NetLand_UiLoCheck(sNode, bChecked);		// COOP: the poison on the blade (the loadout)
+}
+
+// COOP s27: the noclip of the admin (client\Admin.c): on and off
+void NetMenu_OnAdmNoclip()
+{
+	if (!bNetClientIsAdmin) { return; }
+	NetNoclip_Toggle();
+}
+
+// COOP s27: the free camera of the admin (client\Admin.c): on and off
+void NetMenu_OnAdmFreecam()
+{
+	if (!bNetClientIsAdmin) { return; }
+	NetFreecam_Toggle();
 }
 
 void NetMenu_OpenBots()
@@ -825,9 +1034,21 @@ void NetMenu_FillBots()
 		string sRow = "tr" + iRow;
 
 		string sName = rC.NickName;
-		if (CheckAttribute(rC, "Ship.Name")) { sName = sName + " - " + rC.Ship.Name; }
+		if (CheckAttribute(rC, "Ship.Name") && !CheckAttribute(rC, "LandBot")) { sName = sName + " - " + rC.Ship.Name; }
 
 		string sHull = "";
+		if (CheckAttribute(rC, "LandBot"))
+		{
+			// a land bot: its health (the owner sends it with its state)
+			if (CheckAttribute(rC, "LandBotDead") && sti(rC.LandBotDead)) { sHull = "мёртв"; }
+			else
+			{
+				if (CheckAttribute(rC, "LandBotHP")) { sHull = rC.LandBotHP + " HP"; }
+			}
+			sName = sName + " (" + NetLand_BotModel(i) + ")";
+		}
+		else
+		{
 		if (CheckAttribute(rC, "Dead") && sti(rC.Dead))
 		{
 			sHull = XI_ConvertString("capNetAdmin_BotSunk");
@@ -840,13 +1061,14 @@ void NetMenu_FillBots()
 				sHull = "" + iPct + "%";
 			}
 		}
+		}
 
 		int iRel = NET_BOTREL_ENEMY;
 		if (CheckAttribute(rC, "BotRel")) { iRel = sti(rC.BotRel); }
 
 		GameInterface.TABLE_BOTS.(sRow).ClientID = i;
 		GameInterface.TABLE_BOTS.(sRow).td1.str = sName;
-		GameInterface.TABLE_BOTS.(sRow).td2.str = XI_ConvertString(NetMenu_RelKey(iRel));
+		GameInterface.TABLE_BOTS.(sRow).td2.str = NetMenu_RelName(iRel);
 		GameInterface.TABLE_BOTS.(sRow).td3.str = sHull;
 	}
 
@@ -864,7 +1086,7 @@ void NetMenu_FillBots()
 		}
 		GameInterface.TABLE_BOTS.(sFRow).ClientID = NET_FORTCLIENT;
 		GameInterface.TABLE_BOTS.(sFRow).td1.str = XI_ConvertString("Fort");
-		GameInterface.TABLE_BOTS.(sFRow).td2.str = XI_ConvertString(NetMenu_RelKey(sti(rFortRow.CoopRel)));
+		GameInterface.TABLE_BOTS.(sFRow).td2.str = NetMenu_RelName(sti(rFortRow.CoopRel));
 		GameInterface.TABLE_BOTS.(sFRow).td3.str = sFHull;
 	}
 
@@ -900,10 +1122,53 @@ void NetMenu_BotAct(int iAction, float fValue)
 void NetMenu_OnBotsAlly() { NetMenu_BotAct(NET_ADMIN_BOT_REL, makefloat(NET_BOTREL_ALLY)); }
 void NetMenu_OnBotsEnemy() { NetMenu_BotAct(NET_ADMIN_BOT_REL, makefloat(NET_BOTREL_ENEMY)); }
 void NetMenu_OnBotsNeutral() { NetMenu_BotAct(NET_ADMIN_BOT_REL, makefloat(NET_BOTREL_NEUTRAL)); }
+// COOP s28: the selected bot goes to the next team of the game (a bot without a team: to the first one)
+void NetMenu_OnBotsTeam()
+{
+	int iTeams = NetMenu_BotTeamsNum();
+	if (iTeams <= 0) { return; }
+	int wBot = NetMenu_GetSelectedBot();
+	if (wBot == DST_INVALID) { return; }
+	int iRelNow = NET_BOTREL_ENEMY;
+	if (wBot == NET_FORTCLIENT)
+	{
+		if (CheckAttribute(&NCClients[NET_FORTCLIENT], "CoopRel")) { iRelNow = sti(NCClients[NET_FORTCLIENT].CoopRel); }
+	}
+	else
+	{
+		if (CheckAttribute(&NCClients[wBot], "BotRel")) { iRelNow = sti(NCClients[wBot].BotRel); }
+	}
+	int iTeamNext = 0;
+	if (iRelNow >= NET_BOTREL_TEAM0) { iTeamNext = iRelNow - NET_BOTREL_TEAM0 + 1; }
+	if (iTeamNext >= iTeams) { iTeamNext = 0; }
+	NetClient_AdminSend(NET_ADMIN_BOT_REL, wBot, makefloat(NET_BOTREL_TEAM0 + iTeamNext));
+}
 void NetMenu_OnBotsBring() { NetMenu_BotAct(NET_ADMIN_BOT_BRING, 0.0); }
 void NetMenu_OnBotsGoTo() { NetMenu_BotAct(NET_ADMIN_BOT_GOTO, 0.0); }
 void NetMenu_OnBotsHeal() { NetMenu_BotAct(NET_ADMIN_BOT_HEAL, 0.0); }
 void NetMenu_OnBotsDestroy() { NetMenu_BotAct(NET_ADMIN_BOT_DESTROY, 0.0); }
 void NetMenu_OnBotsDelete() { NetMenu_BotAct(NET_ADMIN_BOT_DELETE, 0.0); }
+// COOP: the difficulty of all the bots (the server applies it and sends it back: NetMenu_BotOptsUpdate)
+void NetMenu_OnBotsSkillDec()
+{
+	if (NetLand_GetBotSkill() <= 0) { return; }
+	NetClient_AdminSend(NET_ADMIN_BOT_SKILL, DST_INVALID, makefloat(NetLand_GetBotSkill() - 1));
+}
+void NetMenu_OnBotsSkillInc()
+{
+	if (NetLand_GetBotSkill() >= 3) { return; }
+	NetClient_AdminSend(NET_ADMIN_BOT_SKILL, DST_INVALID, makefloat(NetLand_GetBotSkill() + 1));
+}
+string NetMenu_BotSkillName(int iS)
+{
+	switch (iS)
+	{
+		case 0: return "безобидные"; break;
+		case 1: return "лёгкие"; break;
+		case 2: return "средние"; break;
+		case 3: return "тяжёлые"; break;
+	}
+	return "средние";
+}
 
 

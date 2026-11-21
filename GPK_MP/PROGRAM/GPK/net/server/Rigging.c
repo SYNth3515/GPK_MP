@@ -76,7 +76,7 @@ bool NetServer_OnShipSailRepair( int wOurClientID )
 	if( fCurSP < fMaxSP )
 	{
 		float fPercentSPRestore = fMaxSP * Bring2Range(0.0, 0.2, 0.1, 1.0, iSkillRepair / NETSKILL_MAX) / 30.0;
-		if (NetServer_PassivePerksFor(wOurClientID)) { fPercentSPRestore = fPercentSPRestore * 1.1; }	// COOP: passive perk Carpenter
+		if (NetServer_SeaPerk(wOurClientID, NET_SPERK_CARPENTER)) { fPercentSPRestore = fPercentSPRestore * 1.1; }	// COOP: passive perk Carpenter
 		if( fCurSP+fPercentSPRestore > fMaxSP ) {
 			fPercentSPRestore = fMaxSP - fCurSP;
 		}

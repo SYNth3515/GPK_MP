@@ -9,6 +9,11 @@
 //   hull  = k * (max hull / 100) * 8.5     sails = k * (1.5 / 4.5 / 8.5 percent for 0 / 1/2 / full sails)   once a second
 //   k = (StormProfessional ? 0.7 : 1.0) * (1 - distance / 100)
 // ================================================================================================
+#define NET_TORN_DMG_K		2.0		// COOP s27: the damage of the tornado is this times the damage of the single player game (hull and sails)
+#define NET_TORN_DMG_R		100.0	// COOP s27: radius of the damage (m), like the single player game
+#define NET_TORN_SPIN		1.6		// COOP s27: Ship.Impulse.Rotate.y in the middle of the tornado (the hit of the fort turns a ship with 0.5)
+#define NET_TORN_SPIN_MIN	0.5		// at the edge of the spin radius
+#define NET_TORN_SPIN_R		130.0	// radius of the spin (m)
 float	fCoopTornadoWind = 10.0;		// wind speed of the Tornado weather (the storm has 7.0)
 bool	bCoopTornadoMode = false;		// the weather is the Tornado weather
 bool	bSrvTornActive = false;			// a tornado is on the sea now
@@ -27,8 +32,52 @@ float	fSrvTornTX = 0.0;				// the nearest ship (NetServer_TornadoFindNearest)
 float	fSrvTornTZ = 0.0;
 float	fSrvTornNearest = 0.0;
 
+// COOP s27: the ships near the tornado are spun round (Ship.Impulse.Rotate.y, the same impulse that the field of the fort uses).
+// TornSpin = 1 marks a ship that the tornado spins; the impulse is taken away when it leaves the tornado (unless the fort pushes it).
+void NetServer_TornadoSpinOff(ref rS)
+{
+	if (!CheckAttribute(rS, "TornSpin") || !sti(rS.TornSpin)) { return; }
+	rS.TornSpin = 0;
+	if (CheckAttribute(rS, "FortPush") && sti(rS.FortPush)) { return; }
+	rS.Ship.Impulse.Rotate.y = 0.0;
+}
+
+void NetServer_TornadoSpinClear()
+{
+	for (int i=0; i<NET_MAXCLIENTS; i++)
+	{
+		ref rS = NetServer_GetClient(i);
+		NetServer_TornadoSpinOff(rS);
+	}
+}
+
+void NetServer_TornadoSpin()
+{
+	for (int i=0; i<NET_MAXCLIENTS; i++)
+	{
+		ref rS = NetServer_GetClient(i);
+		if (!NetServer_ShipIsAlive(i)) { NetServer_TornadoSpinOff(rS); continue; }
+
+		float fDist = GetDistance2D(fSrvTornX, fSrvTornZ, stf(rS.Ship.Pos.x), stf(rS.Ship.Pos.z));
+		if (fDist >= NET_TORN_SPIN_R) { NetServer_TornadoSpinOff(rS); continue; }
+
+		float fSpin = NET_TORN_SPIN_MIN + (NET_TORN_SPIN - NET_TORN_SPIN_MIN) * (1.0 - fDist / NET_TORN_SPIN_R);
+		if (CheckAttribute(rS, "FortPush") && sti(rS.FortPush)) { continue; }		// the fort turns it now
+		if (!CheckAttribute(rS, "TornSpin") || !sti(rS.TornSpin))
+		{
+			rS.Ship.Impulse.Rotate.x = 0.0;
+			rS.Ship.Impulse.Rotate.z = 0.0;
+			if (!CheckAttribute(rS, "Ship.Impulse.Speed.z")) { rS.Ship.Impulse.Speed.x = 0.0; rS.Ship.Impulse.Speed.y = 0.0; rS.Ship.Impulse.Speed.z = 0.0; }
+			Trace("COOP: tornado spins ship " + i + " (distance " + fDist + ")");
+		}
+		rS.TornSpin = 1;
+		rS.Ship.Impulse.Rotate.y = fSpin;
+	}
+}
+
 void NetServer_TornadoReset()
 {
+	NetServer_TornadoSpinClear();
 	bSrvTornActive = false;
 	fSrvTornLife = 0.0;
 	fSrvTornRespawn = 0.0;
@@ -157,6 +206,7 @@ void NetServer_TornadoSpawn()
 
 void NetServer_TornadoEnd(float fPause)
 {
+	NetServer_TornadoSpinClear();
 	bSrvTornActive = false;
 	fSrvTornRespawn = fPause;
 	NetServer_TornadoSendState(true);		// active = 0
@@ -172,11 +222,11 @@ void NetServer_TornadoDamage()
 
 		ref rClient = NetServer_GetClient(i);
 		float fDist = GetDistance2D(fSrvTornX, fSrvTornZ, stf(rClient.Ship.Pos.x), stf(rClient.Ship.Pos.z));
-		if (fDist >= 100.0) { continue; }
+		if (fDist >= NET_TORN_DMG_R) { continue; }
 
 		float fPerk = 1.0;
-		if (NetServer_PassivePerksFor(i)) { fPerk = 0.7; }		// passive perk StormProfessional
-		float fMul = fPerk * Bring2Range(1.0, 0.0, 0.0, 100.0, fDist);
+		if (NetServer_SeaPerk(i, NET_SPERK_STORM)) { fPerk = 0.7; }		// passive perk StormProfessional
+		float fMul = NET_TORN_DMG_K * fPerk * Bring2Range(1.0, 0.0, 0.0, NET_TORN_DMG_R, fDist);
 
 		// hull
 		NetServer_ShipApplyHullHitpoints(rClient, fMul * (stf(rClient.Ship.MaxHP) / 100.0) * 8.5, NETKILL_BY_TORNADO, DST_INVALID);
@@ -247,6 +297,8 @@ void NetServer_TornadoFrame()
 
 	fSrvTornX = fSrvTornX + fSrvTornSpeed * sin(fSrvTornHeading) * fDt;
 	fSrvTornZ = fSrvTornZ + fSrvTornSpeed * cos(fSrvTornHeading) * fDt;
+
+	NetServer_TornadoSpin();		// COOP s27: every frame, the ships near the tornado turn round
 
 	fSrvTornDmgTimer = fSrvTornDmgTimer + fDt;
 	if (fSrvTornDmgTimer >= 1.0)

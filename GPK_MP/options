@@ -1,4 +1,4 @@
-volume.music=0.1500000
+volume.music=0.0500000
 volume.sound=0.5000000
 volume.dialog=0.5000000
 cameramode.follow_on=1
@@ -8,6 +8,8 @@ cameramode.enabledautosavemode=1
 cameramode.enabledquestsmarks=1
 cameramode.enabledshipmarks=1
 cameramode.simpleseamode=0
+cameramode.oldmusic=0
+cameramode.hidedeckcrew=1
 alwaysrun=1
 video.grassquantity=0
 video.contrast=1.0000000

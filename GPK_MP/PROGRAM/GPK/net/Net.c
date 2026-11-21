@@ -37,6 +37,7 @@ bool IsNetActive()
 void Net_Stop()
 {
 	bNetActive = false;
+	iNetPreview = 0;		// COOP: the preview (Land.c) ends with the game
 
 	Net_DeleteServer();
 	Net_DeleteClient();
@@ -53,6 +54,7 @@ void Net_Stop()
 void Net_ExitToMainMenuAfterDisconnect()
 {
 	bNetActive = false;
+	iNetPreview = 0;
 
 	Net_DeleteServer();
 

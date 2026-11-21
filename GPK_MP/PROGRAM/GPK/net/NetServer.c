@@ -47,6 +47,8 @@ object NSPlayers;						// All players in server for last month
 int iServerTime;
 int iPingTime;
 bool bNetServerIsStarted = false;
+bool bNetCSEdit = false;		// COOP s30: the Create game screen edits the running server ("Game settings" of the lobby)
+float fServerStartGameSpeed = 1.0;	// COOP: the game speed of the running game (the choice of the Create game screen)
 
 void Net_DeleteServer()
 {
@@ -109,14 +111,68 @@ void Net_ServerFirstInit()
 	NetServer.Respawn = false;			// COOP: CS-like respawn (Create game screen)
 	NetServer.BotRespawn = false;		// COOP: respawn of the bots (admin menu, "Bots")
 	NetServer.NoBoarding = false;		// COOP: boarding is switched off
+	NetServer.FastBoarding = true;		// COOP s37: off = the captains fight on the deck (net\Board.c)
+	NetServer.LateJoin = true;			// COOP s30: new players can join the running game (Create game screen, admin menu)
 	NetServer.BotSkill = 2;			// COOP: difficulty of the bots 0..3 (server\Bots.c)
 	NetServer.PassivePerks = false;		// COOP: all passive sea perks of single player for every captain
 	NetServer.ActivePerks = false;		// COOP: active sea perks of single player (and the brander) for every captain
 }
 
+// COOP s30: the game of the server (map, mode, teams, money, switches): the Create game screen, and its "Game settings"
+// mode from the lobby (NetServer_ApplySettings) for the running server
+void NetServer_SetGameParams(ref rSrvParams)
+{
+	NetServer.WeatherID = rSrvParams.WeatherID;
+	NetServer.IslandID = rSrvParams.IslandID;
+	NetServer.LandLoc = "";
+	if (CheckAttribute(rSrvParams, "LandLoc")) { NetServer.LandLoc = rSrvParams.LandLoc; }
+	NetServer.Tornado = 0;
+	if (CheckAttribute(rSrvParams, "Tornado")) { NetServer.Tornado = sti(rSrvParams.Tornado); }
+	NetServer.GameType = sti(rSrvParams.GameType);
+	NetServer.NumTeams = sti(rSrvParams.NumTeams);
+	NetServer.AllowDownload = sti(rSrvParams.AllowDownload);
+	NetServer.AllowUpload = sti(rSrvParams.AllowUpload);
+	NetServer.MaxShipClass = sti(rSrvParams.MaxShipClass);
+	NetServer.Credit = sti(rSrvParams.Credit);
+	NetServer.StartPosition = sti(rSrvParams.StartPosition);
+	NetServer.TimeLimit = sti(rSrvParams.TimeLimit);
+	// COOP: the game speed chosen on the Create game screen (0.5 / 0.75 / 1 / 2 ... 8). It is kept here, because
+	// NetServer.GameSpeed is set again when the game starts (server/OnStart.c): a bad / missing value means 1x
+	fServerStartGameSpeed = 1.0;
+	if (CheckAttribute(rSrvParams, "GameSpeed")) { fServerStartGameSpeed = stf(rSrvParams.GameSpeed); }
+	if (fServerStartGameSpeed < 0.5) { fServerStartGameSpeed = 1.0; }
+	if (fServerStartGameSpeed > 8.0) { fServerStartGameSpeed = 8.0; }
+	NetServer.GameSpeed = fServerStartGameSpeed;
+
+	// COOP: switches of the Create game screen (missing attributes = old behaviour)
+	NetServer.Respawn = false;
+	NetServer.BotRespawn = false;
+	NetServer.NoBoarding = false;
+	NetServer.PassivePerks = false;
+	NetServer.ActivePerks = false;
+	if (CheckAttribute(rSrvParams, "Respawn")) { NetServer.Respawn = sti(rSrvParams.Respawn); }
+	NetServer.RespawnTime = NET_RESPAWN_DELAY / 1000;
+	if (CheckAttribute(rSrvParams, "RespawnTime")) { NetServer.RespawnTime = sti(rSrvParams.RespawnTime); }
+	if (sti(NetServer.RespawnTime) < NET_RESPAWN_TIME_MIN) { NetServer.RespawnTime = NET_RESPAWN_TIME_MIN; }
+	if (sti(NetServer.RespawnTime) > NET_RESPAWN_TIME_MAX) { NetServer.RespawnTime = NET_RESPAWN_TIME_MAX; }
+	if (CheckAttribute(rSrvParams, "NoBoarding")) { NetServer.NoBoarding = sti(rSrvParams.NoBoarding); }
+	NetServer.FastBoarding = true;		// COOP s37
+	if (CheckAttribute(rSrvParams, "FastBoarding")) { NetServer.FastBoarding = sti(rSrvParams.FastBoarding); }
+	NetServer.LateJoin = true;
+	if (CheckAttribute(rSrvParams, "LateJoin")) { NetServer.LateJoin = sti(rSrvParams.LateJoin); }
+	NetServer.PistolReload = false;		// COOP s31: a land duel: the pistols load in the fight (net/Land.c)
+	if (CheckAttribute(rSrvParams, "PistolReload")) { NetServer.PistolReload = sti(rSrvParams.PistolReload); }
+	NetServer.BotSkill = 2;
+	if (CheckAttribute(rSrvParams, "BotSkill")) { NetServer.BotSkill = sti(rSrvParams.BotSkill); }
+	if (CheckAttribute(rSrvParams, "PassivePerks")) { NetServer.PassivePerks = sti(rSrvParams.PassivePerks); }
+	if (CheckAttribute(rSrvParams, "ActivePerks")) { NetServer.ActivePerks = sti(rSrvParams.ActivePerks); }
+	Trace("COOP: server switches respawn=" + NetServer.Respawn + " (" + NetServer.RespawnTime + " s) noboarding=" + NetServer.NoBoarding + " fast boarding=" + NetServer.FastBoarding + " passive perks=" + NetServer.PassivePerks + " active perks=" + NetServer.ActivePerks);
+}
+
 void Net_CreateServer(ref rSrvParams)
 {
 	Trace("COOP: Net_CreateServer enter");
+	DeleteAttribute(&NSLobbyBots, "");		// COOP s30: the bots of the lobby belong to one server (server\Bots.c)
 	iServerTime = 0;
 	iPingTime = 0;
 	bServerStartRequested = false;
@@ -162,39 +218,7 @@ void Net_CreateServer(ref rSrvParams)
 	NetServer.UpdateMasterServer = sti(rSrvParams.UpdateMasterServer);
 	NetServer.UpdateMasterServer = 0;	// COOP
 	NetServer.MaxFps = sti(rSrvParams.MaxFps);
-	NetServer.WeatherID = rSrvParams.WeatherID;
-	NetServer.IslandID = rSrvParams.IslandID;
-	NetServer.LandLoc = "";
-	if (CheckAttribute(rSrvParams, "LandLoc")) { NetServer.LandLoc = rSrvParams.LandLoc; }
-	NetServer.Tornado = 0;
-	if (CheckAttribute(rSrvParams, "Tornado")) { NetServer.Tornado = sti(rSrvParams.Tornado); }
-	NetServer.GameType = sti(rSrvParams.GameType);
-	NetServer.NumTeams = sti(rSrvParams.NumTeams);
-	NetServer.AllowDownload = sti(rSrvParams.AllowDownload);
-	NetServer.AllowUpload = sti(rSrvParams.AllowUpload);
-	NetServer.MaxShipClass = sti(rSrvParams.MaxShipClass);
-	NetServer.Credit = sti(rSrvParams.Credit);
-	NetServer.StartPosition = sti(rSrvParams.StartPosition);
-	NetServer.TimeLimit = sti(rSrvParams.TimeLimit);
-	NetServer.GameSpeed = sti(rSrvParams.GameSpeed);
-
-	// COOP: switches of the Create game screen (missing attributes = old behaviour)
-	NetServer.Respawn = false;
-	NetServer.BotRespawn = false;
-	NetServer.NoBoarding = false;
-	NetServer.PassivePerks = false;
-	NetServer.ActivePerks = false;
-	if (CheckAttribute(rSrvParams, "Respawn")) { NetServer.Respawn = sti(rSrvParams.Respawn); }
-	NetServer.RespawnTime = NET_RESPAWN_DELAY / 1000;
-	if (CheckAttribute(rSrvParams, "RespawnTime")) { NetServer.RespawnTime = sti(rSrvParams.RespawnTime); }
-	if (sti(NetServer.RespawnTime) < NET_RESPAWN_TIME_MIN) { NetServer.RespawnTime = NET_RESPAWN_TIME_MIN; }
-	if (sti(NetServer.RespawnTime) > NET_RESPAWN_TIME_MAX) { NetServer.RespawnTime = NET_RESPAWN_TIME_MAX; }
-	if (CheckAttribute(rSrvParams, "NoBoarding")) { NetServer.NoBoarding = sti(rSrvParams.NoBoarding); }
-	NetServer.BotSkill = 2;
-	if (CheckAttribute(rSrvParams, "BotSkill")) { NetServer.BotSkill = sti(rSrvParams.BotSkill); }
-	if (CheckAttribute(rSrvParams, "PassivePerks")) { NetServer.PassivePerks = sti(rSrvParams.PassivePerks); }
-	if (CheckAttribute(rSrvParams, "ActivePerks")) { NetServer.ActivePerks = sti(rSrvParams.ActivePerks); }
-	Trace("COOP: server switches respawn=" + NetServer.Respawn + " (" + NetServer.RespawnTime + " s) noboarding=" + NetServer.NoBoarding + " passive perks=" + NetServer.PassivePerks + " active perks=" + NetServer.ActivePerks);
+	NetServer_SetGameParams(rSrvParams);		// COOP s30: also "Game settings" of the lobby (NetServer_ApplySettings)
 
 	NetServer.GameOver = false;
 	NetServer.ContestStarted = false;	// COOP: at least two sides have fought in this game (a lonely captain does not "win")
@@ -212,6 +236,7 @@ void Net_CreateServer(ref rSrvParams)
 
 	Net_LoadFile(true, &NSBanList, "BanList.nsv");
 	Net_LoadFile(true, &NSPlayers, "Players.nsv");
+	NetServer_LoadSpawnLines();		// COOP s30: the spawn lines of the host (server\OnStart.c)
 	Trace("COOP: after Net_LoadFile x2");
 	
 	SetEventHandler("NetServer_OnNetMessage", "NetServer_OnNetMessage", 0);
@@ -263,6 +288,9 @@ void NetServer_OneSecondTick()
 	if (iDeltaTime > 1000) { iDeltaTime = 1000; }
 
 	int iNewPingTime = iPingTime + iDeltaTime;
+
+	// COOP: the running game always has a real game speed: 0 is "not set", it must not freeze the ships
+	if (bServerGameStarted && stf(NetServer.GameSpeed) < 0.5) { NetServer.GameSpeed = fServerStartGameSpeed; }
 
 	// COOP: the ping timeout works in the running game too (with a longer limit: loading the sea stops the pings for a while).
 	// A client that crashed or lost the connection is dropped, his ship is parked and he can reconnect (server\OnConnect.c).
@@ -400,4 +428,33 @@ void NetServer_UpdateGlobalPlayerStatistics(ref rPlayer)
 	arPlayer.Rewards.Accuracy = Net_GetRewardAccuracy(iHits, iMisses);
 	arPlayer.Rewards.Vitality = Net_GetRewardVitality(iSunks, iWrecks);
 	arPlayer.Rewards.Victorious = Net_GetRewardVictorious(iWon, iLost);
+}
+// COOP s30: "Game settings" of the lobby: the new game of the running server (no game is running). The players stay
+// connected; every lobby reads the server info again (NSC_SERVERINFO_CHANGED: interfaces\Buy.c)
+void NetServer_ApplySettings(ref rSrvParams)
+{
+	if (!NetServer_IsStarted()) { return; }
+	if (bServerGameStarted) { return; }
+	NetServer.ServerName = rSrvParams.ServerName;
+	NetServer.ServerPassword = rSrvParams.ServerPassword;
+	NetServer.AdminPassword = rSrvParams.AdminPassword;
+	if (sti(rSrvParams.MaxPlayers) >= NetServer_GetClientsNum()) { NetServer.MaxClients = sti(rSrvParams.MaxPlayers); }
+	NetServer_SetGameParams(rSrvParams);
+	iSecondsToStartGame = -1;
+	bServerStartRequested = false;
+	int i;
+	for (i=0; i<NET_MAXCLIENTS; i++)
+	{
+		if (!sti(NSClients[i].Use)) { continue; }
+		// a team that is not in the new game: the first one
+		if (sti(NSClients[i].Team) >= sti(NetServer.NumTeams)) { NSClients[i].Team = 0; }
+		NSClients[i].BuyReady = false;
+		NSClients[i].StartReady = false;
+	}
+	int iSMsg = NMCreate();
+	NMAddByte(iSMsg, NC_SERVERINFO);
+	NMAddByte(iSMsg, NSC_SERVERINFO_CHANGED);
+	NetServer_SendMessage(DST_ALL, iSMsg, true);
+	NMDelete(iSMsg);
+	Trace("COOP: srv game settings changed: type " + NetServer.GameType + " island " + NetServer.IslandID + " land " + NetServer.LandLoc + " teams " + NetServer.NumTeams);
 }

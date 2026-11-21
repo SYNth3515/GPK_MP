@@ -1,0 +1,9 @@
+; COOP s30: the hero of the main menu (interface\mainmenu.c): the idle of mush_YokoDias.ani (the musket) that loops
+animation = mush_YokoDias.an
+
+[mm_idle]
+speed = 1.0
+type = normal
+loop = true
+start_time = 50
+end_time = 94

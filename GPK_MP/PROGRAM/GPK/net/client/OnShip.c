@@ -316,6 +316,12 @@ void NetClient_OnShip(int iMsg)
 		case NSC_SHIP_WRECKED:
 			NetClient_OnShipWrecked(iMsg);
 		break;
+		case NSC_SHIP_GONE:
+			NetClient_OnShipGone(iMsg);
+		break;
+		case NSC_SHIP_REBUILD:
+			NetClient_OnShipRebuild(iMsg);
+		break;
 		case NSC_SHIP_RESPAWN:
 			NetClient_OnShipRespawn(iMsg);
 		break;
@@ -377,6 +383,40 @@ void NetClient_OnShipBortsInfo(int iMsg)
 	}
 
 	NetClient_CheckBortsReady(fRatioL, fRatioR);
+	NetClient_BortsChargeTrace(rClient);
+}
+
+// COOP s27 diagnostics: the charge of the borts of our ship as the server sends it (the ring of the compass draws it), written to
+// compile.log when a bort changes by 10% or more ("COOP: charge L R F B" in percent), to see what the ring gets after a volley
+int iNetChgLast0 = -100;
+int iNetChgLast1 = -100;
+int iNetChgLast2 = -100;
+int iNetChgLast3 = -100;
+bool NetClient_ChgFar(int a, int b)
+{
+	int d = a - b;
+	if (d < 0) { d = 0 - d; }
+	return d >= 10;
+}
+
+void NetClient_BortsChargeTrace(ref rClient)
+{
+	aref arB; makearef(arB, rClient.Ship.Cannons.Borts);
+	int p0 = makeint(stf(arB.cannonl.ChargeRatio) * 100.0 + 0.5);
+	int p1 = makeint(stf(arB.cannonr.ChargeRatio) * 100.0 + 0.5);
+	int p2 = makeint(stf(arB.cannonf.ChargeRatio) * 100.0 + 0.5);
+	int p3 = makeint(stf(arB.cannonb.ChargeRatio) * 100.0 + 0.5);
+	bool bLog = false;
+	if (NetClient_ChgFar(p0, iNetChgLast0)) { bLog = true; }
+	if (NetClient_ChgFar(p1, iNetChgLast1)) { bLog = true; }
+	if (NetClient_ChgFar(p2, iNetChgLast2)) { bLog = true; }
+	if (NetClient_ChgFar(p3, iNetChgLast3)) { bLog = true; }
+	if (!bLog) { return; }
+	iNetChgLast0 = p0;
+	iNetChgLast1 = p1;
+	iNetChgLast2 = p2;
+	iNetChgLast3 = p3;
+	Trace("COOP: charge L " + p0 + " R " + p1 + " F " + p2 + " B " + p3 + " (t " + iClientServerTime + ")");
 }
 
 void NetClient_OnShipDead(int iMsg)
@@ -411,6 +451,13 @@ void NetClient_OnShipDead(int iMsg)
 	}
 
 	ref rDeadClient = NetClient_GetClient(wDeadID);
+	// COOP: sinking effect of single player (planks, bubbles): SINKEFFECT looks for the ship by the character; sink_effect.dll is patched
+	// to search the entities of the class NetShip (the original searches "ship"), see iCoopFxSinkEffect in client\OnStart.c
+	if (isEntity(&SinkEffect))
+	{
+		Trace("COOP: cli sink effect msg id=" + wDeadID + " x=" + rDeadClient.Ship.Pos.x + " z=" + rDeadClient.Ship.Pos.z);
+		SendMessage(&SinkEffect, "la", MSG_SHIP_DELETE, &NCClients[wDeadID]);
+	}
 
 	// single: ship_sink sound at the sinking ship
 	Play3DSound("ship_sink", stf(rDeadClient.Ship.Pos.x), stf(rDeadClient.Ship.Pos.y), stf(rDeadClient.Ship.Pos.z));
@@ -656,6 +703,7 @@ void NetClient_ShipUpdateSounds()
 	PostEvent("NetClient_ShipUpdateSounds", 1000, "l", wOurClientID)
 
 	ref rClient = NetClient_GetClient(wOurClientID);
+	if (!IsEntity(rClient)) { return; }		// COOP s27: the ship was deleted (it may be created again)
 
 	float fSailState = stf(rClient.Ship.SailState);
 
@@ -676,6 +724,15 @@ void NetClient_ShipSeriousBoom(float x, float y, float z)
 {
 	NetClient_CreateBlast(x, y, z);
 	CreateParticleSystem("blast_inv", x, y, z, 0.0, 0.0, 0.0, 0);
+	Play3DSound("ship_explosion", x, y, z);
+}
+
+// COOP: Ship_Serious_Boom of single player (sea_ai\AIShip.c) = CreateBlast + ShipExplode + sound; CreateBlast adds its entity to the layers
+// realize/sea_realize (drawn before the sky -> the sky is seen through the debris). Same effects, the blast is created by NetClient_CreateBlast.
+void NetClient_ShipSeriousBoomSP(float x, float y, float z)
+{
+	NetClient_CreateBlast(x, y, z);
+	CreateParticleSystem("ShipExplode", x, y, z, 0.0, 0.0, 0.0, 0);
 	Play3DSound("ship_explosion", x, y, z);
 }
 
@@ -722,7 +779,7 @@ void NetClient_ShipDetonateSmall()
 		RotateAroundY(&x1, &z1, fCos, fSin);
 
 		y1 = 1.0 + y + frnd() * 3.0;
-		Ship_Serious_Boom(x1 + x, y1, z1 + z);
+		NetClient_ShipSeriousBoomSP(x1 + x, y1, z1 + z);
 
 		//CreateParticleSystem("blast", x1 + x, y1, z1 + z, 0.0, 0.0, 0.0, 0);
 	}
@@ -756,7 +813,7 @@ void NetClient_ShipDetonate(ref rClient, bool bMakeSmallBoom)
 		RotateAroundY(&x1, &z1, fCos, fSin);
 
 		y1 = 1.0 + y + frnd() * 3.0;
-		Ship_Serious_Boom(x1 + x, y1, z1 + z);
+		NetClient_ShipSeriousBoomSP(x1 + x, y1, z1 + z);
 		CreateParticleSystem("blast", x1 + x, y1, z1 + z, 0.0, 0.0, 0.0, 0);
 	}
 
@@ -968,6 +1025,10 @@ void NetClient_OnShipWrecked(int iMsg)
 	int wKillerID = NMGetClientID(iMsg);
 	int iDetonate = NMGetByte(iMsg);
 	int iSeconds = NMGetByte(iMsg);
+	int iSink = NMGetByte(iMsg);			// COOP s27: 1 = the wreck sinks (created again at the respawn)
+	float fSinkX = NMGetFloat(iMsg);
+	float fSinkY = NMGetFloat(iMsg);
+	float fSinkZ = NMGetFloat(iMsg);
 
 	ref rDead = NetClient_GetClient(wDeadID);
 	rDead.Wrecked = true;
@@ -976,6 +1037,18 @@ void NetClient_OnShipWrecked(int iMsg)
 	NetClient_SailorsDeleteShip(wDeadID);		// COOP: crew on the deck (client\Sailors.c)
 
 	if (!bNetClientInGame || !COOP_CliSlotLive(wDeadID)) { return; }
+
+	if (iSink != 0)
+	{
+		// the sinking of a ship of the game without respawn (NetClient_OnShipDead): the sink speed must exist before Dead
+		rDead.Ship.Sink.Speed.x = fSinkX;
+		rDead.Ship.Sink.Speed.y = fSinkY;
+		rDead.Ship.Sink.Speed.z = fSinkZ;
+		if (isEntity(&SinkEffect)) { SendMessage(&SinkEffect, "la", MSG_SHIP_DELETE, &NCClients[wDeadID]); }
+		Play3DSound("ship_sink", stf(rDead.Ship.Pos.x), stf(rDead.Ship.Pos.y), stf(rDead.Ship.Pos.z));
+		rDead.Dead = true;
+		Trace("COOP: cli wreck " + wDeadID + " sinks, created again at the respawn");
+	}
 
 	NetClient_AnnounceKill(iKillStatus, wKillerID, wDeadID);
 
@@ -1032,12 +1105,19 @@ void NetClient_OnShipRespawn(int iMsg)
 	rC.Ship.NewPos.x = x;
 	rC.Ship.NewPos.z = z;
 
-	if (!bNetClientInGame || !COOP_CliSlotLive(wID)) { return; }
-	if (!CheckAttribute(rC, "CoopReady") || !sti(rC.CoopReady)) { return; }
+	// COOP s27: the ship is created again at the new place (a sunk or deleted wreck, the fallen masts, the old damage of the model)
+	bool bRecreated = false;
+	if (iNetRespawnRecreate != 0) { bRecreated = NetClient_ShipEntityRecreate(wID, x, z, ay, "respawn"); }
 
-	// the new place at once (the next ship info packets go on from here)
-	SendMessage(rC, "llffffff", MSG_SHIP_CURVES, iClientServerTime, x, ay, z, 0.0, 0.0, 0.0);
-	NetClient_SailorsRespawn(wID);		// COOP: crew on the deck (client\Sailors.c)
+	if (!bRecreated)
+	{
+		if (!bNetClientInGame || !COOP_CliSlotLive(wID)) { return; }
+		if (!CheckAttribute(rC, "CoopReady") || !sti(rC.CoopReady)) { return; }
+
+		// the new place at once (the next ship info packets go on from here)
+		SendMessage(rC, "llffffff", MSG_SHIP_CURVES, iClientServerTime, x, ay, z, 0.0, 0.0, 0.0);
+		NetClient_SailorsRespawn(wID);		// COOP: crew on the deck (client\Sailors.c)
+	}
 
 	if (wID == wClientID)
 	{
@@ -1046,8 +1126,46 @@ void NetClient_OnShipRespawn(int iMsg)
 		PlaySound("interface\_EvShip0.wav");
 	}
 
-	NetBI_CreateShipPrivate(wID);		// COOP: the ship that is back is in the interface again (its bars, its pointer)
 	RefreshBattleInterface();
+}
+
+// =============================================================================================
+// COOP s27: deletion and creation of the ships during the game (client\OnClient.c NetClient_ShipEntityDelete / Recreate)
+// 1 = at the respawn every ship is created again (whole masts, no old damage); 0 = only the sunk / deleted wrecks are
+int iNetRespawnRecreate = 1;
+// 1 = the repair of the masts creates our own ship again too (the cameras look at it); 0 = only the ships of the others
+int iNetRebuildOwnShip = 1;
+
+// the sunk ship is deleted (server\OnShip.c: NetServer_WreckGoneEvent)
+void NetClient_OnShipGone(int iMsg)
+{
+	int wID = NMGetClientID(iMsg);
+	if (wID < 0 || wID >= NET_MAXCLIENTS) { return; }
+	ref rC = NetClient_GetClient(wID);
+	if (!CheckAttribute(rC, "Dead")) { return; }
+	if (!sti(rC.Dead)) { return; }		// a wreck that stays afloat (NET_WRECK_SINK 0) is deleted too only when it is Dead here
+	if (NetClient_ShipEntityDelete(wID, "sunk long ago", false))
+	{
+		Trace("COOP: cli sunk ship " + wID + " deleted");
+	}
+}
+
+// the ship is created again at its place (server\OnShip.c: NetServer_ShipRebuildMasts, the repair brings the masts back)
+void NetClient_OnShipRebuild(int iMsg)
+{
+	int wID = NMGetClientID(iMsg);
+	float x = NMGetFloat(iMsg);
+	float z = NMGetFloat(iMsg);
+	float ay = NMGetFloat(iMsg);
+	if (wID < 0 || wID >= NET_MAXCLIENTS) { return; }
+	if (wID == wClientID && iNetRebuildOwnShip == 0) { return; }
+	ref rC = NetClient_GetClient(wID);
+	rC.Ship.NewPos.x = x;
+	rC.Ship.NewPos.z = z;
+	if (NetClient_ShipEntityRecreate(wID, x, z, ay, "masts repaired"))
+	{
+		RefreshBattleInterface();
+	}
 }
 
 // =============================================================================================
@@ -1071,9 +1189,27 @@ void NetClient_PerkLog(string sKey, int iPerk, int iNum)
 	Log_SetStringToLog(oRes.Str);
 }
 
+// COOP s28: a sea perk of OUR ship (common\Perks.c: NET_SPERK_*): the switch of the server or bought in the lobby
+// (the server sends the mask with the load message of the ship: NCClients[i].SeaPerks)
+bool NetClient_SeaPerk(int iPerk)
+{
+	if (iPerk < NET_SPERK_PASSIVE_NUM)
+	{
+		if (CheckAttribute(&NCServer, "PassivePerks") && sti(NCServer.PassivePerks)) { return true; }
+	}
+	else
+	{
+		if (CheckAttribute(&NCServer, "ActivePerks") && sti(NCServer.ActivePerks)) { return true; }
+	}
+	int wMe = NetClient_GetThisClientID();
+	if (wMe < 0 || wMe >= NET_MAXCLIENTS) { return false; }
+	if (!CheckAttribute(&NCClients[wMe], "SeaPerks")) { return false; }
+	return Net_SeaPerkBit(sti(NCClients[wMe].SeaPerks), iPerk);
+}
+
 bool NetClient_ActivePerkReady(int iPerk)
 {
-	if (!sti(NCServer.ActivePerks)) { return false; }
+	if (!NetClient_SeaPerk(NET_SPERK_ACTIVE0 + iPerk)) { return false; }
 	string sP = "p" + iPerk;
 	if (!CheckAttribute(&NCPerks, sP + ".Ready")) { return true; }
 	return iClientServerTime >= sti(NCPerks.(sP).Ready);
@@ -1090,8 +1226,8 @@ int NetClient_ActivePerkWait(int iPerk)
 
 void NetClient_UseActivePerk(int iPerk)
 {
-	if (!sti(NCServer.ActivePerks)) { return; }
 	if (iPerk < 0 || iPerk >= NET_APERK_NUM) { return; }
+	if (!NetClient_SeaPerk(NET_SPERK_ACTIVE0 + iPerk)) { return; }		// COOP s28
 	if (NetClient_IsThisShipDead()) { return; }
 
 	if (!NetClient_ActivePerkReady(iPerk))

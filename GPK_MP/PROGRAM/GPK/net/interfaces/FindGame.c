@@ -148,6 +148,14 @@ void InitInterface(string iniName)
 	CheckButton_SetState("CHECKBUTTONS_GAMETYPES", 2, bFG_TeamDeathmatch);
 	CheckButton_SetState("CHECKBUTTONS_GAMETYPES", 3, bFG_DefendConvoy);
 	CheckButton_SetState("CHECKBUTTONS_GAMETYPES", 4, bFG_CaptureTheFort);
+	CheckButton_SetState("CHECKBUTTONS_GAMETYPES", 5, bFG_LandDuel);
+
+	// COOP s27: the window "Подробно"
+	XI_WindowShow("WND_DETAILS", false);
+	XI_WindowDisable("WND_DETAILS", true);
+	SetEventHandler("OnDetails", "FG_OnDetails", 0);
+	SetEventHandler("OnDetailsClose", "FG_OnDetailsClose", 0);
+	SetEventHandler("NCEvent_SrvDetails", "FG_OnSrvDetails", 0);
 
 	// disable addfav window
 	XI_WindowShow("WND_ADDFAVORITES", false);
@@ -187,6 +195,30 @@ void InitInterface(string iniName)
 	// no network activity during init: first refresh runs a bit later
 	bFGInitDone = true;
 	PostEvent("FG_InitialRefresh", 300);
+
+	// COOP: the preview (net\Land.c: NetPreview_*): the client joins the local server of the preview at once
+	if (iNetPreview > 0)
+	{
+		SetEventHandler("FG_PreviewConnect", "FG_PreviewConnect", 0);
+		PostEvent("FG_PreviewConnect", 300);
+	}
+}
+
+void FG_PreviewConnect()
+{
+	DelEventHandler("FG_PreviewConnect", "FG_PreviewConnect");
+	if (iNetPreview <= 0) { return; }
+	NetPreview_Connect();
+	if (iNetPreview <= 0) { return; }
+
+	XI_WindowShow("WND_TRYCONNECT", true);
+	XI_WindowDisable("WND_TRYCONNECT", false);
+	SetCurrentNode("BTN_TRYCONNECT_CANCEL");
+	SetFormatedText("TEXT_TRYCONNECT", "Предпросмотр: запуск локальной игры...");
+	SetFormatedText("TEXT_TRYCONNECT_TIMER", XI_ConvertString("Net_TimeToCancelConnection30"));
+	SetEventHandler("frame", "FG_OnTryConnectFrame", 0);
+	SetEventHandler("OnTryConnectCancel", "FG_OnTryConnectCancel", 0);
+	iTryConnectDeltaTime = 0;
 }
 
 void FG_InitialRefresh()
@@ -385,11 +417,11 @@ void FG_FindInternetServers()
 
 void SelectServer(ref rServer, int iSelected)
 {
-	string sValue = rServer.Name;
+	string sValue = FG_Clean(rServer.Name);
 
 	sCurrentIP = rServer.IP;
 	sCurrentPort = rServer.Port;
-	sCurrentName = rServer.Name;
+	sCurrentName = FG_Clean(rServer.Name);
 
 	bCurrentProtected = sti(rServer.Secure);
 
@@ -409,12 +441,12 @@ void SelectServer(ref rServer, int iSelected)
 		Picture_SetPicture("SERVER_MAP_PICTURE", "Interfaces\Net\Islands\" + sIslandMap + ".tga");
 	}
 
-	SetFormatedText("SERVERINFO_NAME", rServer.Name);
+	SetFormatedText("SERVERINFO_NAME", FG_Clean(rServer.Name));
 
 	if (bLandServer)
 	{
 		StringCollection_SetText("STRINGS_SERVERINFO", 1, "#" + NetLand_LocName(sLandLocId));
-		StringCollection_SetText("STRINGS_SERVERINFO", 2, "#Сухопутная дуэль");
+		StringCollection_SetText("STRINGS_SERVERINFO", 2, "txtCS_LandDuel");
 	}
 	else
 	{
@@ -507,7 +539,8 @@ void FG_SelectEmptyServer()
 	//sCurrentName = "";
 	//bCurrentProtected = false;
 
-	Picture_SetPicture("SERVER_MAP_PICTURE", "");
+	// no server, no map: the archipelago
+	Picture_SetPicture("SERVER_MAP_PICTURE", "Interfaces\Net\Islands\OpenSea.tga");
 
 	SetFormatedText("SERVERINFO_NAME", "");
 
@@ -525,6 +558,7 @@ void FG_ClientAccepted()
 
 void FG_ClientRejectedWindow(string sReason)
 {
+	NetPreview_Abort("the connection is refused");		// COOP
 	XI_WindowDisable("WND_LANSERVER", true);
 	XI_WindowDisable("WND_INETSERVER", true);
 	XI_WindowDisable("WND_FAVSERVER", true);
@@ -561,6 +595,7 @@ void FG_Client_RejectedClientPassword()
 
 void FG_ClientNeedServerPassword()
 {
+	NetPreview_Abort("the server asks a password");		// COOP
 	bNeedServerPassword = true;
 	FG_ClientNeedPasswordWindow("NetFG_NeedServerPassword");
 }
@@ -665,6 +700,7 @@ void FG_TabFavorites()
 
 void IDoExit(int exitCode)
 {
+	DelEventHandler("FG_PreviewConnect", "FG_PreviewConnect");
 	DelEventHandler("NCEvent_Client_Accepted", "FG_ClientAccepted");
 	DelEventHandler("NCEvent_Client_Rejected", "FG_ClientRejected");
 	DelEventHandler("NCEvent_Client_RejectedClientPassword", "FG_Client_RejectedClientPassword");
@@ -722,6 +758,9 @@ void IDoExit(int exitCode)
 	DelEventHandler("AddPing", "FG_PingRight");
 
 	DelEventHandler("CheckButtonChange", "FG_CheckButtonChange");
+	DelEventHandler("OnDetails", "FG_OnDetails");
+	DelEventHandler("OnDetailsClose", "FG_OnDetailsClose");
+	DelEventHandler("NCEvent_SrvDetails", "FG_OnSrvDetails");
 
 	interfaceResultCommand = exitCode;
 
@@ -752,6 +791,7 @@ void FG_CheckButtonChange()
 				case 2: 	bFG_TeamDeathmatch = iState;	break;
 				case 3: 	bFG_DefendConvoy = iState;		break;
 				case 4: 	bFG_CaptureTheFort = iState;	break;
+				case 5: 	bFG_LandDuel = iState;			break;
 			}
 		break;
 	}
@@ -767,8 +807,10 @@ bool IsFilterOk(ref rServer)
 	if (bFG_WOPassword && sti(rServer.Secure)) { return false; }
 	if (bFG_FreeServers && (sti(rServer.NumClients) >= sti(rServer.MaxClients))) { return false; }
 
-	// check gametypes
-	if (sti(rServer.GameType) == NETGAME_DEATHMATCH && !bFG_Deathmatch) { return false; }
+	// check gametypes (COOP s27: a land duel has its own switch, its type of the sea is not looked at)
+	bool bLandSrv = NetLand_IsAdvert(rServer.IslandID);
+	if (bLandSrv && !bFG_LandDuel) { return false; }
+	if (!bLandSrv && sti(rServer.GameType) == NETGAME_DEATHMATCH && !bFG_Deathmatch) { return false; }
 	if (sti(rServer.GameType) == NETGAME_NAVAL && !bFG_TeamDeathmatch) { return false; }
 	if (sti(rServer.GameType) == NETGAME_CONVOY && !bFG_DefendConvoy) { return false; }
 	if (sti(rServer.GameType) == NETGAME_FORT && !bFG_CaptureTheFort) { return false; }
@@ -1009,7 +1051,8 @@ void FG_OnFrame()
 		break;
 	}
 
-	StringCollection_SetText("STRINGS_INFO", 6, sNumServers);
+	// the counter is the last (5th) string of STRINGS_INFO; the stale header placeholder is gone
+	StringCollection_SetText("STRINGS_INFO", 5, sNumServers);
 
 	if (bFavWindowActive)
 	{
@@ -1159,6 +1202,48 @@ void FG_OnAddFavorites()
 	bFavWindowActive = true;
 }
 
+// COOP s27: the window "Подробно": the parameters of the selected server (it answers NSC_BROADCAST_DETAILS)
+void FG_OnDetails()
+{
+	XI_WindowDisable("WND_LANSERVER", true);
+	XI_WindowDisable("WND_INETSERVER", true);
+	XI_WindowDisable("WND_FAVSERVER", true);
+	XI_WindowDisable("WND_NETFINDGAME", true);
+	XI_WindowShow("WND_DETAILS", true);
+	XI_WindowDisable("WND_DETAILS", false);
+	SetCurrentNode("BTN_DETAILS_CLOSE");
+
+	if (sCurrentIP == "" || sCurrentPort == "")
+	{
+		SetFormatedText("TEXT_DETAILS", "Сначала выберите сервер в списке");
+		return;
+	}
+	SetFormatedText("TEXT_DETAILS", sCurrentName);
+	AddLineToFormatedText("TEXT_DETAILS", "Запрос параметров...");
+
+	int iSMsg = NMCreate();
+	NMAddClientID(iSMsg, DST_INVALID);
+	NMAddByte(iSMsg, NC_BROADCAST);
+	NMAddByte(iSMsg, NSC_BROADCAST_DETAILS);
+	NMAddDword(iSMsg, Net_GetTickCount());
+	NetClient_SendMessageDirectToIP(FG_IPStringToInt(sCurrentIP), sti(sCurrentPort), iSMsg);
+	NMDelete(iSMsg);
+}
+
+void FG_OnSrvDetails()
+{
+	string sCode = GetEventData();
+	Net_DetailsShow("TEXT_DETAILS", sCode);
+}
+
+void FG_OnDetailsClose()
+{
+	XI_WindowShow("WND_DETAILS", false);
+	XI_WindowDisable("WND_DETAILS", true);
+	FG_ShowMainWindow();
+	SetCurrentNode("BTN_DETAILS");
+}
+
 void FG_OnCreateGame()
 {
 	IDoExit(RC_INTERFACE_NET_CREATEGAME);
@@ -1236,6 +1321,7 @@ void FG_OnTryConnectFrame()
 
 void FG_OnTryConnectCancel()
 {
+	NetPreview_Abort("cancel");		// COOP
 	bFGConnectPending = false;
 	DelEventHandler("FG_DoTryConnect", "FG_DoTryConnect");
 
@@ -1339,14 +1425,14 @@ bool AddServerToList(string sTableName, ref rServer, int iIndex)
 		arTable.td1.icon.height = 16;
 		//arTable.td1.icon.cellsize = true;
 	}
-	arTable.td2.str = rServer.Name;
+	arTable.td2.str = FG_Clean(rServer.Name);
 	arTable.td3.str = "";
 	arTable.td4.str = rServer.IP + ":" + rServer.Port;
 	arTable.td5.str = XI_ConvertString("txtCS_" + NetModes[sti(rServer.GameType)].Name);
 	if (NetLand_IsAdvert(rServer.IslandID))
 	{
 		arTable.td3.str = NetLand_LocName(NetLand_AdvertLoc(rServer.IslandID));
-		arTable.td5.str = "Сухопутная дуэль";
+		arTable.td5.str = XI_ConvertString("txtCS_LandDuel");
 	}
 	arTable.td6.str = rServer.NumClients + " / " + rServer.MaxClients;
 	arTable.td7.str = rServer.Ping;
@@ -1399,35 +1485,40 @@ void NetInterface_AddInternetServerToList(string sName, string sIP, int wPort, b
 	Table_UpdateWindow("TABLE_INETSERVER");
 }
 
+// COOP: an attribute that is not there is shown as "(null)": the text is empty instead
+string FG_Clean(string sText)
+{
+	if (sText == "(null)" || sText == "null" || sText == "NULL") { return ""; }
+	return sText;
+}
+
+// the texture is a packed ".tga.tx" or a plain ".tga" file (a mod keeps its pictures unpacked)
+bool FG_TextureExists(string sDir, string sName)
+{
+	object oTexFiles;
+	if (NFFindFiles(&oTexFiles, sDir, sName + ".tga.tx", false) > 0) { return true; }
+	object oTexFiles2;
+	if (NFFindFiles(&oTexFiles2, sDir, sName + ".tga", false) > 0) { return true; }
+	return false;
+}
+
 // Find player avatar in custom faces or standard portraits.
 string FG_GetProfileFacePath(string sFaceName)
 {
 	if (sFaceName == "") return "";
 
-	object oFaceFiles;
-	int iFaceCount = NFFindFiles(
-		&oFaceFiles,
-		"resource\textures\NET\FACES\",
-		sFaceName + ".tga.tx",
-		false
-	);
+	// COOP: an NPC skin of the profile (net\Land.c)
+	string sNpcFace = NetLand_NpcFaceTex(sFaceName);
+	if (sNpcFace != "") return sNpcFace;
 
 	// Custom multiplayer avatars.
-	if (iFaceCount > 0)
+	if (FG_TextureExists("resource\textures\NET\FACES\", sFaceName))
 	{
 		return "NET\FACES\" + sFaceName + ".tga";
 	}
 
-	object oPortraitFiles;
-	int iPortraitCount = NFFindFiles(
-		&oPortraitFiles,
-		"resource\textures\INTERFACES\PORTRAITS\256\",
-		sFaceName + ".tga.tx",
-		false
-	);
-
 	// Standard single-player portraits.
-	if (iPortraitCount > 0)
+	if (FG_TextureExists("resource\textures\INTERFACES\PORTRAITS\256\", sFaceName))
 	{
 		return "INTERFACES\PORTRAITS\256\" + sFaceName + ".tga";
 	}

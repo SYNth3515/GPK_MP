@@ -1109,8 +1109,10 @@ void ProcessControls()
 	// COOP: land duel of the net game (net\Land.c): Esc opens the menu of the net game, no single player screens
 	if (NetLand_IsActive())
 	{
-		if (ControlName == "MainMenu" || ControlName == "MainMenuDouble") { LaunchNetMenu(); return; }
-		if (ControlName == "Interface") { return; }
+		// F1 ("MainMenu") is the statistics of the duel (the control "gamestat" comes too late: the menu was open already)
+		if (ControlName == "MainMenu") { LaunchNetInterface_GameStat(); return; }
+		if (ControlName == "MainMenuDouble") { LaunchNetMenu(); return; }
+		if (ControlName == "Interface") { NetLand_OpenLoadoutKey(); return; }		// F2: the loadout of the duel
 	}
 	
 	if (ControlName == "WhrPrevWeather")	{ Whr_LoadNextWeather(-1); }
@@ -1155,9 +1157,17 @@ void ProcessControls()
 	
 
     // boal 27.11.03 time -->
-  	if (ControlName=="TimeScaleFaster" || ControlName == "TimeScaleSlower")
+	if (ControlName=="TimeScaleFaster" || ControlName == "TimeScaleSlower")
   	{
-        if (loadedLocation.type == "underwater") return; //запрет ускорения под водой.
+        		// COOP: in a net game the +/- keys change the game speed of the server: the same command as the +/- buttons
+		// of the admin menu (net/client/Admin.c -> NET_ADMIN_SPEED, net/server/Admin.c)
+		if (IsNetActive())
+		{
+			if (ControlName == "TimeScaleFaster") { NetClient_AdminSend(NET_ADMIN_SPEED, DST_INVALID, 1.0); }
+			else { NetClient_AdminSend(NET_ADMIN_SPEED, DST_INVALID, -1.0); }
+			return;
+		}
+		if (loadedLocation.type == "underwater") return; //запрет ускорения под водой.
 		DeleteAttribute(pchar, "pause");
 		if (ControlName == "TimeScaleFaster")
      	{
@@ -1245,6 +1255,11 @@ void ProcessControls()
      	}
 	}
 	// boal <--
+	// COOP: the net game keeps one speed for all (the admin menu): the own speed / the pause of the single player do nothing
+	if (IsNetActive())
+	{
+		if (ControlName == "TimeScale" || ControlName == "VK_PAUSETimePause") { return; }
+	}
 	switch(ControlName)
 	{
         case "TimeScale":

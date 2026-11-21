@@ -1,0 +1,9 @@
+; COOP s30: the hero of the main menu (interface\mainmenu.c): the idle of man2.ani that loops
+animation = man2.an
+
+[mm_idle]
+speed = 1.0
+type = normal
+loop = true
+start_time = 1452
+end_time = 1550

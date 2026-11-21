@@ -100,6 +100,14 @@ void NetClient_OnBroadcast(int dwIP, int wPort, int iMsg)
 	int byCallbackCode = NMGetByte(iMsg);
 	int iBroacastTime = NMGetDword(iMsg);
 
+	// COOP s27: the answer to the button "Подробно" (an old server answers with its usual reply: the name is not "GPKI|...")
+	if (byCallbackCode == NSC_BROADCAST_DETAILS)
+	{
+		string sDetails = NMGetString(iMsg);
+		Event("NCEvent_SrvDetails", "s", sDetails);
+		return;
+	}
+
 	string sServerName = NMGetString(iMsg);
 	bool bSecure = NMGetByte(iMsg);
 	int iGameType = NMGetByte(iMsg);

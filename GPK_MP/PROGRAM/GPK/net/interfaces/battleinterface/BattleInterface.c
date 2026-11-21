@@ -685,8 +685,10 @@ void NetBI_CreateShipPrivate(int wNetClientID)
 		iColor = NetTeamColor[sti(rc.Team)];
 	}
 
-	// COOP: a bot of the admin: its own relation and colour (server\Bots.c)
-	if (NetClient_IsBotID(wNetClientID))
+	// COOP: a bot of the admin: its own relation and colour (server\Bots.c); COOP s28: a bot of a team is like a player of it
+	bool bTeamBotBI = false;
+	if (NetClient_IsBotID(wNetClientID)) { if (CheckAttribute(rc, "BotRel")) { bTeamBotBI = (sti(rc.BotRel) >= NET_BOTREL_TEAM0); } }
+	if (NetClient_IsBotID(wNetClientID) && !bTeamBotBI)
 	{
 		shipRelation = BI_RELATION_ENEMY;
 		iColor = argb(255,255,0,0);
@@ -712,10 +714,40 @@ void NetBI_CreateShip()
 {
 	int wNetClientID = GetEventData();
 	NetBI_CreateShipPrivate(wNetClientID);
+	// COOP s27: the relation / colour of a ship depends on OUR team: the ships created before our own one (our team was not
+	// known yet) could stay with the wrong colour on the minimap. When our ship appears, all the others are set again.
+	if (wNetClientID == NetClient_GetThisClientID())
+	{
+		for (int iBIR=0; iBIR<NET_MAXCLIENTS; iBIR++)
+		{
+			if (iBIR == wNetClientID) { continue; }
+			if (!COOP_CliSlotLive(iBIR)) { continue; }
+			if (!CheckAttribute(&NCClients[iBIR], "CoopReady")) { continue; }
+			if (!sti(NCClients[iBIR].CoopReady)) { continue; }
+			NetBI_CreateShipPrivate(iBIR);
+		}
+		RefreshBattleInterface();
+	}
 }
 
 void NetBI_DeleteShip()
 {
+	RefreshBattleInterface();
+}
+
+// COOP s27: the ring of the cannons round the compass stayed bright green (as if the charge were unknown) after a deleted
+// ship left the interface: the interface had lost its main ship (the charge is read from it). After a ship leaves the interface
+// our own ship is put into it again as the main ship.
+void NetBI_MainShipAgain()
+{
+	int wMe = NetClient_GetThisClientID();
+	if (wMe < 0 || wMe >= NET_MAXCLIENTS) { return; }
+	if (!COOP_CliSlotLive(wMe)) { return; }
+	if (!CheckAttribute(&NCClients[wMe], "CoopReady")) { return; }
+	if (!sti(NCClients[wMe].CoopReady)) { return; }
+	if (!IsEntity(&NCClients[wMe])) { return; }
+	SendMessage(&NetBInterface, "ll", BI_IN_DELETE_SHIP, wMe);
+	NetBI_CreateShipPrivate(wMe);
 	RefreshBattleInterface();
 }
 
@@ -735,6 +767,7 @@ void NetBI_DeadShip()
 		}
 	}
 	RefreshBattleInterface();
+	NetBI_MainShipAgain();		// COOP s27
 }
 
 void NetBI_SetPossibleCommands()
@@ -744,7 +777,7 @@ void NetBI_SetPossibleCommands()
 	// для главного персонажа
 	// COOP: a wrecked (respawn) / sinking ship has no commands
 	bool bAlive = !NetClient_IsThisShipDead();
-	bool bPerks = bAlive && sti(NCServer.ActivePerks);
+	bool bPerks = bAlive;		// COOP s28: every active perk by itself (bought in the lobby or the switch of the server)
 
 	NetBInterface.Commands.Charge.enable	= bAlive;//CheckAttribute(mainCh,"Ship.Cannons.Charge.Type");
 	NetBInterface.Commands.Speed.enable		= bAlive;
@@ -754,11 +787,11 @@ void NetBI_SetPossibleCommands()
 	if (sti(NCServer.NoBoarding)) { bBoard = false; }
 	NetBInterface.Commands.Board.enable		= bBoard;
 	NetBInterface.Commands.Mine.enable		= bAlive;
-	NetBInterface.Commands.Brander.enable	= bPerks;		// COOP: the brander is an active perk (server switch)
+	NetBInterface.Commands.Brander.enable	= bPerks && NetClient_SeaPerk(NET_SPERK_BRANDER);		// COOP: the brander is an active perk
 	NetBInterface.Commands.Dump.enable		= bAlive;
 
 	// COOP: active perks, shown while they can be used (the log tells when they are ready again)
-	NetBInterface.Commands.ImmediateReload.enable	= bPerks && NetClient_ActivePerkReady(NET_APERK_IMMEDIATERELOAD);
+	NetBInterface.Commands.ImmediateReload.enable	= bPerks && NetClient_ActivePerkReady(NET_APERK_IMMEDIATERELOAD);		// (ready = bought and not cooling down)
 	NetBInterface.Commands.Turn180.enable			= bPerks && NetClient_ActivePerkReady(NET_APERK_TURN180);
 	NetBInterface.Commands.LightRepair.enable		= bPerks && NetClient_ActivePerkReady(NET_APERK_LIGHTREPAIR);
 	NetBInterface.Commands.InstantRepair.enable		= bPerks && NetClient_ActivePerkReady(NET_APERK_INSTANTREPAIR);
@@ -921,8 +954,12 @@ ref NetBI_GetData()
 		wNetClientID = GetEventData();
 		chRef = NetClient_GetClient(wNetClientID);
 		int st = sti(chRef.ship.type);
-		//st = sti(RealShips[st].basetype);
-		SetShipPictureDataByShipType( st );
+		// COOP s27: the picture by the NET ship table (NetShips); SetShipPictureDataByShipType used the table of the single
+		// player game (ShipsTypes), whose numbers are other ships -> a wrong icon (a xebec of somebody else)
+		BI_intNRetValue[0] = 0;
+		BI_intNRetValue[1] = 1;
+		BI_intNRetValue[2] = BI_ICONS_TEXTURE_SHIP1;
+		if (st >= 0 && st < iNetShipsNum) { SetShipPictureDataByShipTypeName(NetShips[st].name); }
 		break;
 	}
 	return &BI_intNRetValue;
@@ -1007,7 +1044,7 @@ float Net_GetRigDamage(int shootIdx, int iBallType, ref damage_chr)
 	ref rBall = Net_GetGoodByIndex(iBallType);
 	float fDmgRig = stf(rBall.DamageRig);
 	fDmgRig = fDmgRig * stf(damage_chr.ship.SailsDamageModifier);
-	if (NetServer_PassivePerksFor(shootIdx)) { fDmgRig = fDmgRig * 1.15; }		// COOP: passive perk SailsDamageUp of the shooter
+	if (NetServer_SeaPerk(shootIdx, NET_SPERK_SAILSDAMAGE)) { fDmgRig = fDmgRig * 1.15; }		// COOP: passive perk SailsDamageUp of the shooter
 	return fDmgRig;
 }
 
@@ -1097,8 +1134,8 @@ float Net_SpyGlassDistance(ref chref, bool bFort)
 	if (bFort)
 	{
 		if (!CheckAttribute(chref, "SpyGlass.x")) { return 0.0; }
-		fX2 = stf(chref.SpyGlass.x);
-		fZ2 = stf(chref.SpyGlass.z);
+		fX2 = stf(chref.SpyGlass.x) + ISG_FORT_OX;
+		fZ2 = stf(chref.SpyGlass.z) + ISG_FORT_OZ;
 	}
 	else
 	{
@@ -1132,6 +1169,8 @@ string Net_SpyGlassFacePath(ref chref)
 	{
 		return "interfaces\portraits\256\" + sFace + ".tga";
 	}
+	string sNpcSpy = NetLand_NpcFaceTex(sFace);		// COOP: an NPC skin of the profile (net\Land.c)
+	if (sNpcSpy != "") { return sNpcSpy; }
 
 	if (CheckAttribute(chref, "UserData.SpyFaceKey") && CheckAttribute(chref, "UserData.SpyFacePath"))
 	{
@@ -1150,11 +1189,13 @@ string Net_SpyGlassFacePath(ref chref)
 }
 
 // ---- the fort in the view of the telescope (the engine reports ships only) ----
-#define ISG_FORT_RADIUS		300.0	// m, how far from the view ray the fort locator may be (the locator is not the centre of the fort model)
-#define ISG_FORT_RADIUS_K	0.04	// + this * distance to the fort (the further the fort, the bigger the tolerance)
+#define ISG_FORT_RADIUS		35.0	// m, how far from the view ray the fort locator may be (the locator is not the centre of the fort model)
+#define ISG_FORT_RADIUS_K	0.01	// + this * distance to the fort (the further the fort, the bigger the tolerance)
 #define ISG_FORT_HEIGHT		25.0	// m, height of the fort above the sea
-#define ISG_FORT_VTOL		80.0	// m, vertical tolerance of the view ray at the fort
+#define ISG_FORT_VTOL		22.0	// m, vertical tolerance of the view ray at the fort
 #define ISG_FORT_MAXDIST	5000.0
+#define ISG_FORT_OX			105.0	// COOP s27: the middle of the fort model from the fort point (world x), the same as NET_FORT_COLL_OX of the push (server\Fort.c)
+#define ISG_FORT_OZ			8.0		// (world z), NET_FORT_COLL_OZ
 
 int iSpyTickNo = 0;		// timer ticks
 int iSpyEngineTick = -100;	// tick of the last SetTelescopeInfo of the engine (a ship is in the view)
@@ -1191,8 +1232,8 @@ bool NetClient_SpyFortInView()
 	float fHor = sqrt(dx * dx + dz * dz);
 	if (fHor < 0.001) { return false; }
 
-	float vx = stf(rFort.SpyGlass.x) - cx;
-	float vz = stf(rFort.SpyGlass.z) - cz;
+	float vx = stf(rFort.SpyGlass.x) + ISG_FORT_OX - cx;		// the middle of the model, not the locator (the admin fort has its shift in SpyGlass.x/z already)
+	float vz = stf(rFort.SpyGlass.z) + ISG_FORT_OZ - cz;
 	float fDist = sqrt(vx * vx + vz * vz);
 	fSpyDbgDist = fDist;
 	sSpyFortWhy = "too close / too far";
@@ -1233,6 +1274,8 @@ void NetClient_SpyFortUpdate()
 		{
 			bSpyFortShown = false;
 			SendMessage(&objISpyGlass, "ll", MSG_ISG_VISIBLE, false);
+			SendMessage(&objISpyGlass, "ll", MSG_ISG_VISIBLE, 3);		// COOP s27: the fort is no target of the panel (battle_interface.dll patch)
+			sSpyShownKey = "";
 		}
 		return;
 	}
@@ -1257,6 +1300,8 @@ void NetClient_SpyFortUpdate()
 		{
 			bSpyFortShown = false;
 			SendMessage(&objISpyGlass, "ll", MSG_ISG_VISIBLE, false);
+			SendMessage(&objISpyGlass, "ll", MSG_ISG_VISIBLE, 3);		// COOP s27: the fort is no target of the panel (battle_interface.dll patch)
+			sSpyShownKey = "";
 		}
 		return;
 	}
@@ -1287,9 +1332,31 @@ void NetClient_SpyFortTick()
 void Net_SetSpyGlassData()
 {
 	int wNetClientID = GetEventData();
+	if (wNetClientID == NET_FORTCLIENT) { return; }		// COOP s27: the engine keeps the fort as its target (MSG_ISG_VISIBLE 2): the script shows it itself
+	if (!Net_SpyGlassCanShow(wNetClientID)) { return; }	// COOP s27: a ship we can not show does not block the fort
 	iSpyEngineTick = iSpyTickNo;
 	bSpyFortShown = false;
+	sSpyShownKey = "";
 	Net_SpyGlassShow(wNetClientID);
+}
+
+// COOP s27: a player or a live bot (the bots have Use = 0, they were not shown before: the old data stayed on the screen)
+bool Net_SpyGlassCanShow(int wNetClientID)
+{
+	if (wNetClientID < 0) { return false; }
+	if (wNetClientID == NET_FORTCLIENT) { return true; }
+	if (wNetClientID >= NET_MAXCLIENTS) { return false; }
+	if (wNetClientID == NetClient_GetThisClientID()) { return false; }		// COOP s27: the deck camera looked at our own ship
+	if (CheckAttribute(&NCClients[wNetClientID], "ShipGone"))
+	{
+		if (sti(NCClients[wNetClientID].ShipGone)) { return false; }		// a deleted wreck
+	}
+	if (NetClient_IsCLient(wNetClientID)) { return true; }
+	if (NetClient_IsBotID(wNetClientID))
+	{
+		if (!NetClient_BotRemoved(wNetClientID)) { return true; }
+	}
+	return false;
 }
 
 void Net_SpyGlassShow(int wNetClientID)
@@ -1300,8 +1367,7 @@ void Net_SpyGlassShow(int wNetClientID)
 	if (wNetClientID == NET_FORTCLIENT) { bFort = true; }
 	if (!bFort)
 	{
-		if (wNetClientID >= NET_MAXCLIENTS) { return; }
-		if (!NetClient_IsCLient(wNetClientID)) { return; }
+		if (!Net_SpyGlassCanShow(wNetClientID)) { return; }
 	}
 
 	ref chref = NetClient_GetClient(wNetClientID);
@@ -1480,6 +1546,23 @@ void Net_SpyGlassShow(int wNetClientID)
 		Trace("COOP: spy v3 id=" + wNetClientID + " fort=" + iFortFlag + " dist=" + fDistance + " hull=" + shipHull + " crew=" + shipCrew + " cannons=" + shipCannons + "/" + shipMaxCannons + " face=" + sNetUserFaceTex);
 	}
 	iSpyTraceCnt++;
+
+	// COOP s27: the panel of the fort was sent again every frame (the timer and the event ReleaseTelescopeInfo of the engine) and
+	// started its show anew each time: only the icon was seen for a moment. It is sent now only when its data change (the distance
+	// in steps of 25 m); a ship comes from the engine (SetTelescopeInfo) as before.
+	if (bFort)
+	{
+		// COOP s27: the panel of the engine is seen only while it has a target: the fort becomes its target (value 2, the patch of
+		// battle_interface.dll, _backup_s27\tools\patch_bi_s27.py), sent every time to keep it
+		SendMessage(&objISpyGlass, "ll", MSG_ISG_VISIBLE, 2);
+		string sKey = "f" + shipName + "|" + shipHull + "|" + shipCrew + "|" + shipCannons + "|" + shipMaxCannons + "|" + makeint(fDistance / 25.0);
+		if (sKey == sSpyShownKey) { return; }
+		sSpyShownKey = sKey;
+	}
+	else
+	{
+		sSpyShownKey = "";
+	}
 
 	SendMessage(&objISpyGlass, "lsslllfflllllllllllssl", MSG_ISG_UPDATE,
 		shipName, shipType,

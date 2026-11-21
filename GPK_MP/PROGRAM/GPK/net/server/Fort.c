@@ -1,4 +1,17 @@
 object NSFortModel, NSFortBlots;
+#define NET_FORT_COLL_OX			105.0		// 105 COOP: the middle of the model of the fort is this far from the point that the push uses (world x), see NetServer_FortCollTick
+#define NET_FORT_COLL_OZ			8.0		// 8 (the same, world z). The offset of the Barbados fort that is used on every map; 0, 0 = the push is round the locator of the fort
+#define NET_FORT_COLL_LEN_K			1.0		// COOP: the field is wider by half of the length of the hull (Ship.BoxSize.z) times this: a manowar stops farther than a tartane
+#define NET_FORT_COLL_SPRING			15.0		// COOP: push of the field per unit of depth that a ship went into it (acceleration along the bow)
+#define NET_FORT_COLL_TURN				0.5			// COOP: Ship.Impulse.Rotate.y that turns the bow away from the fort; the sign is the direction (0 = no turn)
+#define NET_FORT_HIT_MINSPEED			6.0			// COOP: a ship that comes to the fort faster than this (speed towards it) hits it like an island: sound and damage
+#define NET_FORT_HIT_REFSPEED			30.0		// COOP: at this speed towards the fort the damage is NET_FORT_HIT_DMG of the maximum hull; it grows with the speed (up to 2x)
+#define NET_FORT_HIT_DMG				0.03		// COOP: part of the maximum hull points (0.03 = 3%); a bot takes none, like from an island
+#define NET_FORT_BOWSPRIT_COS			0.8			// COOP: the bow breaks the bowsprit only if it points at the fort within this cosine of the angle (0.8 = about 37 degrees); a side hit breaks nothing
+#define NET_FORT_BOWSPRIT_MAST			0			// COOP: the bowsprit is mast number 0 in the engine (= ships\<name>\<name>_mast1.gm, the numbers of the engine start from 0: tested, number 1 dropped the main mast of the sloop); Tartane, WarTartane and XebekVML have none
+#define NET_SHIP_BOWSPRIT_MINDIST		0.4			// COOP: ship to ship: the touch point must be farther from the middle of the ship than this part of half of its length (BoxSize.z / 2); the sloop touches its bow at 0.46 of it (10.4 of 22.7), the middle of a side is near 0.2
+#define NET_BOWSPRIT_BOTS				0			// COOP: 1 = the bots lose the bowsprit too, 0 = only the players do
+#define NET_SHIP_BOWSPRIT_MINPOWER		0.5			// COOP: ship to ship: the collision power (the 2nd value of Ship2ShipCollision) from which a bow hit breaks the bowsprit
 #define NET_FORT_SPAWN_DIST		700.0		// COOP: the fort of Bot+ stands this far in front of the bow of the admin (m)
 // COOP: the difficulty of the bots (Create game screen, "Bots": 0 harmless, 1 easy, 2 medium, 3 hard) is the difficulty of the fort
 int NetServer_FortSkillLevel()
@@ -15,6 +28,24 @@ bool NetServer_FortSilent()
 }
 bool NetServer_FortHard() { return NetServer_FortSkillLevel() >= 3; }		// hard: aim assist and all the perks that a fort can use
 
+// COOP: the fort of the game mode (Capture the fort) is destroyed - the only fort whose death ends the battle.
+// The fort of Bot+ (FortRel > 0) never ends it, and in another game mode a dead fort means nothing.
+bool NetServer_FortGameDead()
+{
+	if (sti(NetServer.GameType) != NETGAME_FORT) { return false; }
+	if (!CheckAttribute(&NetServer, "FortLocator") || NetServer.FortLocator == "") { return false; }	// the island of this map has no fort
+	if (CheckAttribute(&NetServer, "FortRel") && sti(NetServer.FortRel) > 0) { return false; }		// the fort of Bot+, not the one of the mode
+
+	ref rFort = NetServer_GetCLient(NET_FORTCLIENT);
+	if (!CheckAttribute(rFort, "Ship.HP")) { return true; }		// the engine took the fort away, no data is left
+	if (stf(rFort.Ship.HP) <= 0.0) { return true; }				// half of the cannons destroyed (the rule of the mode)
+	if (CheckAttribute(rFort, "CoopCannonsTotal") && sti(rFort.CoopCannonsTotal) > 0)
+	{
+		if (sti(rFort.CoopCannonsDamaged) >= sti(rFort.CoopCannonsTotal)) { return true; }	// not a single cannon left
+	}
+	return false;
+}
+
 // hard fort: active perk ImmediateReload (reload time x0.5) like a captain uses it: Duration seconds in every Delay seconds
 bool NetServer_FortBurstOn()
 {
@@ -25,8 +56,9 @@ bool NetServer_FortBurstOn()
 	return iPhase >= iDelay - iDur;
 }
 
-bool bNetFortMove = false;		// COOP: the fort of Bot+ may be built again after it was removed / moved (Bring, Heal, Add after Delete). OFF: in tests the game
+bool bNetFortMove = true; 		// COOP: the fort of Bot+ may be built again after it was removed / moved (Bring, Heal, Add after Delete). OFF: in tests the game
 									// crashed on the first volley of a NetFort entity that was built again. Set true to try it on a build.
+									// (s27: the cause was most likely the deleted model of the fort that the island still traced, see NetServer_FortRemove)
 int iNetFortLastShot = -100000;		// COOP: time of the last shot of the fort (its own ball must not play the hit effect at the muzzle)
 int iNetFortInfoGen = 0;		// COOP: generation of the NSC_FORT_INFO timer (old timers of a previous game stop)
 
@@ -109,17 +141,37 @@ void NetServer_FortBuild(ref rIsland, aref arLocator, int iFriendlyTeam, float f
 			CreateEntity(rFort, "NetFort");
 			LayerAddObject("net_execute", rFort, 1);
 
-			CreateEntity(&NSFortModel, "MODELR");
 			string sNSFortModel = rIsland.filespath.models + "\" + arLocator.fort.model;
+			bool bReuseModel = false;
+			if (IsEntity(&NSFortModel))
+			{
+				if (CheckAttribute(&NSFortModel, "CoopPath"))
+				{
+					if (NSFortModel.CoopPath == sNSFortModel) { bReuseModel = true; }
+				}
+			}
+			if (bReuseModel)
+			{
+				// COOP s27: the model of the removed fort (hidden under the sea, NetServer_FortRemove) comes back: the island knows it
+				LayerAddObject("fort_cannon_trace", &NSFortModel, 1);
+				SendMessage(&NSFortModel, "lffffffffffff", MSG_MODEL_SET_POSITION, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0);
+				Trace("COOP: srv fort model used again");
+			}
+			else
+			{
+				if (IsEntity(&NSFortModel)) { DeleteClass(&NSFortModel); }		// another model (never in one game: one island)
+				CreateEntity(&NSFortModel, "MODELR");
+				NSFortModel.CoopPath = sNSFortModel;
 
-			SetTexturePath(0, rIsland.filespath.models + "\");
+				SetTexturePath(0, rIsland.filespath.models + "\");
 
-			SendMessage(&NSFortModel, "ls", MSG_MODEL_SET_LIGHT_PATH, NetServer_WhrGetLightingPath());
-			SendMessage(&NSFortModel, "ls", MSG_MODEL_LOAD_GEO, sNSFortModel);
-			SendMessage(&Island, "li", MSG_ISLAND_ADD_FORT,  &NSFortModel);
-			LayerAddObject("fort_cannon_trace", &NSFortModel, 1);
+				SendMessage(&NSFortModel, "ls", MSG_MODEL_SET_LIGHT_PATH, NetServer_WhrGetLightingPath());
+				SendMessage(&NSFortModel, "ls", MSG_MODEL_LOAD_GEO, sNSFortModel);
+				SendMessage(&Island, "li", MSG_ISLAND_ADD_FORT,  &NSFortModel);
+				LayerAddObject("fort_cannon_trace", &NSFortModel, 1);
 
-			SetTexturePath(0, "");
+				SetTexturePath(0, "");
+			}
 
 			NSFortModel.Pos.x = arLocator.x;
 			NSFortModel.Pos.z = arLocator.z;
@@ -223,6 +275,7 @@ void NetServer_FortBuild(ref rIsland, aref arLocator, int iFriendlyTeam, float f
 int NetServer_FortTeamOf(int wAdmin, int iRel)
 {
 	if (iRel == NET_BOTREL_ENEMY) { return NetServer_BotTeamOf(NET_BOTREL_ENEMY); }
+	if (iRel >= NET_BOTREL_TEAM0) { return iRel - NET_BOTREL_TEAM0; }		// COOP s28: the fort of a team
 	return sti(NSClients[wAdmin].Team);
 }
 
@@ -288,7 +341,13 @@ void NetServer_FortRemove()
     if (!CheckAttribute(&NetServer, "FortLocator") || NetServer.FortLocator == "") { return; }
 
     NetServer_DeleteFortEnvironment();
-    if (IsEntity(&NSFortModel)) { DeleteClass(&NSFortModel); }
+    // COOP s27: the model is NOT deleted: the island keeps a pointer to it (MSG_ISLAND_ADD_FORT has no opposite) and the first
+    // ball after the deletion crashed the game in the trace of the island. It is hidden deep under the sea and used again.
+    if (IsEntity(&NSFortModel))
+    {
+        LayerDelObject("fort_cannon_trace", &NSFortModel);
+        SendMessage(&NSFortModel, "lffffffffffff", MSG_MODEL_SET_POSITION, 0.0, -3000.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0);
+    }
     NetServer.FortLocator = "";
     NetServer.FortRel = 0;
     NetServer.FortGone = true;
@@ -321,14 +380,99 @@ void NetServer_FortClearPush()
 	}
 }
 
+// COOP s27: the index of the bowsprit in the mast array of the engine (= the order of the mastN labels of the "geometry" group in the .gm of the hull, not the N of mastN); -1 = no bowsprit
+// read from RESOURCE\MODELS\Ships\<name>\<name>.gm; Barque, Tartane, WarTartane and XebekVML have no bowsprit
+int NetServer_BowspritIndex(ref rS)
+{
+	ref rBaseShip = Net_GetShipByIndex(sti(rS.Ship.Type));
+	string sName = rBaseShip.Name;
+	switch (sName)
+	{
+		case "Barque": return -1; break;
+		case "Tartane": return -1; break;
+		case "WarTartane": return -1; break;
+		case "XebekVML": return -1; break;
+		case "Brigantine": return 2; break;
+		case "Brig": return 2; break;
+		case "BrigQeen": return 2; break;
+		case "BrigSW": return 2; break;
+		case "Santisima": return 2; break;
+		case "Caravel": return 3; break;
+		case "Galeon_l": return 3; break;
+		case "Corvette_quest": return 3; break;
+		case "Lineship": return 3; break;
+		case "Battleship": return 3; break;
+		case "Corvette": return 4; break;
+	}
+	return 0;
+}
+
+bool NetServer_ShipHasBowsprit(ref rS)
+{
+	if (NetServer_BowspritIndex(rS) < 0) { return false; }
+	return true;
+}
+
+// COOP: breaks the bowsprit of a ship (once): the same message that the engine mast damage sends; the clients drop the mast by MastFall
+void NetServer_BreakBowsprit(ref rS, int iClientID, int iTouchType)
+{
+	if (NetServer_IsBot(iClientID) && NET_BOWSPRIT_BOTS == 0) { return; }
+	if (sti(rS.Dead)) { return; }
+	if (!NetServer_ShipHasBowsprit(rS)) { return; }
+	int iBowIdx = NetServer_BowspritIndex(rS);
+	string sBowMast = "mast" + iBowIdx;
+	if (CheckAttribute(rS, "Ship.Masts." + sBowMast) && sti(rS.Ship.Masts.(sBowMast)) == 1) { return; }
+	rS.Ship.Masts.(sBowMast) = 1;
+	NetServer_ShipMastFallen(rS, iBowIdx);		// COOP s27: the repair brings it back (server\OnShip.c)
+
+	int iSMsg = NMCreate();
+	NMAddByte(iSMsg, NC_SHIP);
+	NMAddByte(iSMsg, NSC_SHIP_MAST_FALL);
+	NMAddClientID(iSMsg, iClientID);
+	NMAddClientID(iSMsg, DST_INVALID);
+	NMAddByte(iSMsg, iTouchType);
+	NMAddByte(iSMsg, iBowIdx);
+	NetServer_SendMessage(DST_ALL, iSMsg, false);
+	NMDelete(iSMsg);
+	Trace("COOP: bowsprit of ship " + iClientID + " (" + sBowMast + ") broke (touch type " + iTouchType + ")");
+}
+
+// COOP: ship to ship: the touch point (x, z) is in front of the bow of rS (a cone round the course) and at the end of the hull: the bowsprit pokes into the other ship
+void NetServer_BowspritShipTouch(ref rS, int iClientID, float x, float z, float fPower)
+{
+	float fDX = x - stf(rS.Ship.Pos.x);
+	float fDZ = z - stf(rS.Ship.Pos.z);
+	float fD = sqrt(fDX * fDX + fDZ * fDZ);
+	if (fD < 1.0) { return; }
+	float fHalfLen = 0.0;
+	if (CheckAttribute(rS, "Ship.BoxSize.z")) { fHalfLen = stf(rS.Ship.BoxSize.z) / 2.0; }
+	float fAy = stf(rS.Ship.Ang.y);
+	float fCos = (fDX * sin(fAy) + fDZ * cos(fAy)) / fD;
+
+	// debug (not more than twice a second for a ship): why a touch did or did not break the bowsprit
+	int iLastDbg = -100000;
+	if (CheckAttribute(rS, "BowDbgT")) { iLastDbg = sti(rS.BowDbgT); }
+	if (iServerTime - iLastDbg >= 500)
+	{
+		rS.BowDbgT = iServerTime;
+		Trace("COOP: ship touch: ship " + iClientID + ", power " + fPower + ", distance " + fD + " (half length " + fHalfLen + "), bow cos " + fCos);
+	}
+
+	if (fPower < NET_SHIP_BOWSPRIT_MINPOWER) { return; }
+	if (fD < fHalfLen * NET_SHIP_BOWSPRIT_MINDIST) { return; }
+	if (fCos < NET_FORT_BOWSPRIT_COS) { return; }
+	NetServer_BreakBowsprit(rS, iClientID, NETSHIP_MAST_TOUCH_SHIP);
+}
+
 void NetServer_FortCollTick()
 {
 	int iGen = GetEventData();
 	if (iGen != iNetFortInfoGen) { return; }
 	if (!CheckAttribute(&NetServer, "FortLocator") || NetServer.FortLocator == "") { return; }
 
-	float fCX = stf(NetServer.FortX);
-	float fCZ = stf(NetServer.FortZ);
+	// the push is round the middle of the MODEL, which is not the locator: the locator is where net.dll puts the cannons from
+	float fCX = stf(NetServer.FortX) + NET_FORT_COLL_OX;
+	float fCZ = stf(NetServer.FortZ) + NET_FORT_COLL_OZ;
 	for (int j=0; j<NET_MAXCLIENTS; j++)
 	{
 		if (!NetServer_HasShip(j)) { continue; }
@@ -353,13 +497,19 @@ void NetServer_FortCollTick()
 		float fDZ = fPZ - fCZ;
 		float fD = sqrt(fDX * fDX + fDZ * fDZ);
 
-		if (fD < NET_FORT_COLL_R && !sti(rS.Dead))
+		// the length of the hull: the field starts farther for a long ship (half of the length of this hull, Ship.BoxSize.z)
+		float fHalfLen = 0.0;
+		if (CheckAttribute(rS, "Ship.BoxSize.z")) { fHalfLen = stf(rS.Ship.BoxSize.z) / 2.0; }
+		float fREff = NET_FORT_COLL_R + fHalfLen * NET_FORT_COLL_LEN_K;
+
+		if (fD < fREff && !sti(rS.Dead))
 		{
 			if (fD < 1.0) { fDX = 1.0; fDZ = 0.0; fD = 1.0; }
 			float fNX = fDX / fD;
 			float fNZ = fDZ / fD;
 			float fIn = 0.0 - (fVX * fNX + fVZ * fNZ);		// the speed towards the middle
-			float fA = NET_FORT_COLL_PUSH * (1.0 - fD / NET_FORT_COLL_R);
+			float fDepth = fREff - fD;                          // how far the ship went into the field
+			float fA = NET_FORT_COLL_PUSH * fDepth / fREff + NET_FORT_COLL_SPRING * fDepth;
 			if (fIn > 0.0) { fA = fA + NET_FORT_COLL_K * fIn; }
 			if (fA > NET_FORT_COLL_MAX) { fA = NET_FORT_COLL_MAX; }
 
@@ -369,20 +519,68 @@ void NetServer_FortCollTick()
 			// (the push is against its speed), a ship that sails away from it has the bow from it (the push adds speed).
 			float fAy = stf(rS.Ship.Ang.y);
 			float fBow = fNX * sin(fAy) + fNZ * cos(fAy);		// the outward direction on the course of the ship
+
+			// the bow is turned away from the fort, like by a shore: Ship.Impulse.Rotate.y, + turns the course to the right (ay grows)
+			float fTurn = 0.0;
+			if (fIn > 1.0 || fDepth > 5.0)
+			{
+				float fDelta = atan2(fNX * cos(fAy) - fNZ * sin(fAy), fBow);		// from the bow to the outward direction
+				fTurn = fDelta / 1.5;
+				if (fTurn > 1.0) { fTurn = 1.0; }
+				if (fTurn < -1.0) { fTurn = -1.0; }
+				fTurn = fTurn * NET_FORT_COLL_TURN;
+			}
+
 			rS.Ship.Impulse.Rotate.x = 0.0;
-			rS.Ship.Impulse.Rotate.y = 0.0;
+			rS.Ship.Impulse.Rotate.y = fTurn;
 			rS.Ship.Impulse.Rotate.z = 0.0;
 			rS.Ship.Impulse.Speed.x = 0.0;
 			rS.Ship.Impulse.Speed.y = 0.0;
 			rS.Ship.Impulse.Speed.z = fBow * fA;
-			if (!CheckAttribute(rS, "FortPush") || !sti(rS.FortPush)) { Trace("COOP: fort field pushes ship " + j + " (distance " + fD + ", speed towards the fort " + fIn + ", along the bow " + fBow * fA + ")"); }
+			if (!CheckAttribute(rS, "FortPush") || !sti(rS.FortPush)) { Trace("COOP: fort field pushes ship " + j + " (distance " + fD + " of " + fREff + ", half length " + fHalfLen + ", speed towards the fort " + fIn + ", along the bow " + fBow * fA + ", turn " + fTurn + ")"); }
 			rS.FortPush = 1;
+
+			// a hit like an island: the sound / effect of the client at the touch point, and the damage of the hull
+			if (fIn >= NET_FORT_HIT_MINSPEED)
+			{
+				int iLastHit = -100000;
+				if (CheckAttribute(rS, "FortHitT")) { iLastHit = sti(rS.FortHitT); }
+				if (iServerTime - iLastHit >= 800)
+				{
+					rS.FortHitT = iServerTime;
+
+					int iSMsg = NMCreate();
+					NMAddByte(iSMsg, NC_SHIP);
+					NMAddByte(iSMsg, NSC_SHIP_ISLAND_COLLISION);
+					NMAddFloat(iSMsg, fPX - fNX * fHalfLen);		// the bow of the ship, towards the fort
+					NMAddFloat(iSMsg, stf(rS.Ship.Pos.y));
+					NMAddFloat(iSMsg, fPZ - fNZ * fHalfLen);
+					NetServer_SendMessage(DST_ALL, iSMsg, false);
+					NMDelete(iSMsg);
+
+					if (!NetServer_IsBot(j))
+					{
+						float fK = fIn / NET_FORT_HIT_REFSPEED;
+						if (fK > 2.0) { fK = 2.0; }
+						NetServer_ShipApplyHullHitpoints(rS, stf(rS.Ship.MaxHP) * NET_FORT_HIT_DMG * fK, NETKILL_BY_ISLAND, DST_INVALID);
+					}
+					Trace("COOP: fort hit ship " + j + ", speed " + fIn);
+
+					// COOP: a hit with the BOW breaks the bowsprit, like in single when the bowsprit touches an island or a ship.
+					// fBow < 0: the bow looks at the fort (fBow is the outward direction along the course); a side hit is not a bow hit
+					if (fBow <= 0.0 - NET_FORT_BOWSPRIT_COS)
+					{
+						NetServer_BreakBowsprit(rS, j, NETSHIP_MAST_TOUCH_ISLAND);	// server checks: bot, dead, no bowsprit, already broken
+					}
+				}
+			}
 		}
 		else
 		{
 			if (CheckAttribute(rS, "FortPush") && sti(rS.FortPush))
 			{
 				rS.FortPush = 0;
+				rS.Ship.Impulse.Rotate.y = 0.0;
 				rS.Ship.Impulse.Speed.x = 0.0;
 				rS.Ship.Impulse.Speed.y = 0.0;
 				rS.Ship.Impulse.Speed.z = 0.0;
@@ -395,7 +593,7 @@ void NetServer_FortCollTick()
 
 void NetServer_FortSpawnAdmin(int wAdmin, int iRel)
 {
-    if (iRel < NET_BOTREL_ALLY || iRel > NET_BOTREL_NEUTRAL) { iRel = NET_BOTREL_ENEMY; }        // like for the ships
+    if (!NetServer_BotRelValid(iRel)) { iRel = NET_BOTREL_ENEMY; }        // like for the ships (COOP s28: a team too)
 
     if (CheckAttribute(&NetServer, "FortLocator") && NetServer.FortLocator != "") { NetServer_BotNote(wAdmin, NET_BOTNOTE_FORTEXISTS, 0); return; }
     if (CheckAttribute(&NetServer, "FortGone") && sti(NetServer.FortGone) && !bNetFortMove) { NetServer_BotNote(wAdmin, NET_BOTNOTE_FORTGONE, 0); return; }
@@ -454,7 +652,7 @@ void NetServer_AdminFortAction(int wAdmin, int iAction, float fValue)
 	if (iAction == NET_ADMIN_BOT_REL)
 	{
 		iRel = makeint(fValue + 0.5);
-		if (iRel < NET_BOTREL_ALLY || iRel > NET_BOTREL_NEUTRAL) { return; }
+		if (!NetServer_BotRelValid(iRel)) { return; }		// COOP s28: a team too
 
 		ref rFort = NetServer_GetCLient(NET_FORTCLIENT);
 		rFort.FriendlyTeam = NetServer_FortTeamOf(wAdmin, iRel);
@@ -569,6 +767,7 @@ float NetServer_OnFortCannonDamage()
 		rFort.CoopCannonsDamaged = iDamagedCannons;
 		
 		rFort.Ship.HP = 100.0 * (1.0 - (iDamagedCannons / iTotalCannons));
+		Trace("COOP: fort cannon destroyed, " + iDamagedCannons + " of " + iTotalCannons + ", fort HP " + rFort.Ship.HP);
 
 		// check for fort defeat
 		if (iDamagedCannons >= iTotalCannons / 2)
@@ -589,8 +788,17 @@ void NetServer_OnFortHit()
 	// COOP: the event has no owner of the ball. A ball that has just left a cannon of the fort touches the model of the fort and
 	// plays the hit effect (barrels, men) at the muzzle instead of the smoke: no hit effect right after a shot of the fort
 	// (the damage of the cannons is another event and is not touched)
-	if (iServerTime - iNetFortLastShot < 150) { return; }
-	
+	// COOP s27: the message is ALWAYS sent (before, nothing was sent then and the ball of the client flew on through the fort),
+	// and with the byte "silent" that the client reads (it was missing): 1 = only delete the ball, 0 = the hit effect
+	int iSilent = 0;
+	if (iServerTime - iNetFortLastShot < 150) { iSilent = 1; }
+	// COOP s27: a ball of the fort itself (by its index, whatever the time): no effect
+	string sFortBallSlot = "s" + (iServerCurrentBallIndex - (iServerCurrentBallIndex / 64) * 64);
+	if (CheckAttribute(&NSFortBalls, sFortBallSlot))
+	{
+		if (sti(NSFortBalls.(sFortBallSlot)) == iServerCurrentBallIndex) { iSilent = 1; }
+	}
+
 	int iSMsg = NMCreate();
 	NMAddByte(iSMsg, NC_BALL);
 	NMAddByte(iSMsg, NSC_BALL_HIT_FORT);
@@ -598,6 +806,7 @@ void NetServer_OnFortHit()
 	NMAddFloat(iSMsg, x);
 	NMAddFloat(iSMsg, y);
 	NMAddFloat(iSMsg, z);
+	NMAddByte(iSMsg, iSilent);
 	NetServer_SendMessage(DST_ALL, iSMsg, false);
 	NMDelete(iSMsg);
 }

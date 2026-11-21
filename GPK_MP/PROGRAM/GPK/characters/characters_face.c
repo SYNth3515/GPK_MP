@@ -362,5 +362,13 @@ void SetModelPirate(ref ChrefPirate)
 // Warship. Обновим персу модель и анимацию. Пока-что здесь
 void Characters_RefreshModel(ref rChar)
 {
-	SendMessage(rChar, "lss", MSG_CHARACTER_SETMODEL, rChar.model, rChar.model.animation);
+	SendMessage(rChar, "lss", MSG_CHARACTER_SETMODEL, rChar.model, Character_AnimFile(rChar));
+}
+
+// COOP s30: the animation file for the engine: model.animfile if there is one (only the net game sets it: the musket of a
+// skin that is not a man, net\Land.c), else model.animation as always
+string Character_AnimFile(ref rChar)
+{
+	if (CheckAttribute(rChar, "model.animfile")) { return rChar.model.animfile; }
+	return rChar.model.animation;
 }

@@ -58,10 +58,84 @@ int NetServer_BotRel(int i)
 	return sti(NSClients[i].BotRel);
 }
 
-// Team of a bot on the server (never a team of the players 0..3)
+// Team of a bot on the server (never a team of the players 0..3; COOP s28: a team bot IS in the team of the players)
 int NetServer_BotTeamOf(int iRel)
 {
+	if (iRel >= NET_BOTREL_TEAM0) { return iRel - NET_BOTREL_TEAM0; }
 	return 4 + iRel;
+}
+
+// COOP s28: the number of the teams a bot can join in this game (0 = no team game: deathmatch, a land duel of everybody)
+int NetServer_BotTeamsNum()
+{
+	if (NetServer_LandMode())
+	{
+		if (NetServer_LandTeamGame()) { return 2; }
+		return 0;
+	}
+	if (sti(NetServer.GameType) == NETGAME_DEATHMATCH) { return 0; }
+	int iN = 2;
+	if (CheckAttribute(&NetServer, "NumTeams")) { iN = sti(NetServer.NumTeams); }
+	if (iN < 2) { iN = 2; }
+	if (iN > 4) { iN = 4; }
+	return iN;
+}
+
+bool NetServer_BotRelValid(int iRel)
+{
+	if (iRel >= NET_BOTREL_ALLY && iRel <= NET_BOTREL_NEUTRAL) { return true; }
+	if (iRel < NET_BOTREL_TEAM0) { return false; }
+	return (iRel - NET_BOTREL_TEAM0) < NetServer_BotTeamsNum();
+}
+
+// a bot of a team (at sea)
+bool NetServer_IsTeamBot(int i)
+{
+	if (!NetServer_IsBot(i)) { return false; }
+	if (NetServer_BotRemoved(i)) { return false; }
+	return NetServer_BotRel(i) >= NET_BOTREL_TEAM0;
+}
+
+// a ship of a side of a team game: a player or a team bot (server\games\*.c, NetServer_CountSides, NetServer_TimeUpAnnounce)
+bool NetServer_TeamSideSlot(int i)
+{
+	if (i < 0 || i >= NET_MAXCLIENTS) { return false; }
+	if (sti(NSClients[i].Use)) { return true; }
+	return NetServer_IsTeamBot(i);
+}
+
+// COOP s28: a neutral bot that is attacked (a ball, the fire of it) turns into an enemy of everybody, like a neutral ship of
+// single player that is fired at. Every machine gets its new relation (the colour, the targets of the players).
+void NetServer_BotProvoked(int i, int wBy)
+{
+	if (wBy == DST_INVALID || wBy == i) { return; }
+	if (!NetServer_IsBot(i)) { return; }
+	if (NetServer_BotRemoved(i)) { return; }
+	if (NetServer_BotRel(i) != NET_BOTREL_NEUTRAL) { return; }
+	ref rB = NetServer_GetClient(i);
+	rB.BotRel = NET_BOTREL_ENEMY;
+	rB.Team = NetServer_BotTeamOf(NET_BOTREL_ENEMY);
+	rB.FriendlyTeam = NetServer_BotTeamOf(NET_BOTREL_ENEMY);
+	Trace("COOP: the neutral bot " + i + " is attacked by " + wBy + ": now an enemy");
+	int iSMsg = NetServer_BotInfoMessage(i, false);
+	NetServer_SendToInGame(iSMsg);
+	NMDelete(iSMsg);
+}
+
+// COOP s28: a team bot of the attackers of Capture the fort sails to the fort and shoots it when no ship is near
+bool NetServer_BotFortGoal(int i)
+{
+	if (sti(NetServer.GameType) != NETGAME_FORT) { return false; }
+	if (NetServer_BotRel(i) < NET_BOTREL_TEAM0) { return false; }
+	if (!CheckAttribute(&NetServer, "FortX") || !CheckAttribute(&NetServer, "FortZ")) { return false; }
+	if (!CheckAttribute(&NetServer, "FortLocator")) { return false; }
+	if (NetServer.FortLocator == "") { return false; }
+	if (NetServer_FortGameDead()) { return false; }
+	ref rFortG = NetServer_GetCLient(NET_FORTCLIENT);
+	if (!CheckAttribute(rFortG, "FriendlyTeam")) { return false; }
+	if (!CheckAttribute(rFortG, "Ship.HP")) { return false; }
+	if (stf(rFortG.Ship.HP) <= 0.0) { return false; }
+	return sti(rFortG.FriendlyTeam) != NetServer_BotRel(i) - NET_BOTREL_TEAM0;
 }
 
 float NetServer_BotAbs(float f)
@@ -149,6 +223,7 @@ int NetServer_BotFreeSlot()
 		if (sti(NSClients[i].Use)) { continue; }
 		if (NetServer_IsBot(i)) { continue; }
 		if (NetServer_SlotBurned(i)) { continue; }
+		if (NetServer_BDOf(i) > 0) { continue; }		// COOP s37: a fighter of a boarding duel (net\Board.c)
 		return i;
 	}
 	return DST_INVALID;
@@ -365,7 +440,9 @@ void NetServer_OnAdminBotAdd(int wAdmin, int iMsg)
 	int iRel = NMGetByte(iMsg);
 
 	if (!NetServer_IsAdmin(wAdmin)) { return; }
-	if (!bServerGameStarted) { NetServer_BotNote(wAdmin, NET_BOTNOTE_NOGAME, 0); return; }
+	// COOP s30: in the lobby the bot waits in the list of the lobby and comes into the next game with the players
+	if (!bServerGameStarted) { NetServer_LBotAdd(wAdmin, iShipType, iCannonType, iCrew, iHull, iSails, iRel); return; }
+	if (NetServer_LandMode()) { NetServer_LandAdminBotAdd(wAdmin, iRel, iShipType, iHull + iSails * 256, iCannonType, iCrew); return; }		// COOP: a land duel (Land.c)
 	if (!NetServer_AdminShipOk(wAdmin)) { NetServer_BotNote(wAdmin, NET_BOTNOTE_NOSHIP, 0); return; }
 	if (iShipType == Net_GetShipIndex("FORT")) { NetServer_FortSpawnAdmin(wAdmin, iRel); return; }		// COOP: the last item of the list is the fort, 700 m in front of the admin (server/Fort.c)
 
@@ -380,7 +457,7 @@ void NetServer_OnAdminBotAdd(int wAdmin, int iMsg)
 	if (iHull > 100) { iHull = 100; }
 	if (iSails < 10) { iSails = 10; }
 	if (iSails > 100) { iSails = 100; }
-	if (iRel < NET_BOTREL_ALLY || iRel > NET_BOTREL_NEUTRAL) { iRel = NET_BOTREL_ENEMY; }
+	if (!NetServer_BotRelValid(iRel)) { iRel = NET_BOTREL_ENEMY; }		// COOP s28: a team of a team game too
 
 	// NET_BOT_SPAWN_DIST in front of the bow of the admin; a side step while the point is taken by another ship
 	ref rA = NetServer_GetClient(wAdmin);
@@ -410,7 +487,7 @@ void NetServer_OnAdminBotAdd(int wAdmin, int iMsg)
 // ------------------------------------------------------------------------------------------------
 void NetServer_BotSetRel(int wAdmin, int i, int iRel)
 {
-	if (iRel < NET_BOTREL_ALLY || iRel > NET_BOTREL_NEUTRAL) { return; }
+	if (!NetServer_BotRelValid(iRel)) { return; }		// COOP s28: a team of a team game too
 	ref rB = NetServer_GetClient(i);
 	rB.BotRel = iRel;
 	rB.Team = NetServer_BotTeamOf(iRel);
@@ -430,6 +507,7 @@ void NetServer_BotHeal(int i)
 	rB.Ship.SP = 100.0;
 	if (stf(rB.Ship.Crew.Quantity) < stf(rBase.MaxCrew)) { rB.Ship.Crew.Quantity = stf(rBase.MaxCrew); }
 	NetServer_BotRefill(rB, true);
+	NetServer_ShipRebuildHeal(i);		// COOP s27: the fallen masts and the sails with holes come back whole (the ship is created again)
 }
 
 // the bot goes in front of the bow of the admin, with the same heading
@@ -482,8 +560,179 @@ void NetServer_BotSendOpts(int wTo)
 	NMAddByte(iSMsg, NSC_CLIENT_BOT);
 	NMAddByte(iSMsg, NET_BOTOP_OPTS);
 	NMAddByte(iSMsg, iOn);
+	int iSk = 2;
+	if (CheckAttribute(&NetServer, "BotSkill")) { iSk = sti(NetServer.BotSkill); }
+	NMAddByte(iSMsg, iSk);
+	int iLate = 0;
+	if (NetServer_LateJoinOn()) { iLate = 1; }
+	NMAddByte(iSMsg, iLate);		// COOP s30: "Join during the game" (the admin menu shows it)
 	NetServer_SendMessage(wTo, iSMsg, true);
 	NMDelete(iSMsg);
+}
+
+// COOP s30: new players can join the running game (Create game screen; the admin menu changes it: NET_ADMIN_LATEJOIN)
+bool NetServer_LateJoinOn()
+{
+	if (!CheckAttribute(&NetServer, "LateJoin")) { return true; }
+	return sti(NetServer.LateJoin) != 0;
+}
+
+void NetServer_SetLateJoin(int iOn)
+{
+	if (iOn != 0) { NetServer.LateJoin = true; } else { NetServer.LateJoin = false; }
+	NetServer_BotSendOpts(DST_ALL);
+	Trace("COOP: late join = " + NetServer.LateJoin);
+}
+
+// COOP: the admin menu "Bots": the difficulty of all the bots now (the sea bots, the forts, the land bots)
+void NetServer_BotSetSkill(int iSkill)
+{
+	if (iSkill < 0) { iSkill = 0; }
+	if (iSkill > 3) { iSkill = 3; }
+	NetServer.BotSkill = iSkill;
+	if (bServerGameStarted && !NetServer_LandMode())
+	{
+		for (int i=0; i<NET_MAXCLIENTS; i++)
+		{
+			if (!NetServer_IsBot(i)) { continue; }
+			ref rB = NetServer_GetClient(i);
+			NetServer_BotApplySkill(rB, iSkill);
+		}
+	}
+	NetServer_BotSendOpts(DST_ALL);
+	Trace("COOP: bot difficulty = " + iSkill);
+}
+
+// ------------------------------------------------------------------------------------------------
+// COOP s30: the bots of the lobby. The "Bot+" window of the lobby (interfaces\Buy.c) puts a bot into this list; every lobby
+// shows the list (NET_BOTOP_LOBBY) as rows of the players table. When the game starts each of them comes in like a bot of
+// "Bot+" (the sea: at the places of its team, server\OnStart.c NetServer_PickSpawn; the land: as the land "Bot+").
+// The list stays for the next games (the lobby after a game shows it again).
+// ------------------------------------------------------------------------------------------------
+object NSLobbyBots;		// n, b0..: ship, cannon, crew, hull, sails, rel, admin
+
+int NetServer_LBotsNum()
+{
+	if (!CheckAttribute(&NSLobbyBots, "n")) { return 0; }
+	return sti(NSLobbyBots.n);
+}
+
+void NetServer_LBotAdd(int wAdmin, int iShip, int iCannon, int iCrew, int iHull, int iSails, int iRel)
+{
+	int n = NetServer_LBotsNum();
+	if (n >= NET_MAXCLIENTS - NET_BOT_FIRST) { NetServer_BotNote(wAdmin, NET_BOTNOTE_LIMIT, NET_MAXCLIENTS - NET_BOT_FIRST); return; }
+	if (!NetServer_BotRelValid(iRel)) { iRel = NET_BOTREL_ENEMY; }
+	string sB = "b" + n;
+	NSLobbyBots.(sB).ship = iShip;
+	NSLobbyBots.(sB).cannon = iCannon;
+	NSLobbyBots.(sB).crew = iCrew;
+	NSLobbyBots.(sB).hull = iHull;
+	NSLobbyBots.(sB).sails = iSails;
+	NSLobbyBots.(sB).rel = iRel;
+	NSLobbyBots.(sB).admin = wAdmin;
+	NSLobbyBots.n = n + 1;
+	Trace("COOP: lobby bot " + n + " added: ship " + iShip + " rel " + iRel);
+	NetServer_LBotsSend(DST_ALL);
+}
+
+void NetServer_LBotDel(int k)
+{
+	int n = NetServer_LBotsNum();
+	if (k < 0 || k >= n) { return; }
+	for (int j=k; j<n-1; j++)
+	{
+		string sTo = "b" + j;
+		string sFrom = "b" + (j + 1);
+		NSLobbyBots.(sTo).ship = NSLobbyBots.(sFrom).ship;
+		NSLobbyBots.(sTo).cannon = NSLobbyBots.(sFrom).cannon;
+		NSLobbyBots.(sTo).crew = NSLobbyBots.(sFrom).crew;
+		NSLobbyBots.(sTo).hull = NSLobbyBots.(sFrom).hull;
+		NSLobbyBots.(sTo).sails = NSLobbyBots.(sFrom).sails;
+		NSLobbyBots.(sTo).rel = NSLobbyBots.(sFrom).rel;
+		NSLobbyBots.(sTo).admin = NSLobbyBots.(sFrom).admin;
+	}
+	DeleteAttribute(&NSLobbyBots, "b" + (n - 1));
+	NSLobbyBots.n = n - 1;
+	Trace("COOP: lobby bot " + k + " removed");
+	NetServer_LBotsSend(DST_ALL);
+}
+
+void NetServer_LBotsSend(int wTo)
+{
+	int n = NetServer_LBotsNum();
+	int iSMsg = NMCreate();
+	NMAddByte(iSMsg, NC_CLIENT);
+	NMAddByte(iSMsg, NSC_CLIENT_BOT);
+	NMAddByte(iSMsg, NET_BOTOP_LOBBY);
+	NMAddByte(iSMsg, n);
+	for (int k=0; k<n; k++)
+	{
+		string sB = "b" + k;
+		int iRel = sti(NSLobbyBots.(sB).rel);
+		if (!NetServer_BotRelValid(iRel)) { iRel = NET_BOTREL_ENEMY; }		// the teams of the game may have changed
+		NMAddByte(iSMsg, iRel);
+		NMAddWord(iSMsg, sti(NSLobbyBots.(sB).ship));
+		NMAddByte(iSMsg, sti(NSLobbyBots.(sB).cannon));
+		NMAddByte(iSMsg, sti(NSLobbyBots.(sB).crew));
+		NMAddByte(iSMsg, sti(NSLobbyBots.(sB).hull));
+		NMAddByte(iSMsg, sti(NSLobbyBots.(sB).sails));
+	}
+	NetServer_SendMessage(wTo, iSMsg, true);
+	NMDelete(iSMsg);
+}
+
+// the game has started (server\OnStart.c: NetServer_StartServerGame): the bots of the lobby come in a little later (after
+// the ships / the location of the players)
+void NetServer_LBotsSpawnEvent()
+{
+	int iRound = GetEventData();
+	if (!bServerGameStarted) { return; }
+	if (iRound != sti(NetServer.Round)) { return; }
+	int n = NetServer_LBotsNum();
+	for (int k=0; k<n; k++)
+	{
+		string sB = "b" + k;
+		int iShip = sti(NSLobbyBots.(sB).ship);
+		int iCannon = sti(NSLobbyBots.(sB).cannon);
+		int iCrew = sti(NSLobbyBots.(sB).crew);
+		int iHull = sti(NSLobbyBots.(sB).hull);
+		int iSails = sti(NSLobbyBots.(sB).sails);
+		int iRel = sti(NSLobbyBots.(sB).rel);
+		int wAdmin = sti(NSLobbyBots.(sB).admin);
+		if (!NetServer_BotRelValid(iRel)) { iRel = NET_BOTREL_ENEMY; }
+		if (wAdmin < 0 || wAdmin >= NET_MAXCLIENTS) { wAdmin = 0; }
+		if (!sti(NSClients[wAdmin].Use)) { wAdmin = NetServer_LBotAnyPlayer(); }
+		if (NetServer_LandMode())
+		{
+			NetServer_LandAdminBotAdd(wAdmin, iRel, iShip, iHull + iSails * 256, iCannon, iCrew);
+			continue;
+		}
+		if (iShip == Net_GetShipIndex("FORT"))
+		{
+			if (NetServer_AdminShipOk(wAdmin)) { NetServer_FortSpawnAdmin(wAdmin, iRel); }
+			continue;
+		}
+		int i = NetServer_BotFreeSlot();
+		if (i == DST_INVALID) { Trace("COOP: lobby bots: no free slot"); return; }
+		if (iShip < 0 || iShip >= Net_GetShipsNum()) { iShip = 0; }
+		if (iCannon < 0 || iCannon >= Net_GetCannonsNum()) { iCannon = 0; }
+		NetServer_BotSetup(i, wAdmin, iShip, iCannon, iCrew, iHull, iSails, iRel);
+		// the places of its team (a deathmatch: of every side)
+		NSClients[i].Team = 0;
+		if (iRel >= NET_BOTREL_TEAM0) { NSClients[i].Team = iRel - NET_BOTREL_TEAM0; }
+		NetServer_PickSpawn(i);
+		NetServer_BotSpawn(i, stf(NSSpawn.x), stf(NSSpawn.z), stf(NSSpawn.ay));
+		Trace("COOP: lobby bot " + k + " in the game: slot " + i + " rel " + iRel);
+	}
+}
+
+int NetServer_LBotAnyPlayer()
+{
+	for (int i=0; i<NET_MAXCLIENTS; i++)
+	{
+		if (sti(NSClients[i].Use)) { return i; }
+	}
+	return 0;
 }
 
 void NetServer_BotSetRespawn(int iOn)
@@ -599,6 +848,8 @@ void NetServer_AdminBotAction(int wAdmin, int iAction, int i, float fValue)
 	if (NetServer_BotRemoved(i)) { return; }
 
 	if (iAction == NET_ADMIN_BOT_DELETE) { NetServer_BotRemove(i); return; }
+	// COOP: "Heal" brings a sunk bot back
+	if (iAction == NET_ADMIN_BOT_HEAL && !NetServer_BotAlive(i)) { NetServer_RespawnShip(i); NetServer_BotAfterRespawn(i); return; }
 	if (!NetServer_BotAlive(i)) { return; }
 
 	switch (iAction)
@@ -644,7 +895,19 @@ bool NetServer_ShouldTarget(int s, int t)
 		{
 			if (!bTBot) { return true; }
 			if (iTRel == NET_BOTREL_ALLY) { return true; }
+			if (iTRel >= NET_BOTREL_TEAM0) { return true; }		// COOP s28: the team bots are like the players
 			return false;
+		}
+		if (iSRel >= NET_BOTREL_TEAM0)
+		{
+			// COOP s28: a team bot: the players and the team bots of the other teams, the enemy bots
+			if (bTBot)
+			{
+				if (iTRel == NET_BOTREL_ENEMY) { return true; }
+				if (iTRel >= NET_BOTREL_TEAM0) { return iTRel != iSRel; }
+				return false;
+			}
+			return sti(NSClients[t].Team) != iSRel - NET_BOTREL_TEAM0;
 		}
 		return false;
 	}
@@ -653,6 +916,7 @@ bool NetServer_ShouldTarget(int s, int t)
 	if (bTBot)
 	{
 		if (iTRel == NET_BOTREL_ENEMY) { return true; }
+		if (iTRel >= NET_BOTREL_TEAM0) { return sti(NSClients[s].Team) != iTRel - NET_BOTREL_TEAM0; }		// COOP s28
 		return false;
 	}
 	if (sti(NetServer.GameType) == NETGAME_DEATHMATCH) { return true; }
@@ -671,6 +935,7 @@ void NetServer_FireOutsideEngine(int s)
 		if (j == s) { continue; }
 		if (!NetServer_HasShip(j)) { continue; }
 		NSClients[j].FireTgt = NetServer_ShouldTarget(s, j);
+		if (sti(NSClients[j].Dead)) { NSClients[j].FireTgt = false; }		// COOP s27: a sunk ship is no target of the third person fire
 	}
 	for (j=0; j<NET_MAXCLIENTS; j++)
 	{
@@ -755,6 +1020,37 @@ void NetServer_FireAt(int s, int t)
 	rS.Camera.Dir.z = cos(fA) * cos(fTheta);
 	EntityUpdate(1);
 	rS.DoCannonFire = "";
+}
+
+// COOP s28: the fire of a team bot at the fort of Capture the fort: the deck camera of the engine looks at the middle of the
+// fort with the elevation of the distance (the fort does not move), only when the fort is abeam (the side cannons).
+// The "outside camera" fire of the engine did not take the fort for a target (the bots fired a little, then never again).
+bool NetServer_BotFireAtFort(int s)
+{
+	ref rS = NetServer_GetClient(s);
+	if (!CheckAttribute(rS, "Ship.Cannons.SpeedV0")) { return false; }
+	float fV0 = stf(rS.Ship.Cannons.SpeedV0);
+	if (fV0 < 1.0) { return false; }
+	float fX = stf(rS.Ship.Pos.x);
+	float fZ = stf(rS.Ship.Pos.z);
+	float fDX = stf(NetServer.FortX) - fX;
+	float fDZ = stf(NetServer.FortZ) - fZ;
+	float fD = sqrt(fDX * fDX + fDZ * fDZ);
+	float fA = atan2(fDX, fDZ);
+	float fRel = NetServer_BotAbs(NetServer_BotAngDiff(fA, stf(rS.Ship.Ang.y)));
+	if (fRel < PI * 0.3 || fRel > PI * 0.7) { return false; }
+	float fTheta = 0.5 * NetServer_Asin(9.81 * fD / (fV0 * fV0));
+
+	EntityUpdate(0);
+	rS.Camera.Pos.x = fX;
+	rS.Camera.Pos.y = stf(rS.Ship.Pos.y) + 10.0;
+	rS.Camera.Pos.z = fZ;
+	rS.Camera.Dir.x = sin(fA) * cos(fTheta);
+	rS.Camera.Dir.y = sin(fTheta);
+	rS.Camera.Dir.z = cos(fA) * cos(fTheta);
+	EntityUpdate(1);
+	rS.DoCannonFire = "";
+	return true;
 }
 
 bool NetServer_FireLead(int s)
@@ -1533,12 +1829,20 @@ void NetServer_BotThink(int i)
 			// an enemy without a target goes to the nearest player it may fight; otherwise sails around
 			int wNear = DST_INVALID;
 			float fNear = 100000.0;
-			for (int j=0; j<NET_MAXPLAYERS; j++)
+			int iNearMax = NET_MAXPLAYERS;
+			if (iRel >= NET_BOTREL_TEAM0) { iNearMax = NET_MAXCLIENTS; }		// COOP s28: a team bot looks for the team bots too
+			for (int j=0; j<iNearMax; j++)
 			{
+				if (j == i) { continue; }
 				if (!NetServer_ShipIsAlive(j)) { continue; }
 				if (!NetServer_ShouldTarget(i, j)) { continue; }
 				float fDj = GetDistance2D(fX, fZ, stf(NSClients[j].Ship.Pos.x), stf(NSClients[j].Ship.Pos.z));
 				if (fDj < fNear) { fNear = fDj; wNear = j; }
+			}
+			// COOP s28: the attackers of the fort go for a ship only when it is nearer than the fort
+			if (wNear != DST_INVALID && NetServer_BotFortGoal(i))
+			{
+				if (GetDistance2D(fX, fZ, stf(NetServer.FortX), stf(NetServer.FortZ)) < fNear) { wNear = DST_INVALID; }
 			}
 			if (wNear != DST_INVALID && iLevel >= 1)
 			{
@@ -1547,6 +1851,35 @@ void NetServer_BotThink(int i)
 			}
 			else
 			{
+				if (NetServer_BotFortGoal(i) && iLevel >= 1)
+				{
+					// COOP s28: to the fort, broadside on at 60% of the range, fire in the range
+					fDX = stf(NetServer.FortX) - fX;
+					fDZ = stf(NetServer.FortZ) - fZ;
+					fD = sqrt(fDX * fDX + fDZ * fDZ);
+					float fGoRange = NetServer_BotRange(rB);
+					float fGoKeep = fGoRange * 0.6;
+					float fGoBear = atan2(fDX, fDZ);
+					fDesired = fGoBear;
+					fSail = 1.0;
+					if (fD < fGoKeep)
+					{
+						float fGoA1 = fGoBear + PId2;
+						float fGoA2 = fGoBear - PId2;
+						fDesired = fGoA1;
+						if (NetServer_BotAbs(NetServer_BotAngDiff(fGoA2, fAy)) < NetServer_BotAbs(NetServer_BotAngDiff(fGoA1, fAy))) { fDesired = fGoA2; }
+						fSail = 0.5;
+					}
+					bool bGoFired = false;
+					if (fD < fGoRange) { bGoFired = NetServer_BotFireAtFort(i); }
+					if (iServerTime - sti(rB.BotBoardLog) > 5000)
+					{
+						rB.BotBoardLog = iServerTime;
+						Trace("COOP: bot " + i + " goes for the fort: dist=" + makeint(fD) + " range=" + makeint(fGoRange) + " fired=" + bGoFired);
+					}
+				}
+				else
+				{
 				fDX = stf(rB.SpawnPos.x) - fX;
 				fDZ = stf(rB.SpawnPos.z) - fZ;
 				fD = sqrt(fDX * fDX + fDZ * fDZ);
@@ -1566,6 +1899,7 @@ void NetServer_BotThink(int i)
 					fDesired = stf(rB.BotWanderAy);
 				}
 				fSail = 0.5;
+				}
 			}
 		}
 	}

@@ -329,8 +329,13 @@ void ExternControlsInit(bool bFirst)
 	// Net Controls =====================================================================
 	CI_CreateAndSetControls( "NetShipControls", "Net_Menu", CI_GetKeyCode("VK_ESCAPE"), 0, true );
 	CI_CreateAndSetControls( "NetShipControls", "Say", CI_GetKeyCode("KEY_Y"), 0, true );
-	CI_CreateAndSetControls( "NetShipControls", "Team_Say", CI_GetKeyCode("KEY_O"), 0, true );
-	CI_CreateAndSetControls( "NetShipControls", "Person_Say", CI_GetKeyCode("KEY_T"), 0, true );
+	// COOP s30: Y the chat of all, T the chat of the team (at sea and on land); the personal chat (off) went to O
+	CI_CreateAndSetControls( "NetShipControls", "Team_Say", CI_GetKeyCode("KEY_T"), 0, true );
+	CI_CreateAndSetControls( "NetShipControls", "Person_Say", CI_GetKeyCode("KEY_O"), 0, true );
+	MapControlToGroup("Say", "PrimaryLand");
+	MapControlToGroup("Say", "FightModeControls");
+	MapControlToGroup("Team_Say", "PrimaryLand");
+	MapControlToGroup("Team_Say", "FightModeControls");
 	CI_CreateAndSetControls( "", "gamestat", CI_GetKeyCode("VK_F1"), 0, true );
 	CI_CreateAndSetControls( "", "toplist", CI_GetKeyCode("VK_F2"), 0, true );
 	//CI_CreateAndSetControls( "", "gamechat", CI_GetKeyCode("VK_F3"), 0, true );

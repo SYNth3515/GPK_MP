@@ -130,7 +130,7 @@ void CharactersInit()
 bool CreateCharacter(ref character)
 {
 	CreateEntity(&character, character.model.entity);
-	if(!SendMessage(character, "lss", MSG_CHARACTER_SETMODEL, character.model, character.model.animation))
+	if(!SendMessage(character, "lss", MSG_CHARACTER_SETMODEL, character.model, Character_AnimFile(character)))	// COOP s30
 	{
 		Trace("CreateCharacter -> character id = '" + character.id + "' idx = " + character.index +" can invalide model("+ character.model +") or animation(" + character.model.animation + ")");
 		DeleteClass(&character);

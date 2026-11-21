@@ -99,6 +99,8 @@ void TL_PlayerStatistic()
 	{
 		sFaceTex = "interfaces\portraits\256\" + sFaceImage + ".tga";
 	}
+	string sNpcTex = NetLand_NpcFaceTex(sFaceImage);		// COOP: an NPC skin of the profile (net\Land.c)
+	if (sNpcTex != "") { sFaceTex = sNpcTex; }
 	GameInterface.TABLE_LIST.(sRow).td1.icon.offset = "0,1";
 	GameInterface.TABLE_LIST.(sRow).td1.icon.width = 26;
 	GameInterface.TABLE_LIST.(sRow).td1.icon.height = 26;

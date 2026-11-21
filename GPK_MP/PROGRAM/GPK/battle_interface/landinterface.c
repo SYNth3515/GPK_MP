@@ -1071,17 +1071,54 @@ bool SetReloadIcons()
 	return bUse;
 }
 
+// COOP: land duel (net\Land.c): the icon of our hero is the avatar chosen in the net game. A portrait face_N has the
+// FaceId of that portrait (net\Land.c); a NET/FACES avatar has no portrait of the game and is drawn from its own file.
+// An empty answer means the usual portrait of the character.
+string BLI_NetHeroFaceTexture(int chrindex)
+{
+	string sFace = "";
+	if (!NetLand_IsActive())
+	{
+		return "";
+	}
+	if (chrindex != GetMainCharacterIndex())
+	{
+		return "";
+	}
+	if (CheckAttribute(&NetClient, "FaceImage"))
+	{
+		sFace = NetClient.FaceImage;
+	}
+	if (sFace == "")
+	{
+		return "";
+	}
+	if (NetLand_FaceNum(sFace) >= 0)
+	{
+		return "";
+	}
+	object oFaceFiles;
+	if (NFFindFiles(&oFaceFiles, "resource\textures\" + sUserFacesPath, sFace + ".tga.tx", false) <= 0)
+	{
+		return "";
+	}
+	return sUserFacesPath + sFace + ".tga";
+}
+
 void SetOfficerTexture(int officerIdx)
 {
 	aref ar; makearef(ar,objLandInterface.Parameters);
 	string attrName = "iconTexture"+officerIdx;
 
+	string sNetFace = "";
 	int cn = GetOfficersIndex(pchar,officerIdx);
 	if(cn<0) {
 		DeleteAttribute(ar,attrName);
 		ar.(attrName) = "";
 	} else {
-		ar.(attrName) = "interfaces\portraits\64\face_"+Characters[cn].FaceID+".tga";
+		sNetFace = BLI_NetHeroFaceTexture(cn);		// COOP: land duel: the avatar chosen in the net game
+		if (sNetFace != "") { ar.(attrName) = sNetFace; }
+		else { ar.(attrName) = "interfaces\portraits\64\face_"+Characters[cn].FaceID+".tga"; }
 	}
 }
 
@@ -1178,20 +1215,26 @@ void SetCharacterIconData(int chrindex, aref arData)
 	arData.energy = LAi_GetCharacterRelEnergy(chref);
 	arData.shootMax = LAi_GetCharacterChargeQuant(chref);
 	arData.shootCur = LAi_GetCharacterChargeCur(chref);
-	if( CheckAttribute(chref,"FaceId") ) {
-		//arData.picture = chref.FaceId;
-		arData.texture = "battle_interface\portraits\face_"+chref.FaceID+".tga";
-		if( CheckAttribute(chref,"FaceUV") ) {
-			arData.uv = chref.FaceUV;
-		} else {
-			arData.uv = "0.0,0.0,1.0,1.0";
-		}
+	string sNetFace = BLI_NetHeroFaceTexture(chrindex);
+	if( sNetFace != "" ) {
+		arData.texture = sNetFace;
+		arData.uv = "0.0,0.0,1.0,1.0";
 	} else {
-		arData.texture = "battle_interface\two.tga";
-		if( chrindex == 1 ) {
-			arData.uv = "0.5,0.0,1.0,1.0";
+		if( CheckAttribute(chref,"FaceId") ) {
+			//arData.picture = chref.FaceId;
+			arData.texture = "battle_interface\portraits\face_"+chref.FaceID+".tga";
+			if( CheckAttribute(chref,"FaceUV") ) {
+				arData.uv = chref.FaceUV;
+			} else {
+				arData.uv = "0.0,0.0,1.0,1.0";
+			}
 		} else {
-			arData.uv = "0.0,0.0,0.5,1.0";
+			arData.texture = "battle_interface\two.tga";
+			if( chrindex == 1 ) {
+				arData.uv = "0.5,0.0,1.0,1.0";
+			} else {
+				arData.uv = "0.0,0.0,0.5,1.0";
+			}
 		}
 	}
 	//arData.charge = LAi_GetCharacterRelCharge(chref);

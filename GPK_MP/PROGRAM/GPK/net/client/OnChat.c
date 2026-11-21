@@ -89,6 +89,17 @@ void NetClient_OnSay(int iMsg)
 
 	ref rClient = NetClient_GetClient(wNetClientID);
 
+	// COOP s30: a line of the server (server\OnSay.c: NetServer_SayTo)
+	if (iSubCode == NSC_SAY_SYSTEM)
+	{
+		PlayStereoSound(NET_SOUND_CHAT);
+		NetClient_ChatHistoryAdd(sMessage);
+		if (bNetLobbyChatActive) { NetClient_LobbyChatAdd(sMessage); }
+		else { NetClient_ChatAddSystemLine(sMessage); }
+		Log_SetStringToLog(sMessage);
+		return;
+	}
+
 	// COOP: sound of an incoming chat message (lobby and battle)
 	PlayStereoSound(NET_SOUND_CHAT);
 
@@ -228,7 +239,7 @@ void NetClient_ChatControlActivation()
 			LaunchNetChatString();
 		break;
 		case "Team_Say":
-			if (sti(NCServer.GameType) != NETGAME_DEATHMATCH)
+			if (sti(NCServer.GameType) != NETGAME_DEATHMATCH || NetLand_TeamGame())
 			{
 				NCSay.Mode = "Team_Say";
 				LaunchNetChatString();

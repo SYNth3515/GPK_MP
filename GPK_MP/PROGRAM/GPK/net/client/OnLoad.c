@@ -253,8 +253,8 @@ void NetClient_BranderDisarm() { NetClient_BranderArmed = false; }
 
 void NetClient_ShipBranderPress()
 {
-	// COOP: the brander is an active perk of single player: only with the "All active perks" switch of the server
-	if (!sti(NCServer.ActivePerks)) { return; }
+	// COOP: the brander is an active perk of single player: the "All active perks" switch or (s28) bought in the lobby
+	if (!NetClient_SeaPerk(NET_SPERK_BRANDER)) { return; }
 	if (NetClient_IsThisShipDead()) { return; }
 	if (!NetClient_BranderArmed)
 	{

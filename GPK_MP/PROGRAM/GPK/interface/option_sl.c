@@ -109,6 +109,12 @@ void GetRealOptions(ref optref)
 		optref.cameramode.SimpleSeaMode = true;
 	}
 
+	// COOP s28: the old music, the crew hidden from the deck camera
+	optref.cameramode.OldMusic = false;
+	if( CheckAttribute(&InterfaceStates,"OldMusic") ) { optref.cameramode.OldMusic = sti(InterfaceStates.OldMusic); }
+	optref.cameramode.HideDeckCrew = false;
+	if( CheckAttribute(&InterfaceStates,"HideDeckCrew") ) { optref.cameramode.HideDeckCrew = sti(InterfaceStates.HideDeckCrew); }
+
 	GetControlsOptions(optref);
 
 	// mouse
@@ -215,6 +221,12 @@ void SetCurentOptions(ref optref)
 	} else {
 		InterfaceStates.SimpleSea = false;
 	}
+
+	// COOP s28: the old music, the crew hidden from the deck camera
+	InterfaceStates.OldMusic = false;
+	if( CheckAttribute(optref,"cameramode.OldMusic") ) { InterfaceStates.OldMusic = optref.cameramode.OldMusic; }
+	InterfaceStates.HideDeckCrew = false;
+	if( CheckAttribute(optref,"cameramode.HideDeckCrew") ) { InterfaceStates.HideDeckCrew = optref.cameramode.HideDeckCrew; }
 
 	// mouse
 	if( CheckAttribute(optref,"cameramode.InvertCameras") ) {

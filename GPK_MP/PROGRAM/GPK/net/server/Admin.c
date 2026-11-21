@@ -83,6 +83,7 @@ void NetServer_AdminSendFlags(int wToClientID, int wAboutClientID)
 	NMAddClientID(iSMsg, wAboutClientID);
 	NMAddByte(iSMsg, sti(NSClients[wAboutClientID].Admin));
 	NMAddByte(iSMsg, sti(NSClients[wAboutClientID].Muted));
+	NMAddByte(iSMsg, NetServer_IsGod(wAboutClientID));		// COOP s27: immortality
 	NetServer_SendMessage(wToClientID, iSMsg, true);
 	NMDelete(iSMsg);
 }
@@ -160,7 +161,7 @@ void NetServer_AdminSendEnv(int wToClientID)
 	int iSMsg = NMCreate();
 	NMAddByte(iSMsg, NC_COMMAND);
 	NMAddByte(iSMsg, NSC_COMMAND_ADMIN_ENV);
-	NMAddByte(iSMsg, makeint(stf(NetServer.GameSpeed)));
+	NMAddFloat(iSMsg, stf(NetServer.GameSpeed));		// COOP: float: the speed goes below 1 (0.75 / 0.5)
 	NMAddFloat(iSMsg, fServerWeatherAngle);
 	NMAddFloat(iSMsg, fServerWeatherSpeed);
 	NMAddString(iSMsg, NetServer.WeatherID, 64);
@@ -186,7 +187,7 @@ void NetServer_OnAdminLogin(int wNetClientID, int iMsg)
 {
 	string sPassword = NMGetString(iMsg);
 
-	if (!NetServer_AdminTargetOk(wNetClientID)) { return; }
+	if (!NetServer_AdminTargetOk(wNetClientID)) { Trace("COOP: admin login from " + wNetClientID + ": no such player"); return; }
 
 	ref rClient = NetServer_GetClient(wNetClientID);
 
@@ -198,7 +199,9 @@ void NetServer_OnAdminLogin(int wNetClientID, int iMsg)
 		rClient.Admin = true;
 		NetServer_AdminSendFlags(DST_ALL, wNetClientID);
 		NetServer_AdminSendEnv(wNetClientID);
+		Trace("COOP: admin login from " + wNetClientID + ": ok");
 	}
+	else { Trace("COOP: admin login from " + wNetClientID + ": a wrong password"); }
 
 	NetServer_AdminSendStatus(wNetClientID);
 }
@@ -231,6 +234,24 @@ void NetServer_AdminMute(int wTarget)
 	NetServer_AdminSendFlags(DST_ALL, wTarget);
 }
 
+// COOP s27: immortality of a player (the button of the admin menu)
+int NetServer_IsGod(int i)
+{
+	if (i < 0 || i >= NET_MAXCLIENTS) { return 0; }
+	if (NetServer_BDOf(i) > 0) { return 1; }		// COOP s37: the ships of a boarding duel are not hurt (net\Board.c)
+	if (!CheckAttribute(&NSClients[i], "God")) { return 0; }
+	if (sti(NSClients[i].God)) { return 1; }
+	return 0;
+}
+
+void NetServer_AdminGod(int wTarget)
+{
+	if (!NetServer_AdminTargetOk(wTarget)) { return; }
+	if (NetServer_IsGod(wTarget)) { NSClients[wTarget].God = false; } else { NSClients[wTarget].God = true; }
+	NetServer_AdminSendFlags(DST_ALL, wTarget);
+	Trace("COOP: admin: immortality of " + wTarget + " = " + NetServer_IsGod(wTarget));
+}
+
 void NetServer_AdminMakeAdmin(int wTarget)
 {
 	if (!NetServer_AdminTargetOk(wTarget)) { return; }
@@ -243,6 +264,14 @@ void NetServer_AdminMakeAdmin(int wTarget)
 
 void NetServer_AdminHeal(int wTarget)
 {
+	// COOP: a sunk ship comes back (the respawn) by "Heal"
+	if (bServerGameStarted && NetServer_AdminTargetOk(wTarget))
+	{
+		if (NetServer_HasShip(wTarget))
+		{
+			if (sti(NSClients[wTarget].Dead)) { NetServer_RespawnShip(wTarget); return; }
+		}
+	}
 	if (!NetServer_AdminShipOk(wTarget)) { return; }
 
 	ref rT = NetServer_GetClient(wTarget);
@@ -253,6 +282,7 @@ void NetServer_AdminHeal(int wTarget)
 
 	float fMaxCrew = stf(rBase.MaxCrew);
 	if (stf(rT.Ship.Crew.Quantity) < fMaxCrew) { rT.Ship.Crew.Quantity = fMaxCrew; }
+	NetServer_ShipRebuildHeal(wTarget);		// COOP s27: the fallen masts and the sails with holes come back whole (the ship is created again)
 }
 
 void NetServer_AdminHealAll()
@@ -334,19 +364,17 @@ void NetServer_AdminTeleportToPlayer(int wAdmin, int wTarget)
 	NetServer_AdminPlaceShip(wAdmin, fNetAdminSideX, fNetAdminSideZ, fNetAdminSideAy);
 }
 
-// The same technique for the other direction: the target goes in front of the bow of the admin, bow to the admin
+// The other direction: the target goes beside the admin (abeam, the same course, on the side where the target is now).
+// COOP s30: it stood 70 m from the centre of the admin, bow to bow: the hulls touched or rammed at once (the host
+// crashed right after "player to me" with the admin at 49 m/s)
 void NetServer_AdminBringPlayer(int wAdmin, int wTarget)
 {
 	if (wAdmin == wTarget) { return; }
 	if (!NetServer_AdminShipOk(wAdmin)) { return; }
 	if (!NetServer_AdminShipOk(wTarget)) { return; }
 
-	ref rA = NetServer_GetClient(wAdmin);
-	float fAy = stf(rA.Ship.Ang.y);
-	float fX = stf(rA.Ship.Pos.x) + sin(fAy) * fNetAdminTeleportDist;
-	float fZ = stf(rA.Ship.Pos.z) + cos(fAy) * fNetAdminTeleportDist;
-
-	NetServer_AdminPlaceShip(wTarget, fX, fZ, fAy + PI);
+	NetServer_AdminSidePoint(NetServer_GetClient(wTarget), NetServer_GetClient(wAdmin));
+	NetServer_AdminPlaceShip(wTarget, fNetAdminSideX, fNetAdminSideZ, fNetAdminSideAy);
 }
 
 // debug: delete and create all ships again, at the same places
@@ -360,7 +388,7 @@ void NetServer_AdminReloadShips()
 		if (!NetServer_AdminShipOk(i)) { continue; }
 
 		ref rC = NetServer_GetClient(i);
-		NetServer_AdminPlaceShip(i, stf(rC.Ship.Pos.x), stf(rC.Ship.Pos.z), stf(rC.Ship.Ang.y));
+		NetServer_ShipRecreateLater(i, stf(rC.Ship.Pos.x), stf(rC.Ship.Pos.z), stf(rC.Ship.Ang.y));		// COOP s27: the new ship some frames later (server\OnShip.c)
 	}
 
 	// clients: see NetClient_AdminReloadShips
@@ -465,16 +493,175 @@ void NetServer_AdminSetWind(float fAngle, float fSpeed)
 	NetServer_AdminSendEnvToAdmins();
 }
 
-void NetServer_AdminChangeSpeed(int iDelta)
+// COOP: the game speed of the server (the +/- buttons of the admin menu and the +/- keys of the game)
+// 1x / 2x / ... / 8x, and below 1x the step is 0.25: 0.75x and 0.5x (the ships sail slower: server/OnShip.c)
+void NetServer_AdminChangeSpeed(float fDelta)
 {
-	int iSpeed = makeint(stf(NetServer.GameSpeed)) + iDelta;
-	if (iSpeed < 1) { iSpeed = 1; }
-	if (iSpeed > 8) { iSpeed = 8; }
+	float fSpeed = stf(NetServer.GameSpeed);
 
-	NetServer.GameSpeed = iSpeed;
+	if (fDelta > 0.0)
+	{
+		if (fSpeed < 1.0) { fSpeed = fSpeed + 0.25; }		// 0.5 -> 0.75 -> 1
+		else { fSpeed = fSpeed + 1.0; }
+	}
+	else
+	{
+		if (fSpeed <= 1.0) { fSpeed = fSpeed - 0.25; }	// 1 -> 0.75 -> 0.5
+		else { fSpeed = fSpeed - 1.0; }
+	}
+
+	if (fSpeed < 0.5) { fSpeed = 0.5; }
+	if (fSpeed > 8.0) { fSpeed = 8.0; }
+
+	NetServer.GameSpeed = fSpeed;
 	NetServer_BallsSpeedChanged();		// COOP: the balls fly faster with the ships (server\OnBall.c)
 
 	NetServer_AdminSendEnvToAdmins();
+}
+
+// ------------------------------------------------------------------------------------------------
+// COOP s27: the sea noclip of the admin. The client sends its keys when they change (client\Admin.c, NetNoclip_*), the server
+// moves the ship every frame by a step (W / S along the course, A / D to the sides, Q / E turn) with the message of the patched
+// net.dll MSG_NET_SHIP_SETPOS: the ship is put there at once with no speed (no recreation). Space / Shift: up / down (the sky, under
+// the water). The patched net.dll does not move a ship with NcOn = 1 by itself (no sails, waves, islands, collisions).
+// ------------------------------------------------------------------------------------------------
+#define NET_NOCLIP_SEA_TURN		0.02		// rad per frame (Q / E)
+bool bNetSrvNoclipFrame = false;
+
+int NetServer_NoclipBit(int iMask, int iBit)
+{
+	return (iMask / iBit) - (iMask / (iBit * 2)) * 2;
+}
+
+// all the clients: the ship of wID is in the noclip (its height and the speed up / down) or not (client\Admin.c)
+void NetServer_NoclipBroadcast(int wID)
+{
+	ref rC = NetServer_GetClient(wID);
+	int iOn = NetServer_NcAttr(rC, "NcOn");
+	float fVY = 0.0;
+	if (iOn != 1 && NetServer_NcAttr(rC, "NcHold") == 1) { iOn = 2; }		// after the noclip: the height stays
+	if (iOn == 1)
+	{
+		int iMask = sti(rC.NcMask);
+		float fV = stf(rC.NcStep) * 60.0;
+		if (NetServer_NoclipBit(iMask, 64) == 1) { fVY = fVY + fV; }
+		if (NetServer_NoclipBit(iMask, 128) == 1) { fVY = fVY - fV; }
+	}
+	float fY = 0.0;
+	if (CheckAttribute(rC, "NcY")) { fY = stf(rC.NcY); }
+	int iSMsg = NMCreate();
+	NMAddByte(iSMsg, NC_COMMAND);
+	NMAddByte(iSMsg, NSC_COMMAND_NOCLIP_SHIP);
+	NMAddClientID(iSMsg, wID);
+	NMAddByte(iSMsg, iOn);
+	NMAddFloat(iSMsg, fY);
+	NMAddFloat(iSMsg, fVY);
+	NetServer_SendMessage(DST_ALL, iSMsg, true);
+	NMDelete(iSMsg);
+}
+
+int NetServer_NcAttr(ref rC, string sName)
+{
+	if (!CheckAttribute(rC, sName)) { return 0; }
+	return sti(rC.(sName));
+}
+
+// the player turned the noclip on in this round: the NaN height watch does not recreate his ship (client\Time.c)
+bool NetServer_NoclipUsed(ref rC)
+{
+	if (!CheckAttribute(rC, "NcUsedRound")) { return false; }
+	return sti(rC.NcUsedRound) == sti(NetServer.Round);
+}
+
+void NetServer_AdminNoclip(int wAdmin, float fValue)
+{
+	if (wAdmin < 0 || wAdmin >= NET_MAXCLIENTS) { return; }
+	ref rC = NetServer_GetClient(wAdmin);
+	if (fValue < 0.0)
+	{
+		rC.NcOn = 0;
+		rC.NcHold = 1;		// the patched net.dll keeps the height where the noclip left the ship (till the death / the next round)
+		NetServer_NoclipBroadcast(wAdmin);
+		Trace("COOP: sea noclip off for " + wAdmin);
+		return;
+	}
+	int iV = makeint(fValue + 0.5);
+	int iSteps = iV / 256;
+	if (!CheckAttribute(rC, "NcOn")) { rC.NcOn = 0; }
+	if (sti(rC.NcOn) != 1) { rC.NcY = stf(rC.Ship.Pos.y); }
+	rC.NcOn = 1;
+	rC.NcHold = 0;
+	rC.NcMask = iV - iSteps * 256;
+	rC.NcStep = makefloat(iSteps) / 100.0;
+	rC.NcUsedRound = sti(NetServer.Round);
+	NetServer_NoclipBroadcast(wAdmin);
+	Trace("COOP: sea noclip keys " + sti(rC.NcMask) + " step " + rC.NcStep + " for " + wAdmin);
+	if (!bNetSrvNoclipFrame)
+	{
+		bNetSrvNoclipFrame = true;
+		SetEventHandler("frame", "NetServer_NoclipFrame", 0);
+		Trace("COOP: sea noclip on for " + wAdmin);
+	}
+}
+
+void NetServer_NoclipFrame()
+{
+	bool bAny = false;
+	float fK = MakeFloat(GetDeltaTime()) * 0.06;		// the steps are per frame of 60 fps
+	if (fK > 6.0) { fK = 6.0; }
+	if (bServerGameStarted)
+	{
+		for (int i=0; i<NET_MAXCLIENTS; i++)
+		{
+			ref rC = NetServer_GetClient(i);
+			int iNcOn = NetServer_NcAttr(rC, "NcOn");
+			if (iNcOn != 1 && NetServer_NcAttr(rC, "NcHold") != 1) { continue; }
+			bool bNcEnd = false;
+			if (sti(rC.Use) == 0) { bNcEnd = true; }
+			if (sti(rC.Dead) != 0) { bNcEnd = true; }
+			if (!IsEntity(rC)) { bNcEnd = true; }
+			if (!NetServer_NoclipUsed(rC)) { bNcEnd = true; }
+			if (bNcEnd)
+			{
+				rC.NcOn = 0;
+				rC.NcHold = 0;		// the death / the next round: the waves again
+				NetServer_NoclipBroadcast(i);
+				continue;
+			}
+			bAny = true;
+			if (iNcOn != 1) { continue; }
+			int iMask = sti(rC.NcMask);
+			float fStep = stf(rC.NcStep) * fK;
+			float fX = stf(rC.Ship.Pos.x);
+			float fY = stf(rC.NcY);
+			float fZ = stf(rC.Ship.Pos.z);
+			float fAy = stf(rC.Ship.Ang.y);
+			if (NetServer_NoclipBit(iMask, 16) == 1) { fAy = fAy - NET_NOCLIP_SEA_TURN * fK; }
+			if (NetServer_NoclipBit(iMask, 32) == 1) { fAy = fAy + NET_NOCLIP_SEA_TURN * fK; }
+			float fSin = sin(fAy);
+			float fCs = cos(fAy);
+			if (NetServer_NoclipBit(iMask, 1) == 1) { fX = fX + fSin * fStep; fZ = fZ + fCs * fStep; }
+			if (NetServer_NoclipBit(iMask, 2) == 1) { fX = fX - fSin * fStep; fZ = fZ - fCs * fStep; }
+			if (NetServer_NoclipBit(iMask, 8) == 1) { fX = fX + fCs * fStep; fZ = fZ - fSin * fStep; }
+			if (NetServer_NoclipBit(iMask, 4) == 1) { fX = fX - fCs * fStep; fZ = fZ + fSin * fStep; }
+			if (NetServer_NoclipBit(iMask, 64) == 1) { fY = fY + fStep; }
+			if (NetServer_NoclipBit(iMask, 128) == 1) { fY = fY - fStep; }
+			fAy = NetServer_AdminNormAngle(fAy);
+			rC.NcY = fY;
+			rC.Ship.Pos.x = fX;
+			rC.Ship.Pos.y = fY;
+			rC.Ship.Pos.z = fZ;
+			rC.Ship.Ang.y = fAy;
+			rC.Ship.Speed.x = 0.0;
+			rC.Ship.Speed.z = 0.0;
+			SendMessage(rC, "lffff", MSG_NET_SHIP_SETPOS, fX, fY, fZ, fAy);		// every frame: the ship stands still between the keys
+		}
+	}
+	if (!bAny)
+	{
+		bNetSrvNoclipFrame = false;
+		DelEventHandler("frame", "NetServer_NoclipFrame");
+	}
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -487,7 +674,11 @@ void NetServer_OnAdminCommand(int wNetClientID, int iMsg)
 	float fValue = NMGetFloat(iMsg);
 
 	// not an admin: ignore (a modified client can send anything)
-	if (!NetServer_IsAdmin(wNetClientID)) { return; }
+	if (!NetServer_IsAdmin(wNetClientID)) { Trace("COOP: admin command " + iAction + " from " + wNetClientID + ": not an admin"); return; }
+	if (iAction != NET_ADMIN_SYNC) { Trace("COOP: admin command " + iAction + " from " + wNetClientID + " target " + wTarget + " value " + fValue); }
+
+	// COOP: a land duel has players and no ships (Land.c)
+	if (iAction != NET_ADMIN_SYNC && NetServer_LandAdmin(wNetClientID, iAction, wTarget, fValue)) { return; }
 
 	switch (iAction)
 	{
@@ -502,6 +693,8 @@ void NetServer_OnAdminCommand(int wNetClientID, int iMsg)
 		break;
 		case NET_ADMIN_KICK:			NetServer_AdminKick(wNetClientID, wTarget);					break;
 		case NET_ADMIN_MUTE:			NetServer_AdminMute(wTarget);								break;
+		case NET_ADMIN_GOD:				NetServer_AdminGod(wTarget);								break;
+		case NET_ADMIN_NOCLIP:			NetServer_AdminNoclip(wNetClientID, fValue);				break;		// COOP s27
 		case NET_ADMIN_TP_TO:			NetServer_AdminTeleportToPlayer(wNetClientID, wTarget);		break;
 		case NET_ADMIN_TP_BRING:		NetServer_AdminBringPlayer(wNetClientID, wTarget);			break;
 		case NET_ADMIN_MAKE_ADMIN:		NetServer_AdminMakeAdmin(wTarget);							break;
@@ -511,7 +704,7 @@ void NetServer_OnAdminCommand(int wNetClientID, int iMsg)
 		case NET_ADMIN_DESTROY:			NetServer_AdminDestroy(wTarget);							break;
 		case NET_ADMIN_WEATHER:			NetServer_AdminChangeWeather(iNetAdminTimeIdx, iNetAdminWeatherIdx + makeint(fValue));	break;
 		case NET_ADMIN_TIME:			NetServer_AdminChangeWeather(iNetAdminTimeIdx + makeint(fValue), iNetAdminWeatherIdx);	break;
-		case NET_ADMIN_SPEED:			NetServer_AdminChangeSpeed(makeint(fValue));				break;
+		case NET_ADMIN_SPEED:			NetServer_AdminChangeSpeed(fValue);				break;
 		case NET_ADMIN_WIND_ANGLE:		NetServer_AdminSetWind(fServerWeatherAngle + fValue, fServerWeatherSpeed);	break;
 		case NET_ADMIN_WIND_SPEED:		NetServer_AdminSetWind(fServerWeatherAngle, fServerWeatherSpeed + fValue);	break;
 		// COOP: bots (server\Bots.c)
@@ -522,5 +715,9 @@ void NetServer_OnAdminCommand(int wNetClientID, int iMsg)
 		case NET_ADMIN_BOT_DESTROY:		NetServer_AdminBotAction(wNetClientID, iAction, wTarget, fValue);	break;
 		case NET_ADMIN_BOT_DELETE:		NetServer_AdminBotAction(wNetClientID, iAction, wTarget, fValue);	break;
 		case NET_ADMIN_BOT_RESPAWN:		NetServer_BotSetRespawn(makeint(fValue + 0.5));						break;
+		case NET_ADMIN_BOT_SKILL:		NetServer_BotSetSkill(makeint(fValue + 0.5));						break;
+		case NET_ADMIN_LATEJOIN:		NetServer_SetLateJoin(makeint(fValue + 0.5));						break;		// COOP s30
+		case NET_ADMIN_TOLOBBY:			NetServer_ReturnToLobby();											break;		// COOP s30 (server\OnStart.c)
+		case NET_ADMIN_LBOT_DEL:		NetServer_LBotDel(makeint(fValue + 0.5));							break;		// COOP s30 (server\Bots.c)
 	}
 }

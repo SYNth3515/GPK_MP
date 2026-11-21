@@ -7,6 +7,21 @@ void NetClient_DeleteFortEnvironment()
 	DeleteClass(&NCFortBlots);
 }
 
+// COOP s27: the fort is removed during the game. The model must NOT be deleted: the island keeps a pointer to it
+// (MSG_ISLAND_ADD_FORT, there is no message to take it back) and the first ball after the deletion crashed the game in the
+// trace of the island. So the model is hidden deep under the sea, and the next fort uses it again.
+void NetClient_FortRemoveKeepModel()
+{
+	DeleteClass(NetClient_GetCLient(NET_FORTCLIENT));
+	DeleteClass(&NCFortBlots);
+	if (IsEntity(&NCFortModel))
+	{
+		LayerDelObject("fort_cannon_trace", &NCFortModel);
+		SendMessage(&NCFortModel, "lffffffffffff", MSG_MODEL_SET_POSITION, 0.0, -3000.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0);
+		Trace("COOP: cli fort model hidden (kept for the island)");
+	}
+}
+
 void NetClient_CreateFortEnvironment(int iMsg)
 {
 	bool bFortLoad = NMGetByte(iMsg);
@@ -46,7 +61,7 @@ void NetClient_FortCreateByLocator(string sLoc, string sIsl, float fDX, float fD
 	if (!CheckAttribute(arLocator, "fort.model") || arLocator.fort.model == "") { return; }
 
 	ref rFort = NetClient_GetClient(NET_FORTCLIENT);
-	if (IsEntity(rFort)) { NetClient_DeleteFortEnvironment(); }		// COOP: built again (Heal / Bring of the Bots table): the old one goes
+	if (IsEntity(rFort)) { NetClient_FortRemoveKeepModel(); }		// COOP: built again (Heal / Bring of the Bots table): the old one goes (s27: the model stays)
 
 	rFort.Server = false;
 	rFort.fort_dx = fDX;		// COOP: read by the patched net.dll when the cannons of the fort are created
@@ -62,17 +77,37 @@ void NetClient_FortCreateByLocator(string sLoc, string sIsl, float fDX, float fD
 	LayerAddObject("sun_trace", rFort, 1);
 
 	// create fort model
-	CreateEntity(&NCFortModel, "MODELR");
 	string sNCFortModel = rIsland.filespath.models + "\" + arLocator.fort.model;
+	bool bReuseModel = false;
+	if (IsEntity(&NCFortModel))
+	{
+		if (CheckAttribute(&NCFortModel, "CoopPath"))
+		{
+			if (NCFortModel.CoopPath == sNCFortModel) { bReuseModel = true; }
+		}
+	}
+	if (bReuseModel)
+	{
+		// COOP s27: the model of the removed fort (hidden under the sea) comes back: the island knows it already
+		LayerAddObject("fort_cannon_trace", &NCFortModel, 1);
+		SendMessage(&NCFortModel, "lffffffffffff", MSG_MODEL_SET_POSITION, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0);
+		Trace("COOP: cli fort model used again");
+	}
+	else
+	{
+		if (IsEntity(&NCFortModel)) { DeleteClass(&NCFortModel); }		// another model (never in one game: one island)
+		CreateEntity(&NCFortModel, "MODELR");
+		NCFortModel.CoopPath = sNCFortModel;
 
-	SetTexturePath(0, rIsland.filespath.models + "\");
+		SetTexturePath(0, rIsland.filespath.models + "\");
 
-	SendMessage(&NCFortModel, "ls", MSG_MODEL_SET_LIGHT_PATH, NetClient_WhrGetLightingPath());
-	SendMessage(&NCFortModel, "ls", MSG_MODEL_LOAD_GEO, sNCFortModel);
-	SendMessage(&Island, "li", MSG_ISLAND_ADD_FORT,  &NCFortModel);
-	LayerAddObject("fort_cannon_trace", &NCFortModel, 1);
+		SendMessage(&NCFortModel, "ls", MSG_MODEL_SET_LIGHT_PATH, NetClient_WhrGetLightingPath());
+		SendMessage(&NCFortModel, "ls", MSG_MODEL_LOAD_GEO, sNCFortModel);
+		SendMessage(&Island, "li", MSG_ISLAND_ADD_FORT,  &NCFortModel);
+		LayerAddObject("fort_cannon_trace", &NCFortModel, 1);
 
-	SetTexturePath(0, "");
+		SetTexturePath(0, "");
+	}
 
 	if (fDX * fDX + fDZ * fDZ > 0.01)
 	{
@@ -138,7 +173,7 @@ void NetClient_OnFortInfo(int iMsg)
 // COOP: the fort of Bot+ was removed by the admin (Delete / Destroy of the Bots table)
 void NetClient_OnFortRemove()
 {
-	NetClient_DeleteFortEnvironment();
+	NetClient_FortRemoveKeepModel();		// COOP s27: the model stays (hidden), see NetClient_FortRemoveKeepModel
 	ref rFortR = NetClient_GetClient(NET_FORTCLIENT);
 	rFortR.CoopRel = 0;
 }

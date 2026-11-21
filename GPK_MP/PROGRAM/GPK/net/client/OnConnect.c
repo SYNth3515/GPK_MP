@@ -32,7 +32,80 @@ void NetClient_OnConnect(int iMsg)
 		case NSC_CONNECT_DISCONNECT:
 			Event("NCEvent_Disconnect");
 		break;
+		case NSC_CONNECT_TOLOBBY:
+			NetClient_OnBackToLobby();
+		break;
 	}
+}
+
+// COOP s30: the server ended the game and keeps the connection: the sea / land of this machine goes (the same cleaning as
+// the exit to the main menu: client\OnStart.c NetClient_OnEndGame), the lobby (Buy screen) opens again
+void NetClient_OnBackToLobby()
+{
+	int i;
+	Trace("COOP: cli back to the lobby (in game " + bNetClientInGame + ")");
+	NetClient_OnEndGame();
+	NCServer.GameRunning = false;
+
+	for (i=0; i<NET_TOTALCLIENTS; i++)
+	{
+		DeleteAttribute(&NCClients[i], "ShipGone");
+		DeleteAttribute(&NCClients[i], "CoopReady");
+		DeleteAttribute(&NCClients[i], "CoopGame");
+		DeleteAttribute(&NCClients[i], "MastFall");
+		DeleteAttribute(&NCClients[i], "Ship.Masts");
+		DeleteAttribute(&NCClients[i], "Ship.Sink");
+		DeleteAttribute(&NCClients[i], "APerk");
+		NCClients[i].BuyReady = false;
+		NCClients[i].StartReady = false;
+		NCClients[i].Dead = false;
+		NCClients[i].Wrecked = false;
+		NCClients[i].ShipState = 0;
+		NCClients[i].Stat.DamageInflicted = 0;
+		NCClients[i].Stat.Accuracy = 0;
+		NCClients[i].Stat.Kills = "";
+		NCClients[i].Stat.Frags = 0;
+		NCClients[i].Stat.Deaths = 0;
+	}
+
+	// NetClient_OnEndGame took the chat and the disconnect handler: the lobby needs them
+	NetClient_CreateChatEnvironment();
+	SetEventHandler("NCEvent_Disconnect", "NetClient_OnDisconnect", 0);
+
+	PauseAllSounds();
+	ResetSoundScheme();
+	SetMusic("music_MainMenu");
+
+	// a player who sat in the lobby (did not join the game) keeps it: it reads GameRunning every frame
+	if (sti(InterfaceStates.Launched) && CurrentInterface == INTERFACE_NET_BUY) { return; }
+
+	// the Esc menu, the statistics or any other window of the game closes; the lobby opens on the next frame
+	if (sti(InterfaceStates.Launched))
+	{
+		interfaceResultCommand = RC_INTERFACE_DO_NOTHING;
+		EndCancelInterface(true);
+	}
+	SetEventHandler("NetClient_LobbyOpen", "NetClient_LobbyOpen", 0);
+	PostEvent("NetClient_LobbyOpen", 1);
+}
+
+// COOP s31: the host leaves the running game (interfaces\NetMenu.c): only he goes to the lobby, the server and the game go on;
+// "Join the battle" of the lobby brings him back (his ship waited like the ship of a reconnect)
+void NetClient_LeaveToLobby()
+{
+	DelEventHandler("NetClient_LeaveToLobby", "NetClient_LeaveToLobby");
+	if (!bNetClientConnected) { return; }
+	NetServer_ClientToLobby(wClientID);
+	NetClient_OnBackToLobby();
+	NCServer.GameRunning = true;
+}
+
+void NetClient_LobbyOpen()
+{
+	DelEventHandler("NetClient_LobbyOpen", "NetClient_LobbyOpen");
+	if (!bNetClientConnected) { return; }
+	if (sti(InterfaceStates.Launched)) { return; }
+	LaunchNetBuyScreen();
 }
 
 void NetClient_OnConnectReconnect()

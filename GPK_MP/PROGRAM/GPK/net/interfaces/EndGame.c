@@ -21,6 +21,14 @@ void IDoExit(int exitCode)
 
 void ICancelProcedure()
 {
+	// COOP s30: the host: everybody back to the lobby, the server stays (server\OnStart.c)
+	// (not a preview, net\Land.c: Esc closes its server, the lobby would start it again at once)
+	if (bNetHostExitToLobby && NetServer_IsStarted() && iNetPreview <= 0)
+	{
+		IDoExit(RC_INTERFACE_DO_NOTHING);
+		NetServer_ReturnToLobby();
+		return;
+	}
 	// COOP: after the game is over everybody goes to the main menu - the same path as the "Exit" button in the
 	// find-game screen. Sound, music and all net objects are released, so the next game starts from a clean state.
 	Net_Stop();

@@ -98,7 +98,7 @@ void Net_InitGoods()
 	makeref(rG, NetGoods[n]); 
 	rG.Name = "Planks";
 	rG.Index = n;
-	rG.Cost = 1500;
+	rG.Cost = 500;		// COOP s28: 1500 -> 500 for 10 (the budget of a full fast manowar, common\Perks.c)
 	rG.Weight = 3;
 	rG.WUnits = 1;
 	rG.Units = 10;
@@ -108,7 +108,7 @@ void Net_InitGoods()
 	makeref(rG, NetGoods[n]); 
 	rG.Name = "Sailcloth";
 	rG.Index = n;
-	rG.Cost = 2000;
+	rG.Cost = 600;		// COOP s28: 2000 -> 600 for 10
 	rG.Weight = 2;
 	rG.WUnits = 1;
 	rG.Units = 10;

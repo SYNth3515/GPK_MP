@@ -1,0 +1,12 @@
+
+
+
+
+D:/WORK/K3/DRIVE_V2/ENGINE/RESOURCE/Models/Locations/decks/deck01/deck01_locators.gm
+objects: 1, textures: 1, materials: 1
+triangles: 1, vertices: 3
+2-sided triangles: 0
+-----------------------------------
+bbox_size: 1.166572,0.000000,1.277606, radius: 0.865038
+-----------------------------------
+traverses/vertex: 0.666667, max depth: 1

@@ -12,6 +12,215 @@ int iCoopLSCRingRadius = 400;
 int iCoopMaxPortDist = 2500;
 // COOP test: open sea (no island) deathmatch spawn Z of team 0. Try 0.0, then 600.0, then -600.0
 float fCoopOpenZ = 0.0;
+
+// COOP s30: the spawn point of an island. The host puts his ship in a safe place with its bow to the open sea and writes
+// "/spawna" in the chat: the place and the course of the ship are kept in SAVE\NetSaves\Server\SpawnLines.nsv and win over the
+// points of NetServer_SpawnLineDefaults (the points that come with the mod). The sides stand on the line that goes from that
+// place forward along the bow: the first side at the point, the next one "Start position" metres farther (near 250, middle 500,
+// far 1000), and so on. The ships of one side stand abreast across the line, a little apart, with a small random shift.
+// Respawn and late join use the same places. No point: the sea points of the ports, then the nearest port even if it is far,
+// the ring around the island origin last.
+object NSSpawnLinesOwn;		// the points of the host: NSSpawnLinesOwn.(island).x, z, ay (saved)
+object NSLine;				// the line in use: x, z (the start), ux, uz (the course), ay
+object NSLinePt;			// a place on the line: x, z, ay
+float fNetLineShipStep = 55.0;		// metres between the ships of one side (across the line)
+float fNetLineJitter = 10.0;		// the random shift, metres
+float fNetLineMaxLen = 3000.0;		// the sides of a big deathmatch stand closer, so the line is not longer than this
+float fNetLineMinGap = 150.0;		// ... but never closer than this
+
+// the points that come with the mod: X, Z and the course (radians) of "/spawna" (or of "/getmypos": X, Z, the angle Y)
+bool NetServer_SpawnLineDefaults(string sIsl)
+{
+	bool bOk = false;
+	switch (sIsl)
+	{
+		// COOP s30: the points of the author (SpawnLines.nsv of 21.11.2026), every sea island
+		case "Antigua": NetServer_SpawnLineSet(-1394.3900146, 553.2050171, 5.1124101); bOk = true; break;
+		case "Barbados": NetServer_SpawnLineSet(-985.0910034, -1321.7700195, 4.0823302); bOk = true; break;
+		case "Beliz": NetServer_SpawnLineSet(-1853.3699951, -1497.0300293, 1.6844701); bOk = true; break;
+		case "Bermudes": NetServer_SpawnLineSet(-3222.1101074, -1640.7099609, 4.2602301); bOk = true; break;
+		case "Guadeloupe": NetServer_SpawnLineSet(-2795.2900391, -1991.6899414, 4.0272799); bOk = true; break;
+		case "LostShipsCity": NetServer_SpawnLineSet(-556.6010132, -172.7700043, 5.2971501); bOk = true; break;
+		case "Dominica": NetServer_SpawnLineSet(-152.6739960, -1824.6199951, 4.0144200); bOk = true; break;
+		case "Caiman": NetServer_SpawnLineSet(822.8720093, 547.0499878, 0.2824700); bOk = true; break;
+		case "Caracas": NetServer_SpawnLineSet(549.3599854, 399.8999939, 0.4603800); bOk = true; break;
+		case "Cartahena": NetServer_SpawnLineSet(135.2530060, 77.9940033, 5.2726998); bOk = true; break;
+		case "Cuba2": NetServer_SpawnLineSet(-767.0739746, 711.8109741, 5.4666901); bOk = true; break;
+		case "Cuba1": NetServer_SpawnLineSet(424.6780090, -1024.6500244, 4.0671101); bOk = true; break;
+		case "Cumana": NetServer_SpawnLineSet(-1754.5600586, 1205.2800293, 5.6003098); bOk = true; break;
+		case "Curacao": NetServer_SpawnLineSet(285.0419922, -2036.0200195, 3.4787300); bOk = true; break;
+		case "Maracaibo": NetServer_SpawnLineSet(-281.0209961, -780.8549805, 0.6889440); bOk = true; break;
+		case "Martinique": NetServer_SpawnLineSet(-789.0640259, -313.6560059, 4.3657498); bOk = true; break;
+		case "Nevis": NetServer_SpawnLineSet(-1049.1099854, -403.1700134, 5.3839202); bOk = true; break;
+		case "PortoBello": NetServer_SpawnLineSet(942.3909912, -41.5181007, 5.8570199); bOk = true; break;
+		case "PuertoRico": NetServer_SpawnLineSet(1138.8800049, 1431.8399658, 0.1461350); bOk = true; break;
+		case "SantaCatalina": NetServer_SpawnLineSet(-132.8800049, -548.4210205, 2.1945400); bOk = true; break;
+		case "SentMartin": NetServer_SpawnLineSet(-1226.0200195, -808.1229858, 4.8086600); bOk = true; break;
+		case "Tortuga": NetServer_SpawnLineSet(838.8610229, -1569.0799561, 3.3672400); bOk = true; break;
+		case "Trinidad": NetServer_SpawnLineSet(-2835.6201172, -2497.4599609, 4.4565701); bOk = true; break;
+		case "Hispaniola2": NetServer_SpawnLineSet(1694.8800049, -1299.4899902, 5.4265599); bOk = true; break;
+		case "Hispaniola1": NetServer_SpawnLineSet(-865.0499878, -2958.9399414, 2.6029899); bOk = true; break;
+		case "Jamaica": NetServer_SpawnLineSet(2687.6899414, -2036.8699951, 2.4919500); bOk = true; break;
+		case "Terks": NetServer_SpawnLineSet(57.8086014, 729.9030151, 0.2993700); bOk = true; break;
+		case "__none__": bOk = false; break;
+	}
+	return bOk;
+}
+
+void NetServer_LoadSpawnLines()
+{
+	DeleteAttribute(&NSSpawnLinesOwn, "");
+	Net_LoadFile(true, &NSSpawnLinesOwn, "SpawnLines.nsv");
+}
+
+// the line from (fX, fZ) along the course fAy (the bow of a ship with Ang.y = fAy looks to sin(ay), cos(ay))
+void NetServer_SpawnLineSet(float fX, float fZ, float fAy)
+{
+	NSLine.x = fX;
+	NSLine.z = fZ;
+	NSLine.ay = fAy;
+	NSLine.ux = sin(fAy);
+	NSLine.uz = cos(fAy);
+}
+
+// the line of the island -> NSLine (own = 1: the point of the host); false: the island has none
+bool NetServer_GetSpawnLine(string sIsl)
+{
+	DeleteAttribute(&NSLine, "");
+	if (sIsl == "") { return false; }
+	if (CheckAttribute(&NSSpawnLinesOwn, sIsl + ".ay"))
+	{
+		NetServer_SpawnLineSet(stf(NSSpawnLinesOwn.(sIsl).x), stf(NSSpawnLinesOwn.(sIsl).z), stf(NSSpawnLinesOwn.(sIsl).ay));
+		NSLine.own = 1;
+		return true;
+	}
+	if (!NetServer_SpawnLineDefaults(sIsl)) { return false; }
+	NSLine.own = 0;
+	return true;
+}
+
+// the line of the running game (NetServer.Line) -> NSLine
+bool NetServer_UseGameLine()
+{
+	if (!CheckAttribute(&NetServer, "Line.ay")) { return false; }
+	NetServer_SpawnLineSet(stf(NetServer.Line.x), stf(NetServer.Line.z), stf(NetServer.Line.ay));
+	return true;
+}
+
+// metres between the neighbour sides: "Start position" of the Create game screen, a big deathmatch closer
+float NetServer_LineGap(int iSides)
+{
+	float fGap = 500.0;
+	int iStartPos = 1;
+	if (CheckAttribute(&NetServer, "StartPosition")) { iStartPos = sti(NetServer.StartPosition); }
+	if (iStartPos <= 0) { fGap = 250.0; }
+	if (iStartPos >= 2) { fGap = 1000.0; }
+	if (iSides > 1)
+	{
+		float fMax = fNetLineMaxLen / makefloat(iSides - 1);
+		if (fGap > fMax) { fGap = fMax; }
+	}
+	if (fGap < fNetLineMinGap) { fGap = fNetLineMinGap; }
+	return fGap;
+}
+
+// the place fAlong metres forward on NSLine and fSide metres to its right -> NSLinePt.x, z
+void NetServer_LinePoint(float fAlong, float fSide)
+{
+	float fUX = stf(NSLine.ux);
+	float fUZ = stf(NSLine.uz);
+	NSLinePt.x = stf(NSLine.x) + fUX * fAlong + fUZ * fSide;
+	NSLinePt.z = stf(NSLine.z) + fUZ * fAlong - fUX * fSide;
+}
+
+// the place of a ship: the side iSide of iSides, the iRow-th ship of that side -> NSLinePt.x, z, ay
+void NetServer_LineShipPlace(int iSide, int iSides, int iRow)
+{
+	float fAlong = makefloat(iSide) * NetServer_LineGap(iSides);
+	// abreast across the line: 0, right, left, right * 2, left * 2 ...
+	int iHalf = makeint((iRow + 1) / 2);
+	float fSide = makefloat(iHalf) * fNetLineShipStep;
+	if (iRow - makeint(iRow / 2) * 2 == 0) { fSide = -fSide; }
+	fAlong = fAlong + (frnd() * 2.0 - 1.0) * fNetLineJitter;
+	fSide = fSide + (frnd() * 2.0 - 1.0) * fNetLineJitter;
+	NetServer_LinePoint(fAlong, fSide);
+
+	// the sides look at each other: the first half along the course, the far half back
+	float fAy = stf(NSLine.ay);
+	if (iSides > 1)
+	{
+		if (iSide * 2 > iSides - 1) { fAy = fAy + PI; }
+	}
+	while (fAy < 0.0) { fAy = fAy + PIm2; }
+	while (fAy >= PIm2) { fAy = fAy - PIm2; }
+	NSLinePt.ay = fAy;
+}
+
+string Net_LineTeamKey(int iTeam)
+{
+	return "t" + iTeam;
+}
+
+string NetServer_LineNum(float f)
+{
+	return "" + makeint(f);
+}
+
+// net\Land.c (NetLand_ChatCmd): the chat commands "/spawna", "/spawnline", "/spawnclear" of the host
+bool NetServer_SpawnLineCmd(string sMsg)
+{
+	bool bA = (findSubStr(sMsg, "/spawna", 0) == 0);
+	bool bShow = (findSubStr(sMsg, "/spawnline", 0) == 0);
+	bool bClear = (findSubStr(sMsg, "/spawnclear", 0) == 0);
+	if (!bA && !bShow && !bClear) { return false; }
+
+	if (!NetServer_IsStarted()) { Log_SetStringToLog("Точку спавна задаёт хост (тот, кто создал игру)"); return true; }
+	if (!bServerGameStarted || NetServer_LandMode() || NetServer.IslandID == "")
+	{
+		Log_SetStringToLog("Точку спавна задают в морском бою у острова");
+		return true;
+	}
+	string sIsl = NetServer.IslandID;
+
+	if (bShow)
+	{
+		if (!NetServer_GetSpawnLine(sIsl)) { Log_SetStringToLog("У острова " + sIsl + " нет точки спавна"); return true; }
+		string sFrom = "из мода";
+		if (sti(NSLine.own)) { sFrom = "ваша"; }
+		Log_SetStringToLog("Точка спавна " + sIsl + " (" + sFrom + "): X " + NetServer_LineNum(stf(NSLine.x)) + ", Z " + NetServer_LineNum(stf(NSLine.z)) + ", курс " + makeint(stf(NSLine.ay) * 180.0 / PI) + " гр");
+		return true;
+	}
+
+	if (bClear)
+	{
+		DeleteAttribute(&NSSpawnLinesOwn, sIsl);
+		Net_SaveFile(true, &NSSpawnLinesOwn, "SpawnLines.nsv");
+		Log_SetStringToLog("Ваша точка спавна острова " + sIsl + " удалена");
+		Trace("COOP: spawnline " + sIsl + " cleared");
+		return true;
+	}
+
+	if (wClientID < 0 || wClientID >= NET_MAXCLIENTS || !NetServer_HasShip(wClientID))
+	{
+		Log_SetStringToLog("Нужен ваш корабль в море");
+		return true;
+	}
+	ref rMe = NetServer_GetClient(wClientID);
+	float fX = stf(rMe.Ship.Pos.x);
+	float fZ = stf(rMe.Ship.Pos.z);
+	float fAy = stf(rMe.Ship.Ang.y);
+	while (fAy < 0.0) { fAy = fAy + PIm2; }
+	while (fAy >= PIm2) { fAy = fAy - PIm2; }
+	NSSpawnLinesOwn.(sIsl).x = fX;
+	NSSpawnLinesOwn.(sIsl).z = fZ;
+	NSSpawnLinesOwn.(sIsl).ay = fAy;
+	Net_SaveFile(true, &NSSpawnLinesOwn, "SpawnLines.nsv");
+	Log_SetStringToLog("Точка спавна острова " + sIsl + " сохранена: X " + NetServer_LineNum(fX) + ", Z " + NetServer_LineNum(fZ) + ", курс " + makeint(fAy * 180.0 / PI) + " гр");
+	Log_SetStringToLog("Стороны встанут вперёд по носу через 250 / 500 / 1000 м. Работает со следующей игры");
+	Trace("COOP: spawnline saved " + sIsl + " x=" + fX + " z=" + fZ + " ay=" + fAy);
+	return true;
+}
+
 int iServerEnvSMsg;
 
 void NetServer_EndGame(bool bReconnect)
@@ -75,6 +284,7 @@ void NetServer_EndGame(bool bReconnect)
 	}
 
 	NetServer_LandEnd();		// COOP: land duel (Land.c)
+	NetServer_MinesClear();		// COOP s30: no mine of this game in the next one
 	NetServer_DeleteWeatherEnvironment();
 	NetServer_DeleteIslandEnvironment();
 	NetServer_DeleteBallsEnvironment();
@@ -101,7 +311,9 @@ int NetServer_CountSides()
 
 	for (i=0; i<NET_MAXCLIENTS; i++)
 	{
-		if (!sti(NSClients[i].Use)) { continue; }
+		bool bSideSlot = sti(NSClients[i].Use);
+		if (!bSideSlot && sti(NetServer.GameType) != NETGAME_DEATHMATCH) { bSideSlot = NetServer_IsTeamBot(i); }		// COOP s28
+		if (!bSideSlot) { continue; }
 		if (!NetServer_ShipIsAlive(i)) { continue; }
 		iAlive++;
 		int iTeam = sti(NSClients[i].Team);
@@ -115,10 +327,56 @@ int NetServer_CountSides()
 
 	if (sti(NetServer.GameType) == NETGAME_FORT && iTeamAlive[0] == 0)
 	{
-		ref rFort = NetServer_GetClient(NET_FORTCLIENT);
+		ref rFort = NetServer_GetCLient(NET_FORTCLIENT);
 		if (CheckAttribute(rFort, "Ship.HP") && stf(rFort.Ship.HP) > 0.0) { iSides++; }
 	}
 	return iSides;
+}
+
+// COOP: the game over of the battle: an announcement only (client\OnStart.c: NetClient_OnGameOver), nobody is disconnected
+void NetServer_AnnounceGameOver()
+{
+	NetServer.GameOver = true;
+	NetServer.ContestStarted = false;
+	Trace("COOP: game over announced, winner id=" + NetServer.wWinnerClientID + " team=" + NetServer.iWinnerTeam + " draw=" + NetServer.Draw);
+	int iSMsg = NMCreate();
+	NMAddByte(iSMsg, NC_STARTGAME);
+	NMAddByte(iSMsg, NSC_STARTGAME_GAMEOVER);
+	NMAddByte(iSMsg, sti(NetServer.GameType));
+	NMAddClientID(iSMsg, sti(NetServer.wWinnerClientID));
+	NMAddByte(iSMsg, sti(NetServer.iWinnerTeam));
+	NMAddByte(iSMsg, sti(NetServer.Draw));			// COOP: draw flag (client\OnStart.c: NetClient_OnGameOver)
+	NetServer_SendMessage(DST_ALL, iSMsg, true);
+	NMDelete(iSMsg);
+}
+
+// COOP: the fort of Capture the fort is the objective of the mode: its death ends the battle even with respawn,
+// where nothing else ends it (the respawn return used to hide the fort from NetServer_CheckGameOver_Fort).
+bool NetServer_FortVictory()
+{
+	if (sti(NetServer.GameType) != NETGAME_FORT) { return false; }
+	if (sti(NetServer.GameOver)) { return false; }
+	if (!NetServer_FortGameDead()) { return false; }
+
+	NetServer.wWinnerClientID = DST_INVALID;
+	NetServer.iWinnerTeam = 1;
+	NetServer.Draw = 0;
+	Trace("COOP: the fort of the game mode is destroyed, the attackers won");
+	return true;
+}
+
+// COOP: the convoy ship stands in the point of the mode: the convoy team wins, also in a solo game and with respawn
+bool NetServer_ConvoyVictory()
+{
+	if (sti(NetServer.GameType) != NETGAME_CONVOY) { return false; }
+	if (sti(NetServer.GameOver)) { return false; }
+	if (!NetServer_ConvoyReached()) { return false; }
+
+	NetServer.wWinnerClientID = DST_INVALID;
+	NetServer.iWinnerTeam = 0;
+	NetServer.Draw = 0;
+	Trace("COOP: the convoy ship reached the point, the convoy team won");
+	return true;
 }
 
 void NetServer_OnCheckGameOverFrame()
@@ -138,7 +396,14 @@ void NetServer_OnCheckGameOverFrame()
 	}
 
 	// COOP: with respawn the battle never ends, the server lives while somebody plays
-	if (sti(NetServer.Respawn)) { return; }
+	if (sti(NetServer.Respawn))
+	{
+		// COOP: the only exceptions are the objectives of the modes: a destroyed fort and a convoy ship in the point
+		// end the battle. A sunk convoy ship does NOT save the defenders here (that stays a no-respawn rule).
+		if (NetServer_FortVictory()) { NetServer_AnnounceGameOver(); }
+		if (NetServer_ConvoyVictory()) { NetServer_AnnounceGameOver(); }
+		return;
+	}
 
 	int iSides = NetServer_CountSides();
 
@@ -160,6 +425,10 @@ void NetServer_OnCheckGameOverFrame()
 	}
 
 	if (iSides >= 2) { NetServer.ContestStarted = true; }
+	// COOP: the fort of the mode is down - the battle was surely on, even if the sides did not meet in this frame
+	if (NetServer_FortGameDead()) { NetServer.ContestStarted = true; }
+	// COOP: the convoy ship in the point wins the mode even in a solo game, where the sides never met
+	if (NetServer_ConvoyReached()) { NetServer.ContestStarted = true; }
 	if (!sti(NetServer.ContestStarted)) { return; }
 
 	// check the game over - only if game started
@@ -188,19 +457,7 @@ void NetServer_OnCheckGameOverFrame()
 
 		if (!NET_DEBUG && bCurrentGameOver)
 		{
-			// game is over: only an announcement now (client\OnStart.c: NetClient_OnGameOver), nobody is disconnected
-			NetServer.GameOver = true;
-			NetServer.ContestStarted = false;
-			Trace("COOP: game over announced, winner id=" + NetServer.wWinnerClientID + " team=" + NetServer.iWinnerTeam + " draw=" + NetServer.Draw);
-			int iSMsg = NMCreate();
-			NMAddByte(iSMsg, NC_STARTGAME);
-			NMAddByte(iSMsg, NSC_STARTGAME_GAMEOVER);
-			NMAddByte(iSMsg, sti(NetServer.GameType));
-			NMAddClientID(iSMsg, sti(NetServer.wWinnerClientID));
-			NMAddByte(iSMsg, sti(NetServer.iWinnerTeam));
-			NMAddByte(iSMsg, sti(NetServer.Draw));			// COOP: draw flag (client\OnStart.c: NetClient_OnGameOver)
-			NetServer_SendMessage(DST_ALL, iSMsg, true);
-			NMDelete(iSMsg);
+			NetServer_AnnounceGameOver();
 		}
 	}
 }
@@ -210,6 +467,185 @@ void NetServer_RestartGame()
 	Net_DeleteServer();
 
 	//Net_CreateServer();
+}
+
+// COOP s30: the exit of the host from the running game (and "Back to the lobby" of the admin menu) sends everybody back to
+// the lobby (Buy screen): the server and the connections stay. false = the old way: the server is closed, all go to the
+// main menu (interfaces\NetMenu.c, interfaces\EndGame.c).
+bool bNetHostExitToLobby = true;
+
+// a slot that leaves the game for good (a bot, a player who left during the game): as a slot of a new server
+void NetServer_SlotClear(int i)
+{
+	DeleteAttribute(&NSClients[i], "");
+	NSClients[i].index = i;
+	NSClients[i].id = i;
+	NSClients[i].Use = false;
+	NSClients[i].BuyReady = false;
+	NSClients[i].StartReady = false;
+	NSClients[i].Server = true;
+	NSClients[i].Team = 0;
+	NSClients[i].LastPacketIndex = 0;
+	NSClients[i].LastPingTime = iPingTime;
+	NetServer_SlotStatClear(i);
+	NSClients[i].Spawned = false;
+	NSClients[i].InGame = false;
+	NSClients[i].Parked = false;
+}
+
+void NetServer_SlotStatClear(int i)
+{
+	NSClients[i].Stat.Sunk = 0;
+	NSClients[i].Stat.Wreck = 0;
+	NSClients[i].Stat.Misses = 0;
+	NSClients[i].Stat.Hits = 0;
+	NSClients[i].Stat.Won = 0;
+	NSClients[i].Stat.Lost = 0;
+	NSClients[i].Stat.DamageInflicted = 0;
+	NSClients[i].Stat.Deaths = 0;
+}
+
+// the connected player stays in his slot (nick, team, admin, mute, face, the name of the ship), all of the game goes
+void NetServer_SlotToLobby(int i)
+{
+	string sShipName = "";
+	if (CheckAttribute(&NSClients[i], "Ship.Name")) { sShipName = NSClients[i].Ship.Name; }
+	int iSailColor = argb(255, 255, 255, 255);
+	if (CheckAttribute(&NSClients[i], "Ship.Sails.Color")) { iSailColor = sti(NSClients[i].Ship.Sails.Color); }
+	DeleteAttribute(&NSClients[i], "Ship");
+	NSClients[i].Ship.Name = sShipName;
+	NSClients[i].Ship.Type = -1;
+	// as at the connect (server\OnConnect.c): the engine ship needs Ship.Pos and Ship.Ang (an assert of ship.cpp without them)
+	NSClients[i].Ship.Pos.x = 0.0;
+	NSClients[i].Ship.Pos.y = 0.0;
+	NSClients[i].Ship.Pos.z = 0.0;
+	NSClients[i].Ship.Ang.y = frnd() * PIm2;
+	NSClients[i].Ship.Speed.x = 0.0;
+	NSClients[i].Ship.Speed.y = 0.0;
+	NSClients[i].Ship.Speed.z = 0.0;
+	NSClients[i].Ship.Upgrades.Hull = 1;
+	NSClients[i].Ship.Upgrades.Sails = 1;
+	NSClients[i].Ship.Upgrades.Cannons = 1;
+	NSClients[i].Ship.Sails.Color = iSailColor;
+	DeleteAttribute(&NSClients[i], "Killer");
+	DeleteAttribute(&NSClients[i], "WreckedNow");
+	DeleteAttribute(&NSClients[i], "ShipGone");
+	DeleteAttribute(&NSClients[i], "APerk");
+	DeleteAttribute(&NSClients[i], "SpawnProtect");
+	DeleteAttribute(&NSClients[i], "Skills");
+	DeleteAttribute(&NSClients[i], "NcHold");
+	DeleteAttribute(&NSClients[i], "AimTrack");
+	DeleteAttribute(&NSClients[i], "LastCollisionShip");
+	DeleteAttribute(&NSClients[i], "LastCollisionIsland");
+	NSClients[i].Dead = false;
+	NSClients[i].BuyReady = false;
+	NSClients[i].StartReady = false;
+	NSClients[i].Reconnect = false;
+	NSClients[i].JoinRequested = false;
+	NSClients[i].Spawned = false;
+	NSClients[i].InGame = false;
+	NSClients[i].Parked = false;
+	NetServer_SlotStatClear(i);
+}
+
+void NetServer_ReturnToLobby()
+{
+	int i, iSMsg;
+	if (!NetServer_IsStarted()) { return; }
+	bool bWasRunning = bServerGameStarted;
+	Trace("COOP: srv back to the lobby (game running " + bWasRunning + ")");
+
+	bServerGameStarted = false;
+	bServerStartRequested = false;
+	iSecondsToStartGame = -1;
+	DelEventHandler("NetServer_StartServerCountDown", "NetServer_StartServerCountDown");
+	DelEventHandler("frame", "NetServer_OnCheckGameOverFrame");
+	NetServer_ClearPacketsQueue();
+
+	// the clients first: they delete their sea / land and open the lobby (client\OnConnect.c)
+	iSMsg = NMCreate();
+	NMAddByte(iSMsg, NC_CONNECT);
+	NMAddByte(iSMsg, NSC_CONNECT_TOLOBBY);
+	NetServer_SendMessage(DST_ALL, iSMsg, true);
+	NMDelete(iSMsg);
+
+	for (i=0; i<NET_MAXCLIENTS; i++)
+	{
+		bool bUse = sti(NSClients[i].Use);
+		bool bBot = NetServer_IsBot(i);
+		bool bParked = NetServer_IsParked(i);
+		bool bShip = NetServer_HasShip(i);
+		if (!bUse && !bParked && !bShip && !bBot) { continue; }
+		bool bPlayer = bUse;
+		if (bParked) { bPlayer = true; }
+		if (bWasRunning && !bBot && bPlayer) { NetServer_UpdateGlobalPlayerStatistics(&NSClients[i]); }
+		DeleteClass(&NSClients[i]);
+		if (bUse && !bBot) { NetServer_SlotToLobby(i); continue; }
+		// a bot or a player who left: the slot is free again; the clients forget it
+		NetServer_SlotClear(i);
+		iSMsg = NMCreate();
+		NMAddByte(iSMsg, NC_CLIENT);
+		NMAddByte(iSMsg, NSC_CLIENT_DROP);
+		NMAddClientID(iSMsg, i);
+		NetServer_SendMessage(DST_ALL, iSMsg, true);
+		NMDelete(iSMsg);
+	}
+	iNetBotCount = 0;
+	iNetBotGen = iNetBotGen + 1;		// the tick of the bots of the old game stops
+	NetServer_MinesClear();
+
+	NetServer_LandEnd();
+	NetServer_DeleteWeatherEnvironment();
+	NetServer_DeleteIslandEnvironment();
+	NetServer_DeleteBallsEnvironment();
+	NetServer_DeleteTouchEnvironment();
+	NetServer_DeleteRiggingEnvironment();
+	NetServer_DeleteShipEnvironment();
+	NetServer_DeleteFortEnvironment();
+	NetServer_DeleteTimeEnvironment();
+
+	// the lobbies see "not running" (the Start button of the host, the details)
+	for (i=0; i<NET_MAXCLIENTS; i++)
+	{
+		if (!sti(NSClients[i].Use)) { continue; }
+		NetServer_OnServerInfo_SendCommonServerInfo(i);
+	}
+}
+
+// COOP s31: ONE player (the host: interfaces\NetMenu.c) goes from the running game to the lobby, the game goes on. His ship
+// waits like the ship of a reconnect (sails down); "Join the battle" of the lobby gives it back (NetServer_OnCommandStartGame)
+void NetServer_ClientToLobby(int wID)
+{
+	int i, iSMsg;
+	if (wID < 0 || wID >= NET_MAXPLAYERS) { return; }
+	if (!bServerGameStarted) { return; }
+	if (!sti(NSClients[wID].Use)) { return; }
+	ref rC = NetServer_GetClient(wID);
+	rC.InGame = false;
+	rC.JoinRequested = false;
+	rC.BackToGame = true;
+	if (NetServer_HasShip(wID))
+	{
+		rC.Reconnect = true;
+		rC.Ship.SailState = 0.0;
+		rC.Ship.TurnLeft = 0;
+		rC.Ship.TurnRight = 0;
+		rC.Ship.TurnState = 0.0;
+	}
+	Trace("COOP: client " + wID + " (" + rC.NickName + ") went to the lobby, the game goes on");
+
+	// the others: a chat line, the puppet of the land duel goes away (client\OnClient.c)
+	iSMsg = NMCreate();
+	NMAddByte(iSMsg, NC_CLIENT);
+	NMAddByte(iSMsg, NSC_CLIENT_TOLOBBY);
+	NMAddClientID(iSMsg, wID);
+	for (i=0; i<NET_MAXCLIENTS; i++)
+	{
+		if (i == wID) { continue; }
+		if (!sti(NSClients[i].Use)) { continue; }
+		NetServer_SendMessage(i, iSMsg, true);
+	}
+	NMDelete(iSMsg);
 }
 
 void NetServer_StartGame()
@@ -241,8 +677,19 @@ void NetServer_StartServerGame()
 	NetServer.Draw = 0;
 	NetServer.GameOver = false;
 	NetServer.ContestStarted = false;
+	NetServer_BDResetAll();		// COOP s37: no boarding duel of the old game
 	DeleteAttribute(&NetServer, "TeamPos");
 	NetServer_ApplyShipPerksToTypes();
+
+	// COOP s30: the bots of the lobby come in after the players (server\Bots.c)
+	SetEventHandler("NetServer_LBotsSpawnEvent", "NetServer_LBotsSpawnEvent", 0);
+	int iLBotWait = 2500;
+	if (NetServer_LandMode()) { iLBotWait = 5000; }
+	if (NetServer_LBotsNum() > 0) { PostEvent("NetServer_LBotsSpawnEvent", iLBotWait, "l", sti(NetServer.Round)); }
+
+	// COOP: the game speed of this game: the choice of the Create game screen (the admin changes it during the game)
+	NetServer.GameSpeed = fServerStartGameSpeed;
+	Trace("COOP: game speed at start = " + fServerStartGameSpeed);
 
 	// COOP: land duel (Land.c): a location instead of the sea
 	if (NetServer_LandMode()) { NetServer_LandStart(); return; }
@@ -309,6 +756,8 @@ void NetServer_StartServerGame()
 		DeleteAttribute(&NetServer, "CoopLoc");
 		aref arCoopReload; makearef(arCoopReload, rIsland.reload);
 		int iCoopNumReload = GetAttributesNum(arCoopReload);
+		int iCoopFarBest = -1;			// COOP s30: the nearest of the skipped ports
+		float fCoopFarBestD2 = 0.0;
 		for (int iCL=0; iCL<iCoopNumReload; iCL++)
 		{
 			aref arCoopLoc = GetAttributeN(arCoopReload, iCL);
@@ -320,12 +769,21 @@ void NetServer_StartServerGame()
 					if (fCoopPX * fCoopPX + fCoopPZ * fCoopPZ > fCoopMaxD * fCoopMaxD)
 					{
 						Trace("COOP: port " + iCL + " skipped, too far from the island origin x=" + fCoopPX + " z=" + fCoopPZ);
+						float fCoopFarD2 = fCoopPX * fCoopPX + fCoopPZ * fCoopPZ;
+						if (iCoopFarBest < 0 || fCoopFarD2 < fCoopFarBestD2) { iCoopFarBest = iCL; fCoopFarBestD2 = fCoopFarD2; }
 						continue;
 					}
 				string sCoopKey = "l" + sti(NetServer.CoopN);
 				NetServer.CoopLoc.(sCoopKey) = iCL;
 				NetServer.CoopN = sti(NetServer.CoopN) + 1;
 			}
+		}
+		if (sti(NetServer.CoopN) == 0 && iCoopFarBest >= 0)
+		{
+			// the ring around the island origin is inside many islands (Trinidad): the nearest far port is better
+			NetServer.CoopLoc.l0 = iCoopFarBest;
+			NetServer.CoopN = 1;
+			Trace("COOP: no near port, the nearest far port " + iCoopFarBest + " is used");
 		}
 		NetServer.CoopStart = 0;
 		if (sti(NetServer.CoopN) > 0) { NetServer.CoopStart = rand(sti(NetServer.CoopN) - 1); }
@@ -443,6 +901,54 @@ void NetServer_StartServerGame()
 
 	Trace("COOP: spawn team0 x=" + oTeams[0].Pos.x + " z=" + oTeams[0].Pos.z + " island=" + NetServer.IslandID);
 
+	// COOP s30: the spawn point of the island (NetServer_GetSpawnLine): the sides stand on the line from it, in random order.
+	DeleteAttribute(&NetServer, "Line");
+	bool bLine = false;
+	if (NetServer.IslandID != "") { bLine = NetServer_GetSpawnLine(NetServer.IslandID); }
+	int iLineSideOf[4];
+	int iLineSides = 0;
+	int iLineDM = 0;
+	for (i=0; i<4; i++) { iLineSideOf[i] = -1; }
+	if (bLine)
+	{
+		NetServer.Line.x = stf(NSLine.x);
+		NetServer.Line.z = stf(NSLine.z);
+		NetServer.Line.ay = stf(NSLine.ay);
+		for (i=0; i<NET_MAXCLIENTS; i++)
+		{
+			if (!sti(NSClients[i].Use)) { continue; }
+			int iLT = sti(NSClients[i].Team);
+			if (sti(NetServer.GameType) == NETGAME_DEATHMATCH) { iLineSides = iLineSides + 1; continue; }
+			if (iLT >= 0 && iLT < 4) { iLineSideOf[iLT] = 1; }
+		}
+		if (sti(NetServer.GameType) != NETGAME_DEATHMATCH)
+		{
+			int iLineTeams = 0;
+			for (i=0; i<4; i++) { if (iLineSideOf[i] > 0) { iLineTeams = iLineTeams + 1; } }
+			bool bLineBack = (rand(1) == 1);		// which team stands at the point
+			for (i=0; i<4; i++)
+			{
+				if (iLineSideOf[i] < 0) { continue; }
+				iLineSideOf[i] = iLineSides;
+				if (bLineBack) { iLineSideOf[i] = iLineTeams - 1 - iLineSides; }
+				string sLineKey = Net_LineTeamKey(i);
+				NetServer.Line.Side.(sLineKey) = iLineSideOf[i];
+				iLineSides = iLineSides + 1;
+			}
+		}
+		if (iLineSides < 1) { iLineSides = 1; }
+		NetServer.Line.Sides = iLineSides;
+		Trace("COOP: spawn line of " + NetServer.IslandID + ": x=" + NSLine.x + " z=" + NSLine.z + " ay=" + NSLine.ay + " sides " + iLineSides + " gap " + NetServer_LineGap(iLineSides) + " start position " + NetServer.StartPosition);
+
+		// the convoy goes past the last side (the ring point of the old code may be inside the island)
+		if (sti(NetServer.GameType) == NETGAME_CONVOY)
+		{
+			NetServer_LinePoint(makefloat(iLineSides) * NetServer_LineGap(iLineSides), 0.0);
+			NetServer.ConvoyPoint.x = stf(NSLinePt.x);
+			NetServer.ConvoyPoint.z = stf(NSLinePt.z);
+		}
+	}
+
 	// COOP: team start points are remembered for players who join later and for the respawn
 	for (i=0; i<4; i++)
 	{
@@ -543,6 +1049,30 @@ void NetServer_StartServerGame()
 		NSClients[i].Ship.Pos.x = x + dx;
 		NSClients[i].Ship.Pos.z = z + dz;
 
+		// COOP s30: the spawn line of the island (NetServer_LineShipPlace)
+		if (bLine)
+		{
+			int iLSide = 0;
+			int iLRow = iTeams[iTeam];
+			if (sti(NetServer.GameType) == NETGAME_DEATHMATCH) { iLSide = iLineDM; iLineDM = iLineDM + 1; iLRow = 0; }
+			else
+			{
+				if (iTeam >= 0 && iTeam < 4) { iLSide = iLineSideOf[iTeam]; }
+				if (iLSide < 0) { iLSide = 0; }
+			}
+			NetServer_LineShipPlace(iLSide, iLineSides, iLRow);
+			NSClients[i].Ship.Pos.x = stf(NSLinePt.x);
+			NSClients[i].Ship.Pos.z = stf(NSLinePt.z);
+			NSClients[i].Ship.Ang.y = stf(NSLinePt.ay);
+			Trace("COOP: line spawn ship " + i + " side " + iLSide + " row " + iLRow + " x=" + NSLinePt.x + " z=" + NSLinePt.z + " ay=" + NSLinePt.ay);
+		}
+		// a new entity never starts with the height / speed of an older game
+		NSClients[i].Ship.Pos.y = 0.0;
+		if (!CheckAttribute(&NSClients[i], "Ship.Ang.y")) { NSClients[i].Ship.Ang.y = frnd() * PIm2; }
+		NSClients[i].Ship.Speed.x = 0.0;
+		NSClients[i].Ship.Speed.y = 0.0;
+		NSClients[i].Ship.Speed.z = 0.0;
+
 		NSClients[i].LastCollisionShip = -500;
 		NSClients[i].LastCollisionIsland = -500;
 
@@ -592,6 +1122,9 @@ void NetServer_StartServerGame()
 			NMAddWord(iSMsg, sti(NSClients[i].Ship.Goods.(sGoodName)));
 		}
 		NMAddByte(iSMsg, sti(NSClients[i].Ship.Cannons.Charge.Type));	// start charge
+		int iSeaPerksS = 0;
+		if (CheckAttribute(&NSClients[i], "SeaPerks")) { iSeaPerksS = sti(NSClients[i].SeaPerks); }
+		NMAddDword(iSMsg, iSeaPerksS);		// COOP s28: the sea perks bought in the lobby (client\OnClient.c reads it)
 
 		// send message
 		NetServer_SendMessage(DST_ALL, iSMsg, true);
@@ -802,6 +1335,9 @@ int NetServer_CreateClientLoadMessage(int i)
 		NMAddWord(iSMsg, sti(rC.Ship.Goods.(sGoodName)));
 	}
 	NMAddByte(iSMsg, sti(rC.Ship.Cannons.Charge.Type));
+	int iSeaPerksL = 0;
+	if (CheckAttribute(rC, "SeaPerks")) { iSeaPerksL = sti(rC.SeaPerks); }
+	NMAddDword(iSMsg, iSeaPerksL);		// COOP s28: the sea perks bought in the lobby (client\OnClient.c reads it)
 	return iSMsg;
 }
 
@@ -886,6 +1422,35 @@ void NetServer_PickSpawn(int wID)
 	DeleteAttribute(&NSSpawnCand, "");
 	NSSpawnCand.Num = 0;
 
+	// COOP s30: the spawn line of the game: the places of the own side (every side place in a deathmatch / for a new team)
+	bool bLineGame = false;
+	if (NetServer.IslandID != "") { bLineGame = NetServer_UseGameLine(); }
+	if (bLineGame)
+	{
+		int iLSides = 1;
+		if (CheckAttribute(&NetServer, "Line.Sides")) { iLSides = sti(NetServer.Line.Sides); }
+		string sLTeam = Net_LineTeamKey(iTeam);
+		if (bTeamGame && CheckAttribute(&NetServer, "Line.Side." + sLTeam))
+		{
+			int iLS = sti(NetServer.Line.Side.(sLTeam));
+			for (j=0; j<6; j++)
+			{
+				NetServer_LineShipPlace(iLS, iLSides, j);
+				NetServer_SpawnCandAdd(stf(NSLinePt.x), stf(NSLinePt.z), stf(NSLinePt.ay));
+			}
+		}
+		else
+		{
+			int iLDM = iLSides;
+			if (iLDM < 2) { iLDM = 2; }
+			for (j=0; j<iLDM; j++)
+			{
+				NetServer_LineShipPlace(j, iLDM, 0);
+				NetServer_SpawnCandAdd(stf(NSLinePt.x), stf(NSLinePt.z), stf(NSLinePt.ay));
+			}
+		}
+	}
+
 	// own start point and the start points of the others
 	for (i=0; i<NET_MAXCLIENTS; i++)
 	{
@@ -895,8 +1460,8 @@ void NetServer_PickSpawn(int wID)
 		NetServer_SpawnCandAdd(stf(NSClients[i].SpawnPos.x), stf(NSClients[i].SpawnPos.z), stf(NSClients[i].SpawnPos.ay));
 	}
 
-	// sea points of the island ports (server\OnStart.c: NetServer.CoopLoc), the team port only in team games
-	if (NetServer.IslandID != "" && CheckAttribute(&NetServer, "CoopN") && sti(NetServer.CoopN) > 0)
+	// sea points of the island ports (server\OnStart.c: NetServer.CoopLoc), the team port only in team games (not with a spawn line)
+	if (!bLineGame && NetServer.IslandID != "" && CheckAttribute(&NetServer, "CoopN") && sti(NetServer.CoopN) > 0)
 	{
 		ref rIsl = Net_GetIsland(NetServer.IslandID);
 		aref arRel; makearef(arRel, rIsl.reload);
@@ -925,7 +1490,7 @@ void NetServer_PickSpawn(int wID)
 	// the start point of the team (open sea)
 	string sTeamPos = "t" + iTeam;
 	if (!bTeamGame) { sTeamPos = "t0"; }
-	if (CheckAttribute(&NetServer, "TeamPos." + sTeamPos + ".x"))
+	if (!bLineGame && CheckAttribute(&NetServer, "TeamPos." + sTeamPos + ".x"))
 	{
 		float fTX = stf(NetServer.TeamPos.(sTeamPos).x);
 		float fTZ = stf(NetServer.TeamPos.(sTeamPos).z);
@@ -1036,6 +1601,9 @@ void NetServer_LateJoin(int wID, bool bRestore)
 		if (!NetServer_HasShip(i)) { continue; }
 		if (sti(NSClients[i].Dead) && !sti(NetServer.Respawn)) { continue; }
 		bool bBotSlot = NetServer_IsBot(i);
+		// COOP s30: the wreck of a player who left for good (kicked: his slot is not parked) never comes back, the respawn
+		// waits for him; the new player got it as a whole ship with no hull
+		if (!bBotSlot && sti(NSClients[i].Dead) && !sti(NSClients[i].Use) && !NetServer_IsParked(i)) { continue; }
 		bool bBotGone = false;		// COOP: a sunk or deleted bot is not sent
 		if (bBotSlot)
 		{
