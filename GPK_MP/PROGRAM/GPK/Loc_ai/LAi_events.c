@@ -290,6 +290,13 @@ bool LAi_CharacterIsFire()
 		LAi_tmp_return_bool = true;
 		return true;
 	}
+	// COOP s46: the copy of an NPC of the host the same (net\LandNpc.c): the actor template said "no", the copy fought
+	// with an empty hand ("fight 1 (game says 0)"), no bars over it
+	if(CheckAttribute(chr, "NetLandNpcPup"))
+	{
+		LAi_tmp_return_bool = true;
+		return true;
+	}
 	string func = chr.chr_ai.tmpl;
 	if(func == "") return;
 	//Исполнение
@@ -310,6 +317,13 @@ bool LAi_CharacterIsFight()
 	}
 	// COOP: the puppet of a bot of another player the same (it never took the blade out: an empty hand, no health bar)
 	if(CheckAttribute(chr, "NetLandBotPup"))
+	{
+		LAi_tmp_return_bool = true;
+		return true;
+	}
+	// COOP s46: the copy of an NPC of the host the same (net\LandNpc.c): the actor template said "no", the copy fought
+	// with an empty hand ("fight 1 (game says 0)"), no bars over it
+	if(CheckAttribute(chr, "NetLandNpcPup"))
 	{
 		LAi_tmp_return_bool = true;
 		return true;

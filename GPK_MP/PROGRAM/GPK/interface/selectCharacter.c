@@ -61,8 +61,8 @@ void InitInterface(string iniName)
 	if (!CheckAttribute(&GameInterface, "SavePath"))
 		GameInterface.SavePath = "SAVE";
 		
-	EI_CreateFrame("CHARACTER_BIG_PICTURE_BORDER",50,76,300,358); // tak from CHARACTER_BIG_PICTURE
-    EI_CreateHLine("CHARACTER_BIG_PICTURE_BORDER", 54,107,296,1, 4);
+	EI_CreateFrame("CHARACTER_BIG_PICTURE_BORDER", XI_WX + 50,76, XI_WX + 300,358); // tak from CHARACTER_BIG_PICTURE
+    EI_CreateHLine("CHARACTER_BIG_PICTURE_BORDER", XI_WX + 54,107, XI_WX + 296,1, 4);
     
     heroQty   = sti(GetNewMainCharacterParam("hero_qty"));
     
@@ -390,7 +390,7 @@ void ShowConfirmWindow(bool show)
 		XI_WindowDisable("MAIN_WINDOW", true);
 		XI_WindowDisable("CONFIRM_WINDOW", false);
 		XI_WindowShow("CONFIRM_WINDOW", true);
-		EI_CreateFrame("CONFIRM_WINDOW_BORDERS",190,190,610,360);
+		EI_CreateFrame("CONFIRM_WINDOW_BORDERS", XI_WX + 190,190, XI_WX + 610,360);
 
 	} 
 	else 

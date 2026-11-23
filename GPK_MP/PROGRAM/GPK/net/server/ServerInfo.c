@@ -257,6 +257,14 @@ string Net_DetailsCode()
 	int iFastD = 1;
 	if (CheckAttribute(&NetServer, "FastBoarding")) { iFastD = sti(NetServer.FastBoarding); }
 	s = s + "|" + iFastD;		// COOP s37: field 21
+	// COOP s38: fields 22 the pistols load in the fight, 23 the join during the game, 24 the bots respawn
+	int iPrD = 0;
+	if (CheckAttribute(&NetServer, "PistolReload")) { iPrD = sti(NetServer.PistolReload); }
+	int iLjD = 0;
+	if (NetServer_LateJoinOn()) { iLjD = 1; }
+	int iBrD = 0;
+	if (NetServer_BotRespawnOn()) { iBrD = 1; }
+	s = s + "|" + iPrD + "|" + iLjD + "|" + iBrD;
 	return s;
 }
 

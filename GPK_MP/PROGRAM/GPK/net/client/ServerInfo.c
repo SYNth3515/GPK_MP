@@ -250,7 +250,24 @@ void Net_DetailsShow(string sNode, string sCode)
 	else
 	{
 		// COOP s37: field 21 (an older server has none: the fast boarding)
-		if (!bLand && Net_DetField(sCode, 21) == "0") { Net_DetLine(sNode, XI_ConvertString("capNetCS_RealBoarding"), false); }
+		if (!bLand)
+		{
+			if (Net_DetField(sCode, 21) == "0") { Net_DetLine(sNode, XI_ConvertString("capNetCS_FastBoarding") + ": выкл (абордаж на палубе)", false); }
+			else { Net_DetLine(sNode, XI_ConvertString("capNetCS_FastBoarding") + ": вкл", false); }
+		}
+	}
+	// COOP s38: fields 22..24 (an older server has none)
+	if (Net_DetField(sCode, 22) != "")
+	{
+		string sOnOff = "выкл";
+		if (Net_DetInt(sCode, 22) != 0) { sOnOff = "вкл"; }
+		Net_DetLine(sNode, XI_ConvertString("capNetCS_PistolReload") + ": " + sOnOff, false);
+		sOnOff = "запрещено";
+		if (Net_DetInt(sCode, 23) != 0) { sOnOff = "разрешено"; }
+		Net_DetLine(sNode, XI_ConvertString("capNetCS_LateJoin") + ": " + sOnOff, false);
+		sOnOff = "выкл";
+		if (Net_DetInt(sCode, 24) != 0) { sOnOff = "вкл"; }
+		Net_DetLine(sNode, XI_ConvertString("capNetAdmin_BotRespawn") + ": " + sOnOff, false);
 	}
 	if (Net_DetInt(sCode, 12) != 0) { Net_DetLine(sNode, XI_ConvertString("capNetCS_PassivePerks"), false); }
 	if (Net_DetInt(sCode, 13) != 0) { Net_DetLine(sNode, XI_ConvertString("capNetCS_ActivePerks"), false); }

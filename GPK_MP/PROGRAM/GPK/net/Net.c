@@ -68,6 +68,8 @@ void Net_ExitToMainMenuAfterDisconnect()
 
 void Net_Init()
 {
+	SetEventHandler("Net_ShipStartLoad", "Net_ShipStartLoad", 0);		// COOP s43
+	SetEventHandler("Net_ShipEndLoad", "Net_ShipEndLoad", 0);
 	// load favorites list
 	//Net_LoadFile(false, &INet_FavoritesServersList, "Favorites.srv");
 

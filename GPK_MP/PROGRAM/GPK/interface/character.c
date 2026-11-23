@@ -34,8 +34,8 @@ void InitInterface_R(string iniName, ref _char)
 	SetEventHandler("AcceptPerk","AcceptPerk",0);
 	SetEventHandler("ExitMsgMenu", "ExitMsgMenu", 0);
 
-    EI_CreateFrame("CHARACTER_BIG_PICTURE_BORDER",369,78,579,315); // take from CHARACTER_BIG_PICTURE
-    EI_CreateHLine("CHARACTER_BIG_PICTURE_BORDER", 373,104,575,1, 4);
+    EI_CreateFrame("CHARACTER_BIG_PICTURE_BORDER", XI_WX + 369,78, XI_WX + 579,315); // take from CHARACTER_BIG_PICTURE
+    EI_CreateHLine("CHARACTER_BIG_PICTURE_BORDER", XI_WX + 373,104, XI_WX + 575,1, 4);
 
     SetVariable();
     SetCurrentNode("TABLE_OTHER");
@@ -637,11 +637,11 @@ void SetSkillArrows()
         {
 			if (CurTable == "TABLE_SKILL_1")
 			{
-				SendMessage(&GameInterface,"lsllllll", MSG_INTERFACE_MSG_TO_NODE,"B_SKILLDown",0, 690-70 ,105-20 + 32*(iSelected-1), 722-70, 105-20 + 28 + 32*(iSelected-1), 0);
+				SendMessage(&GameInterface,"lsllllll", MSG_INTERFACE_MSG_TO_NODE,"B_SKILLDown",0, XI_WX + 690-70,105-20 + 32*(iSelected-1), XI_WX + 722-70, 105-20 + 28 + 32*(iSelected-1), 0);
 			}
 			else
 			{
-				SendMessage(&GameInterface,"lsllllll", MSG_INTERFACE_MSG_TO_NODE,"B_SKILLDown",0, 690-70 ,364-20 + 32*(iSelected-1), 722-70,364-20 + 28 + 32*(iSelected-1), 0);
+				SendMessage(&GameInterface,"lsllllll", MSG_INTERFACE_MSG_TO_NODE,"B_SKILLDown",0, XI_WX + 690-70,364-20 + 32*(iSelected-1), XI_WX + 722-70,364-20 + 28 + 32*(iSelected-1), 0);
 			}
 			SetNodeUsing("B_SKILLDown", true);
         }
@@ -649,11 +649,11 @@ void SetSkillArrows()
         {
             if (CurTable == "TABLE_SKILL_1")
 			{
-				SendMessage(&GameInterface,"lsllllll", MSG_INTERFACE_MSG_TO_NODE,"B_SKILLUP",0, 717-70,105-20 + 32*(iSelected-1),749-70,105-20 + 28 + 32*(iSelected-1), 0);
+				SendMessage(&GameInterface,"lsllllll", MSG_INTERFACE_MSG_TO_NODE,"B_SKILLUP",0, XI_WX + 717-70,105-20 + 32*(iSelected-1), XI_WX + 749-70,105-20 + 28 + 32*(iSelected-1), 0);
 			}
 			else
 			{
-				SendMessage(&GameInterface,"lsllllll", MSG_INTERFACE_MSG_TO_NODE,"B_SKILLUP",0, 717-70,364-20 + 32*(iSelected-1),749-70,364-20 + 28 + 32*(iSelected-1), 0);
+				SendMessage(&GameInterface,"lsllllll", MSG_INTERFACE_MSG_TO_NODE,"B_SKILLUP",0, XI_WX + 717-70,364-20 + 32*(iSelected-1), XI_WX + 749-70,364-20 + 28 + 32*(iSelected-1), 0);
 			}
             SetNodeUsing("B_SKILLUP",  true);
         }
@@ -668,12 +668,12 @@ void SetSkillArrows()
         }
 		if (GetSkillValue(xi_refCharacter, SPECIAL_TYPE, GameInterface.(CurTable).(CurRow).UserData.ID) > minP)
         {
-			SendMessage(&GameInterface,"lsllllll", MSG_INTERFACE_MSG_TO_NODE,"B_SKILLDown",0, 265 -70,105-20 + 32*(iSelected-1), 297-70, 105-20 + 28 + 32*(iSelected-1), 0);
+			SendMessage(&GameInterface,"lsllllll", MSG_INTERFACE_MSG_TO_NODE,"B_SKILLDown",0, XI_WX + 265 -70,105-20 + 32*(iSelected-1), XI_WX + 297-70, 105-20 + 28 + 32*(iSelected-1), 0);
 			SetNodeUsing("B_SKILLDown", true);
         }
         if (GetSkillValue(xi_refCharacter, SPECIAL_TYPE, GameInterface.(CurTable).(CurRow).UserData.ID) < SPECIAL_MAX && sti(xi_refCharacter.skill.FreeSPECIAL) > 0)
         {
-			SendMessage(&GameInterface,"lsllllll", MSG_INTERFACE_MSG_TO_NODE,"B_SKILLUP",0, 288-70,105-20 + 32*(iSelected-1),320-70,105-20 + 28 + 32*(iSelected-1), 0);
+			SendMessage(&GameInterface,"lsllllll", MSG_INTERFACE_MSG_TO_NODE,"B_SKILLUP",0, XI_WX + 288-70,105-20 + 32*(iSelected-1), XI_WX + 320-70,105-20 + 28 + 32*(iSelected-1), 0);
             SetNodeUsing("B_SKILLUP",  true);
         }
 	}

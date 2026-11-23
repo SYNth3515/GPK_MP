@@ -66,6 +66,8 @@ void NetServer_CreateWeatherEnvironment(int iSMsg)
 	if (CheckAttribute(&NetServer, "Tornado") && sti(NetServer.Tornado) != 0 && bServerWeatherIsStorm) { bCoopTornadoMode = true; }
 
 	NSWeather.WindAngle = Whr_GetFloat(aCurWeather,"Wind.Angle");
+	NSWeather.WindAngle = frnd() * PIm2;		// COOP s45: a random course of the wind (the weather has one: 2.0 rad = 114 degrees each game)
+	Trace("COOP: the wind of the game blows from " + NSWeather.WindAngle + " rad");
 	NSWeather.WindSpeed = Whr_GetFloat(aCurWeather,"Wind.Speed");
 
 	if (NetServer_WhrIsStorm())

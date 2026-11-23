@@ -331,6 +331,15 @@ void NetClient_OnShip(int iMsg)
 		case NSC_SHIP_PERK_DENIED:
 			NetClient_OnPerkDenied(iMsg);
 		break;
+		case NSC_SHIP_PRIZE:
+			NetPrize_OnStart(iMsg);		// COOP s41: net\Board.c
+		break;
+		case NSC_SHIP_PRIZE_END:
+			NetPrize_OnEnd(iMsg);
+		break;
+		case NSC_SHIP_PRIZE_SWAP:
+			NetPrize_OnSwap(iMsg);
+		break;
 	}
 }
 

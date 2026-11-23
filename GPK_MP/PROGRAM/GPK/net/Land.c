@@ -123,6 +123,17 @@ int iNetBoardTeam = 0;			// client: 0 the attacker, 1 the defender
 int wNetBoardEnemy = -1;		// client: the other captain
 int iNetBoardUpTeam = 0;		// client: the team of the bigger ship (it stands at the "aloc" locators)
 int iNetSrvBDScope = 0;			// server: the boarding duel of the land message that is being handled (0: none / the land mode)
+// COOP s38: the host went to the lobby from a sea battle that goes on: his sea is hidden, not deleted (net\Board.c: NetClient_HostPark)
+bool bNetHostParked = false;
+// COOP s38: the clock of the game on land (NetLand_FrameMeter): the game time of every frame against the clock
+int iNetLandFmAt = 0;
+int iNetLandFmGame = 0;
+int iNetLandFmN = 0;
+bool bNetLandFmOn = false;
+bool bNetLandFmNoFix = false;
+float fNetLandTimeK = 1.0;			// the correction of the speed of the game (1.0 .. NET_LAND_TIMEK_MAX)
+float fNetLandFmLastK = 0.0;
+float fNetLandFmLastTK = 1.0;
 bool bNetLandDead = false;			// our hero is dead (waits for the respawn)
 bool bNetLandOpenLoadout = false;	// net\interfaces\NetMenu.c: open the loadout window at once
 string sNetLandLoc = "";
@@ -130,6 +141,7 @@ int iNetLandSpawn = 0;
 int iNetLandGen = 0;
 int iNetLandRespawn = 0;
 bool bNetLandUiLoSync = false;
+bool bNetBuyRespawn = false;		// COOP s46: the lobby screen (Buy.c) chooses the ship of the next respawn (Esc menu "Корабль")
 bool bNetBuyProfile = false;		// the lobby screen (Buy.c) edits the ship of a profile, without a server
 string sNetBuyProfNick = "";
 bool bNetLandUiLo = false;		// the window is open in the current interface
@@ -213,6 +225,7 @@ int iNetLandBlockedAt = 0;			// the game itself said (a puppet hits our hero) th
 bool bNetLandBlockedLast = false;
 int iNetLandActCounter = 0;			// ids of the actions of the puppets (for the stop timer)			// the "no boarding" switch of the Create game screen means "no pistols" on land
 object oNetLandHero;				// the single player hero before the duel (given back at the end)
+object oNetLandNatRel;				// COOP s46l: NationsRelations2MainCharacter before the duel (given back at the end)
 object oNetLandLocSave;				// attributes of the location changed for the duel
 
 // ------------------------------------------------------------------------------------------------
@@ -1918,6 +1931,7 @@ void NetServer_OnLand(int wID, int iMsg)
 	if (iSub == NSC_LAND_DMG) { NetServer_OnLandDmg(wID, iMsg); return; }
 	if (iSub == NSC_LAND_BOTEVT) { NetServer_OnLandBotEvt(wID, iMsg); return; }		// COOP s28
 	if (iSub == NSC_LAND_NPCLIST || iSub == NSC_LAND_NPCSTATE) { NetServer_OnLandNpc(wID, iSub, iMsg); return; }		// COOP s35
+	if (iSub == NSC_LAND_NPCDMG) { NetServer_OnLandNpcDmg(wID, iMsg); return; }		// COOP s38: a player hits an NPC of the host
 	switch (iSub)
 	{
 		case NSC_LAND_STATE:
@@ -2220,6 +2234,7 @@ void NetClient_OnLand(int iMsg)
 		case NSC_LAND_NPCSTATE_R:	NetLand_OnNpcState(iMsg);	break;
 		case NSC_LAND_BOARD_START:	NetBoard_OnStart(iMsg);		break;		// COOP s37: the real boarding (net\Board.c)
 		case NSC_LAND_BOARD_END:	NetBoard_OnEnd(iMsg);		break;
+		case NSC_LAND_NPCHIT_R:		NetLand_OnNpcHit(iMsg);		break;		// COOP s38: an NPC of the host has hit us (net\LandNpc.c)
 	}
 }
 
@@ -2298,6 +2313,7 @@ void NetLand_OnStart(int iMsg)
 	SetEventHandler("NetLand_StaggerEnd", "NetLand_StaggerEnd", 0);
 	SetEventHandler("NetLand_HitApply", "NetLand_HitApply", 0);
 	SetEventHandler("NetLand_ReEquipGun", "NetLand_ReEquipGun", 0);
+	SetEventHandler("NetLand_ReEquipBlade", "NetLand_ReEquipBlade", 0);		// COOP s38
 	SetEventHandler("NetLand_PreviewDoll", "NetLand_PreviewDoll", 0);		// COOP: the skin preview
 	SetEventHandler("NetLand_BotPlace", "NetLand_BotPlace", 0);
 	SetEventHandler("NetLand_ActResend", "NetLand_ActResend", 0);
@@ -2342,6 +2358,56 @@ void NetLand_OnStart(int iMsg)
 	Trace("COOP: land duel start " + sLoc + " spawn " + iSpawn);
 }
 
+// COOP s46l: a soldier of a town killed in a duel makes his nation an enemy of the hero (LAi_SetResultOfDeath ->
+// SetNationRelation2MainCharacter, a global array, not an attribute of the hero) and the alarm of the town groups stays in
+// the CharactersGroups entity: the soldiers of the next duel (a new server too) attacked at once. Both are given back.
+void NetLand_NatRelSave()
+{
+	DeleteAttribute(&oNetLandNatRel, "");
+	for (int i=0; i<MAX_NATIONS; i++)
+	{
+		string sN = "n" + i;
+		oNetLandNatRel.(sN) = NationsRelations2MainCharacter[i];
+	}
+	oNetLandNatRel.saved = true;
+}
+
+void NetLand_NatRelRestore()
+{
+	int i;
+	if (CheckAttribute(&oNetLandNatRel, "saved"))
+	{
+		for (i=0; i<MAX_NATIONS; i++)
+		{
+			string sN = "n" + i;
+			if (CheckAttribute(&oNetLandNatRel, sN)) { NationsRelations2MainCharacter[i] = sti(oNetLandNatRel.(sN)); }
+		}
+	}
+	DeleteAttribute(&oNetLandNatRel, "");
+	// COOP s46n: the CharactersGroups entity lives with the location: its unload writes every relation into the attributes of
+	// LAi_grp_relations ("SaveData", like a save of single player) and the next load reads them back ("LoadDataRelations").
+	// The location is unloaded already here: the anger of this duel is forgotten with that data (like LAi_NewGame)
+	if (!IsEntity(&LAi_grp_relations)) { DeleteAttribute(&LAi_grp_relations, ""); }
+	NetLand_TownGroupsCalm();
+	Trace("COOP: land the relations of the nations and the town alarm are as before the duel");
+}
+
+// the town groups: no alarm, no anger at the player and the puppets (a live CharactersGroups only)
+void NetLand_TownGroupsCalm()
+{
+	for (int i=0; i<MAX_NATIONS; i++)
+	{
+		string sGrp = GetNationNameByType(i) + "_CITIZENS";
+		LAi_group_SetAlarm(sGrp, LAI_GROUP_PLAYER, 0.0);
+		LAi_group_SetRelation(sGrp, LAI_GROUP_PLAYER, LAI_GROUP_NEITRAL);
+		LAi_group_SetRelation(sGrp, NET_LAND_GROUP, LAI_GROUP_NEITRAL);
+		LAi_group_SetRelation(sGrp, NET_LAND_GROUP_ALLY, LAI_GROUP_NEITRAL);
+	}
+	LAi_group_ClearAllTargets();
+	LAi_grp_playeralarm = 0;
+	LAi_grp_alarmactive = false;
+}
+
 // our hero for the duel: a pirate with a blade and a pistol (the single player hero is given back at the end)
 void NetLand_PrepareHero(ref mc)
 {
@@ -2350,6 +2416,7 @@ void NetLand_PrepareHero(ref mc)
 	{
 		DeleteAttribute(&oNetLandHero, "");
 		CopyAttributes(&oNetLandHero, mc);
+		NetLand_NatRelSave();
 	}
 
 	NetLand_LoInit();
@@ -2410,7 +2477,9 @@ void NetLand_Load()
 		if (bBoardingLoc) { oNetLandLocSave.boarding = rLoc.boarding; rLoc.boarding = "false"; }
 		// a cabin: no sea behind the walls; a deck keeps its sea (without the coast foam of an island)
 		// COOP s37: the boarding deck neither (the sea of the net game waits behind it, its Sea object is the one of the sharks)
-		if ((CheckAttribute(rLoc, "CabinType") || bNetBoardDuel) && CheckAttribute(rLoc, "environment.sea")) { oNetLandLocSave.sea = rLoc.environment.sea; rLoc.environment.sea = "false"; }
+		bool bNoSeaLoc = false;		// COOP s38: the boarding deck has its sea again (net\Board.c: NetBoard_SeaHide takes the stub of the sharks away)
+		if (CheckAttribute(rLoc, "CabinType")) { bNoSeaLoc = true; }
+		if (bNoSeaLoc && CheckAttribute(rLoc, "environment.sea")) { oNetLandLocSave.sea = rLoc.environment.sea; rLoc.environment.sea = "false"; }
 		if (!CheckAttribute(rLoc, "notCrateFoam")) { oNetLandLocSave.foam = true; rLoc.notCrateFoam = true; }
 		if (CheckAttribute(rLoc, "environment.weather")) { oNetLandLocSave.weather = rLoc.environment.weather; }
 		rLoc.environment.weather = "true";
@@ -2462,7 +2531,11 @@ bool NetLand_TeleportToSpawn(ref chr, int iSpawn)
 		if (iBdTeam < 0 && CheckAttribute(chr, "NetLandBotID"))
 		{
 			int iBdRel = NetLand_BotRelOf(sti(chr.NetLandBotID));
-			if (iBdRel >= NET_BOTREL_TEAM0) { iBdTeam = iBdRel - NET_BOTREL_TEAM0; }
+			if (iBdRel >= NET_BOTREL_TEAM0)
+			{
+				iBdTeam = iBdRel - NET_BOTREL_TEAM0;
+				if (NetBoard_TeleportMush(chr, iBdTeam, sti(chr.NetLandBotID))) { return true; }		// COOP s44
+			}
 			iSpawn = sti(chr.NetLandBotID) + 1;		// the fighters one by one at the locators of their side
 		}
 		if (iBdTeam >= 0) { if (NetBoard_TeleportToSide(chr, iBdTeam, iSpawn)) { return true; } }
@@ -2577,6 +2650,7 @@ void NetLand_AfterLoad()
 	bNetLandAckPub = true;
 	LAi_SetPlayerType(mc);
 	LAi_LockFightMode(mc, false);		// a residence locks the fight mode when it is loaded
+	if (!bNetLandRespawnLoad) { NetLand_TownGroupsCalm(); Trace("COOP: land the town groups start calm"); }	// COOP s46n
 	LAi_group_SetRelation(NET_LAND_GROUP, LAI_GROUP_PLAYER, LAI_GROUP_ENEMY);
 	LAi_group_SetRelation(NET_LAND_GROUP_ALLY, LAI_GROUP_PLAYER, LAI_GROUP_FRIEND);		// COOP: team duel
 	NetLand_TeleportToSpawn(mc, iNetLandSpawn);
@@ -2598,6 +2672,16 @@ void NetLand_AfterLoad()
 			PostEvent("NetLand_ReEquipGun", 500, "ls", sti(mc.index), oNetLandLo.Gun);
 			PostEvent("NetLand_ReEquipGun", 1800, "ls", sti(mc.index), oNetLandLo.Gun);
 		}
+	}
+	// COOP s38: the twin of a musketeer skin with a blade (NetLand_BladeModel): the sword and the pistol once more too
+	if (findSubStr(mc.model, "_blade", 0) > 0 || mc.model == "MusketeerEnglish_1")
+	{
+		string sLdGun = "";
+		if (CheckAttribute(mc, "equip.gun")) { sLdGun = mc.equip.gun; }
+		string sLdBl = "";
+		if (CheckAttribute(&oNetLandLo, "Blade")) { sLdBl = oNetLandLo.Blade; }
+		PostEvent("NetLand_ReEquipBlade", 500, "lss", sti(mc.index), sLdBl, sLdGun);
+		PostEvent("NetLand_ReEquipBlade", 1800, "lss", sti(mc.index), sLdBl, sLdGun);
 	}
 	if (bNetLandRespawnLoad)
 	{
@@ -2664,8 +2748,11 @@ void NetLand_ClientStop()
 	DelEventHandler("NetLand_StaggerEnd", "NetLand_StaggerEnd");
 	DelEventHandler("NetLand_HitApply", "NetLand_HitApply");
 	DelEventHandler("NetLand_ReEquipGun", "NetLand_ReEquipGun");
+	DelEventHandler("NetLand_ReEquipBlade", "NetLand_ReEquipBlade");
 	DelEventHandler("NetLand_BotPlace", "NetLand_BotPlace");
 	NetLand_BotClear();
+	NetLand_NpcDropAll();		// COOP s46: the copies of the NPC of the host go too (net\LandNpc.c)
+	NetLand_NpcCalmAll();		// COOP s46l: the NPC groups we angered calm down
 	NetLand_BotsForget(DST_INVALID);
 	DelEventHandler("NetLand_ActResend", "NetLand_ActResend");
 	DelEventHandler("NetLand_ReactEnd", "NetLand_ReactEnd");
@@ -2723,8 +2810,11 @@ void NetLand_ClientStop()
 		CopyAttributes(mc, &oNetLandHero);
 	}
 	DeleteAttribute(&oNetLandHero, "");
-	if (fNetLandSpeed < 0.99 || fNetLandSpeed > 1.01) { SetTimeScale(1.0); }
+	NetLand_NatRelRestore();
+	if (fNetLandSpeed * fNetLandTimeK < 0.99 || fNetLandSpeed * fNetLandTimeK > 1.01) { SetTimeScale(1.0); }
 	fNetLandSpeed = 1.0;
+	fNetLandTimeK = 1.0;		// COOP s38
+	iNetLandFmAt = 0;
 	Trace("COOP: land duel stopped");
 }
 
@@ -3919,7 +4009,37 @@ bool NetLand_BladeHit(aref attack, aref enemy, string attackType, bool isBlocked
 		return true;
 	}
 
+	// COOP s46: an NPC of the host hits the hero of the host: the single player skips an immortal (net\LandNpc.c)
+	if (NetLand_IsOurHero(enemy) && NetLand_NpcIsOwnNpc(attack))
+	{
+		bool bHBlk = isBlocked;
+		if (attackType == "break") { bHBlk = false; }
+		float fHC = NetLand_BladeDamage(attack, enemy, attackType, false);
+		float fHB = NetLand_BladeDamage(attack, enemy, attackType, true);
+		NetLand_NpcHitHost(attack, fHC, fHB, bHBlk, 0);
+		return true;
+	}
 	int wVictim = NetLand_PuppetID(enemy);
+	// COOP s38: an NPC of the host (a soldier, a citizen) hits the puppet of a player: the damage goes to him (net\LandNpc.c)
+	if (wVictim != DST_INVALID && NetLand_NpcIsLocalNpc(attack))
+	{
+		bool bNpcBrk = false;
+		if (attackType == "break") { bNpcBrk = true; }
+		float fNpcC = NetLand_BladeDamage(attack, enemy, attackType, false);
+		float fNpcB = NetLand_BladeDamage(attack, enemy, attackType, true);
+		NetLand_NpcHitPlayer(attack, enemy, wVictim, fNpcC, fNpcB, isBlocked, bNpcBrk, 0);
+		return true;
+	}
+	// COOP s38: our hero hits the copy of an NPC of the host: the host takes the blow
+	if (wVictim == DST_INVALID && CheckAttribute(enemy, "NetLandNpcPup"))
+	{
+		if (NetLand_IsOurHero(attack) && !bNetLandDead)
+		{
+			float fCpyD = NetLand_BladeDamage(attack, enemy, attackType, false);
+			NetLand_NpcHitCopy(enemy, fCpyD, 0);
+		}
+		return true;
+	}
 	if (wVictim == DST_INVALID) { return false; }
 	if (!NetLand_IsOurHero(attack) || bNetLandDead) { return true; }
 	if (NetLand_IsAlly(wVictim)) { return true; }		// COOP: team duel: allies do not hurt each other
@@ -4049,7 +4169,39 @@ bool NetLand_FireHit(aref attack, aref enemy, float kDist)
 	if (iBotF == 0) { return false; }
 	if (NetLand_PuppetID(attack) != DST_INVALID) { return true; }
 
+	// COOP s46: the shot of an NPC of the host at the hero of the host (net\LandNpc.c)
+	if (NetLand_IsOurHero(enemy) && NetLand_NpcIsOwnNpc(attack))
+	{
+		float fHP = LAi_GunCalcProbability(attack, kDist);
+		if (rand(10000) > fHP * 10000) { return true; }
+		if (NetLand_ArmorStopsShot(enemy)) { return true; }
+		float fHSh = LAi_GunCalcDamage(attack, enemy);
+		NetLand_NpcHitHost(attack, fHSh, fHSh, false, 1);
+		return true;
+	}
 	int wVictim = NetLand_PuppetID(enemy);
+	// COOP s38: the shot of an NPC of the host at the puppet of a player / of our hero at the copy of an NPC (net\LandNpc.c)
+	if (wVictim != DST_INVALID && NetLand_NpcIsLocalNpc(attack))
+	{
+		float fNpcP = LAi_GunCalcProbability(attack, kDist);
+		if (rand(10000) > fNpcP * 10000) { return true; }
+		float fNpcShot = LAi_GunCalcDamage(attack, enemy);
+		NetLand_NpcHitPlayer(attack, enemy, wVictim, fNpcShot, fNpcShot, false, false, 1);
+		return true;
+	}
+	if (wVictim == DST_INVALID && CheckAttribute(enemy, "NetLandNpcPup"))
+	{
+		if (NetLand_IsOurHero(attack) && !bNetLandDead)
+		{
+			float fCpP = LAi_GunCalcProbability(attack, kDist);
+			if (rand(10000) <= fCpP * 10000)
+			{
+				float fCpyS = LAi_GunCalcDamage(attack, enemy);
+				NetLand_NpcHitCopy(enemy, fCpyS, 1);
+			}
+		}
+		return true;
+	}
 	if (wVictim == DST_INVALID) { return false; }
 	if (!NetLand_IsOurHero(attack) || bNetLandDead) { return true; }
 	if (NetLand_IsAlly(wVictim)) { return true; }		// COOP: team duel: allies do not hurt each other
@@ -4934,7 +5086,22 @@ void NetLand_OnState(int iMsg)
 		ch.chr_ai.energy = makefloat(iEnR);
 	}
 	if (!CheckAttribute(ch, "NetLandDead")) { ch.NetLandDead = false; }
-	if (sti(ch.NetLandDead)) { return; }			// lies dead until the respawn
+	if (sti(ch.NetLandDead))
+	{
+		// COOP s38: its player lives again (his packets have his health), but the respawn did not reach this body (a musket shot:
+		// it stood in its last animation and did not come back): the body goes, the next packet makes a new one
+		int iDeadAgoP = 0;
+		if (CheckAttribute(ch, "NetLandDeadAt")) { iDeadAgoP = Net_GetTickCount() - sti(ch.NetLandDeadAt); }
+		if (iHP > 0 && iDeadAgoP > 2500)
+		{
+			Trace("COOP: land puppet of " + wID + " is alive again (hp " + iHP + "): a new body");
+			NetLand_PuppetHoldOff(ch, false);
+			DeleteAttribute(&NCClients[wID], "LandChr");
+			NetLand_SwimSet(ch, 0);
+			ChangeCharacterAddressGroup(ch, "none", "", "");
+		}
+		return;
+	}
 
 	// the sword in the hand like the player (not in the middle of a swing)
 	int iFight = 0;
@@ -5487,23 +5654,72 @@ void NetLand_PuppetPoseOff(ref ch)
 int iNetLandMeterAt = 0;
 int iNetLandMeterGame = 0;
 int iNetLandMeterFrames = 0;
+// COOP s38: the s36 meter added the time of the last frame once per NetLand_Smooth (an event of 8 ms), not once per frame: its
+// "x0.27" was wrong. Now the frames themselves ("frame" event) are counted: the game time of the frames against the clock.
+// COOP s39: the cause was in engine.exe: the timer dropped the part of a millisecond of every frame (at 400 fps the game ran
+// x0.83) and SetTimeScale dropped it once more (x1.3 changed nothing, x1.5 gave x1.2: the user saw the hero too fast). The
+// patched engine.exe gives that rest to the next frame. The meter only writes to the log now, it does not correct the speed.
+#define NET_LAND_TIMEK_MAX		1.7
+#define NET_LAND_FM_MS			4000
+
 void NetLand_SlowMeter(int iNow)
 {
-	iNetLandMeterGame = iNetLandMeterGame + GetDeltaTime();
-	iNetLandMeterFrames++;
-	int iAgo = iNow - iNetLandMeterAt;
-	if (iNetLandMeterAt == 0 || iAgo < 0) { iNetLandMeterAt = iNow; iNetLandMeterGame = 0; iNetLandMeterFrames = 0; return; }
-	if (iAgo < 5000) { return; }
-	float fK = makefloat(iNetLandMeterGame) / makefloat(iAgo);
+	if (bNetLandFmOn) { return; }
+	bNetLandFmOn = true;
+	iNetLandFmAt = 0;
+	SetEventHandler("frame", "NetLand_FrameMeter", 1);
+}
+
+void NetLand_FrameMeter()
+{
+	if (!bNetLandActive)
+	{
+		DelEventHandler("frame", "NetLand_FrameMeter");
+		bNetLandFmOn = false;
+		iNetLandFmAt = 0;
+		return;
+	}
+	int iNow = Net_GetTickCount();
 	bool bWin = false;
 	if (CheckAttribute(&InterfaceStates, "Launched")) { if (sti(InterfaceStates.Launched)) { bWin = true; } }
-	if (!bWin && fK < fNetLandSpeed * 0.85)
+	if (bWin || !bNetLandLocReady) { iNetLandFmAt = 0; return; }
+	if (iNetLandFmAt == 0) { iNetLandFmAt = iNow; iNetLandFmGame = 0; iNetLandFmN = 0; return; }
+	iNetLandFmGame = iNetLandFmGame + GetDeltaTime();
+	iNetLandFmN++;
+	int iAgo = iNow - iNetLandFmAt;
+	if (iAgo < 0) { iNetLandFmAt = 0; return; }
+	if (iAgo < NET_LAND_FM_MS) { return; }
+	float fK = makefloat(iNetLandFmGame) / makefloat(iAgo);
+	float fWant = fNetLandSpeed;
+	iNetLandFmAt = iNow;
+	iNetLandFmGame = 0;
+	int iFrames = iNetLandFmN;
+	iNetLandFmN = 0;
+	if (fK < fWant * 0.9 || fK > fWant * 1.1)
 	{
-		Trace("COOP: land SLOW: " + iAgo + " ms of the clock, " + iNetLandMeterGame + " ms of the game (x" + fK + "), " + iNetLandMeterFrames + " frames (" + (iNetLandMeterFrames * 1000 / iAgo) + " fps), " + sNetLandLoc + ", " + LAi_numloginedcharacters + " characters");
+		Trace("COOP: land clock: " + iAgo + " ms, the game x" + fK + " (wanted x" + fWant + "), " + (iFrames * 1000 / iAgo) + " fps, correction x" + fNetLandTimeK + ", " + sNetLandLoc);
 	}
-	iNetLandMeterAt = iNow;
-	iNetLandMeterGame = 0;
-	iNetLandMeterFrames = 0;
+	if (true) { return; }		// COOP s39: no correction (engine.exe keeps the time)
+	if (bNetLandFmNoFix || fK < 0.05) { return; }
+	// the last correction did not move the measure: no correction on this machine
+	if (fNetLandTimeK > fNetLandFmLastTK * 1.1 && fNetLandFmLastK > 0.0 && fK < fNetLandFmLastK * 1.04)
+	{
+		Trace("COOP: land clock: the correction does not work here, it is taken back");
+		bNetLandFmNoFix = true;
+		fNetLandTimeK = 1.0;
+		SetTimeScale(fNetLandSpeed);
+		return;
+	}
+	fNetLandFmLastK = fK;
+	fNetLandFmLastTK = fNetLandTimeK;
+	if (fK > fWant * 0.95 && fK < fWant * 1.05) { return; }
+	float fNewK = fNetLandTimeK * fWant / fK;
+	if (fNewK < 1.0) { fNewK = 1.0; }
+	if (fNewK > NET_LAND_TIMEK_MAX) { fNewK = NET_LAND_TIMEK_MAX; }
+	if (fNewK > fNetLandTimeK - 0.02 && fNewK < fNetLandTimeK + 0.02) { return; }
+	fNetLandTimeK = fNewK;
+	SetTimeScale(fNetLandSpeed * fNetLandTimeK);
+	Trace("COOP: land clock: the speed of the game is corrected x" + fNetLandTimeK);
 }
 
 void NetLand_Smooth()
@@ -5791,6 +6007,8 @@ void NetLand_OnDead(int iMsg)
 	if (iChr < 0) { return; }
 	ref ch = &Characters[iChr];
 	ch.NetLandDead = true;
+	ch.NetLandDeadAt = Net_GetTickCount();		// COOP s38
+	Trace("COOP: land puppet of " + wDead + " dies (death " + iDeadVarR + ", the killer " + wKiller + ")");
 	DeleteAttribute(ch, "NetLandActId");
 	DeleteAttribute(ch, "NetLandActUntil");
 	ch.NetLandBlock = 0;
@@ -5826,6 +6044,9 @@ void NetLand_ReloadHero(int iSpawn)
 		if (iOldChr >= 0) { NetLand_SwimSet(&Characters[iOldChr], 0); ChangeCharacterAddressGroup(&Characters[iOldChr], "none", "", ""); }
 	}
 	NetLand_BotClear();
+	// COOP s46: the copies of the NPC go out before the location goes: left with its name they were logged into the new load
+	// by the game together with the NPC of ours ("many logined characters in location") and took the places of the new copies
+	NetLand_NpcDropAll();
 	if (IsEntity(loadedLocation)) { UnloadLocation(loadedLocation); }
 	iNetLandPT = 0;
 	iNetLandLastFlags = -1;
@@ -6432,7 +6653,7 @@ string NetLand_NextItem(string sCur, string sGroup, int iDir, bool bAllowNone)
 		if (!CheckAttribute(&Items[iIdx], "groupID")) { continue; }
 		if (Items[iIdx].groupID != sGroup) { continue; }
 		string sId = Items[iIdx].id;
-		if (sId == "unarmed" || sId == "rabble") { continue; }
+		// COOP s41: the fists ("unarmed") and the poker ("rabble") are blades of the loadout too
 		return sId;
 	}
 	return sCur;
@@ -6758,6 +6979,18 @@ void NetLand_ApplyLo(ref chr, aref lo, bool bHero, bool bFull)
 		}
 	}
 	NetLand_MushHand(chr);
+	// COOP s38: a musketeer skin with a blade and a pistol has its twin "<skin>_blade" (NetLand_BladeModel): the equip messages
+	// of the old model are lost when the model is made anew (like the musket above): the sword and the pistol were not drawn
+	// (quest_mush_*: empty hands, eng/fra/hol/spa_mush_*: no pistol). They are put on again when the body is there
+	if (!bMusket && sWantModel != sDressModel)
+	{
+		string sReGun = "";
+		if (CheckAttribute(chr, "equip.gun")) { sReGun = chr.equip.gun; }
+		Trace("COOP: land " + chr.id + " takes the twin " + sWantModel + ": the blade " + lo.Blade + " and the gun <" + sReGun + "> are put on again");
+		PostEvent("NetLand_ReEquipBlade", 400, "lss", sti(chr.index), lo.Blade, sReGun);
+		PostEvent("NetLand_ReEquipBlade", 1500, "lss", sti(chr.index), lo.Blade, sReGun);
+		PostEvent("NetLand_ReEquipBlade", 3500, "lss", sti(chr.index), lo.Blade, sReGun);
+	}
 	NetLand_ApplyArmor(chr, lo);		// COOP: cirassId (the damage of the blows and shots at this character)
 	if (bHero)
 	{
@@ -6790,6 +7023,31 @@ void NetLand_MushHandTick(ref chr, int iNow)
 	}
 	chr.NetLandMushAt = iNow;
 	NetLand_MushHand(chr);
+}
+
+// COOP s38: the sword and the pistol of a musketeer twin once more (NetLand_ApplyLo)
+void NetLand_ReEquipBlade()
+{
+	int iIdx = GetEventData();
+	string sBl = GetEventData();
+	string sGn = GetEventData();
+	if (!bNetLandActive || iIdx < 0) { return; }
+	ref chr = &Characters[iIdx];
+	if (!IsEntity(chr)) { return; }
+	if (CheckAttribute(chr, "model.animation")) { if (chr.model.animation == "mushketer") { return; } }
+	if (sBl != "" && CheckCharacterItem(chr, sBl))
+	{
+		RemoveCharacterEquip(chr, BLADE_ITEM_TYPE);
+		EquipCharacterByItem(chr, sBl);
+	}
+	if (sGn != "" && CheckCharacterItem(chr, sGn))
+	{
+		float fCh = -1.0;
+		if (CheckAttribute(chr, "chr_ai.charge")) { fCh = stf(chr.chr_ai.charge); }
+		RemoveCharacterEquip(chr, GUN_ITEM_TYPE);
+		EquipCharacterByItem(chr, sGn);
+		if (fCh >= 0.0) { chr.chr_ai.charge = fCh; }
+	}
 }
 
 void NetLand_ReEquipGun()
@@ -7259,6 +7517,36 @@ bool NetLand_BotMine(int wID)
 }
 
 // the next portrait that has a skin (the same icons as the player chooses)
+// COOP s45: a face that a player can take in his profile, each with the same chance: a portrait face_N that has a skin
+// (NetLand_FaceToModel) or an NPC skin npc_N. NetLand_BotNextFace(rand(399)) took the next face after a random number:
+// the one after a long gap of numbers came again and again (242, Angelica). iSalt: the server time, other on each machine
+int NetLand_RandomPlayerFace(int iSalt)
+{
+	int iFaces = 0;
+	int i;
+	for (i=0; i<400; i++) { if (NetLand_FaceToModel(i) != "") { iFaces++; } }
+	int iAll = iFaces + NetLand_NpcCount();
+	if (iAll < 1) { return 0; }
+	if (iSalt < 0) { iSalt = -iSalt; }
+	int iPick = rand(iAll - 1) + iSalt;
+	iPick = iPick - (iPick / iAll) * iAll;
+	if (iPick >= iFaces) { return NET_LAND_NPC_FACE + 1 + iPick - iFaces; }
+	for (i=0; i<400; i++)
+	{
+		if (NetLand_FaceToModel(i) == "") { continue; }
+		if (iPick == 0) { return i; }
+		iPick--;
+	}
+	return 0;
+}
+
+// COOP s45: the texture of the portrait of a face number (a portrait face_N or an NPC skin)
+string NetLand_FaceNumName(int iFace)
+{
+	if (iFace > NET_LAND_NPC_FACE) { return "npc_" + (iFace - NET_LAND_NPC_FACE); }
+	return "face_" + iFace;
+}
+
 int NetLand_BotNextFace(int iCur, int iDir)
 {
 	int iFc = iCur;
@@ -7276,6 +7564,8 @@ string NetLand_BotModel(int wID)
 {
 	int iFace = 0;
 	if (CheckAttribute(&NCClients[wID], "LandBotFace")) { iFace = sti(NCClients[wID].LandBotFace); }
+	if (iFace >= 1001 && iFace <= 1005) { return "Mushketer_" + (iFace - 1000); }		// COOP s44: a musketeer of the deck
+	if (iFace > NET_LAND_NPC_FACE) { return NetLand_NpcModel(iFace - NET_LAND_NPC_FACE); }		// COOP s45: a captain with an NPC skin
 	string sM = NetLand_FaceToModel(iFace);
 	if (sM == "") { sM = "pirate_" + (1 + wID - (wID / 8) * 8); }
 	return sM;
@@ -7473,6 +7763,7 @@ void NetLand_BotLo(int wID, aref lo)
 	lo.Gun = "";
 	if (CheckAttribute(&NCClients[wID], "LandBotGun")) { lo.Gun = NCClients[wID].LandBotGun; }
 	lo.Ammo = 5;
+	if (CheckAttribute(&NCClients[wID], "LandBotArmor")) { lo.Armor = NCClients[wID].LandBotArmor; }		// COOP s44
 	int iPts = (iLvl - 1) * (35 - sti(lo.SP.s4));
 	int iUsed = iPts;
 	// the order: k0 light, k1 medium, k2 heavy blades, k3 pistol, k4 luck
@@ -7495,12 +7786,56 @@ void NetLand_BotLo(int wID, aref lo)
 		lo.Sk.(sK) = sti(lo.Sk.(sK)) + iCan;
 		iPts = iPts - iCan;
 	}
+	// COOP s44: a fighter of a boarding: the perks of the single player (not of the difficulty)
+	if (NetLand_IsBoardFighter(wID)) { NetLand_BoardBotPerks(wID, lo, iLvl); return; }
 	int iPerks = (iUsed - iPts) / (40 - sti(lo.SP.s4));
-	if (iNetLandBotSkill >= 3) { iPerks = NET_LAND_PERKS; }
+	if (NetLand_BotSkillNow() >= 3) { iPerks = NET_LAND_PERKS; }
 	for (int p=0; p<NET_LAND_PERKS; p++)
 	{
 		if (p >= iPerks) { break; }
 		string sP = "p" + p;
+		lo.Perk.(sP) = 1;
+	}
+}
+
+// COOP s44: a land bot of a team on the boarding deck (net\Board.c: a fighter of a crew, a musketeer, the captain of a bot)
+bool NetLand_IsBoardFighter(int wID)
+{
+	if (!bNetBoardDuel) { return false; }
+	return NetLand_BotRelOf(wID) >= NET_BOTREL_TEAM0;
+}
+
+// the j-th melee perk of a fantom of the single player (LAi_NPC_EquipPerk "fantom", PERK_TEMPLATE_MELEE) in the perks of the
+// loadout (NetLand_PerkName); Ciras and Grus are not there
+int NetLand_BoardPerkIdx(int j)
+{
+	switch (j)
+	{
+		case 0: return 0; break;		// BasicDefense
+		case 1: return 1; break;		// AdvancedDefense
+		case 2: return 2; break;		// CriticalHit
+		case 3: return 10; break;		// Gunman
+		case 4: return 4; break;		// HardHitter
+		case 5: return 5; break;		// Tireless
+		case 6: return 7; break;		// Sliding
+		case 7: return 8; break;		// BladeDancer
+		case 8: return 9; break;		// SwordplayProfessional
+		case 9: return 11; break;		// GunProfessional
+	}
+	return -1;
+}
+
+// the melee perks of a fantom: (level + rand(4)) / 4 of them in their order. The "rand" is the slot of the bot: the puppet of
+// the bot on the other machine has the same perks (the damage is counted there)
+void NetLand_BoardBotPerks(int wID, aref lo, int iLvl)
+{
+	int iN = (iLvl + (wID - (wID / 5) * 5)) / 4;
+	if (iN > 10) { iN = 10; }
+	for (int j=0; j<iN; j++)
+	{
+		int iP = NetLand_BoardPerkIdx(j);
+		if (iP < 0) { continue; }
+		string sP = "p" + iP;
 		lo.Perk.(sP) = 1;
 	}
 }
@@ -7524,22 +7859,30 @@ int NetLand_BotMake(int wID)
 	ch.RebirthPhantom = true;		// its dead body is not made new by the game while it lies in the location
 	ch.NetLandBotDead = 0;
 	DeleteAttribute(ch, "NetLandBotLastAtt");		// COOP s28
-	ch.NetLandBotDiff = iNetLandBotSkill;
+	ch.NetLandBotDiff = NetLand_BotSkillNow();		// COOP s38: the crew of a boarding is never harmless
 	aref lo;
 	makearef(lo, oNetLandBotLo);
 	NetLand_BotLo(wID, lo);
 	NetLand_ApplyLo(ch, lo, false, true);
 	// the healing of the medium and the hard bots
 	ch.NetLandBotPots = 0;
-	if (iNetLandBotSkill == 2) { ch.NetLandBotPots = 3; }
-	if (iNetLandBotSkill >= 3) { ch.NetLandBotPots = 5; }
+	if (NetLand_BotSkillNow() == 2) { ch.NetLandBotPots = 3; }
+	if (NetLand_BotSkillNow() >= 3) { ch.NetLandBotPots = 5; }
+	if (NetLand_IsBoardFighter(wID))
+	{
+		// COOP s44: the potions of a fantom of the single player (LAi_NPC_Equip, the medium rate): a third of them has some
+		ch.NetLandBotPots = 0;
+		if (rand(1500) < 500) { ch.NetLandBotPots = rand(makeint(makefloat(sti(lo.Level)) / 6.0 + 0.5)); }
+		// the musketeers of the deck shoot from their places (LAi_SetBoardingActors: MusketerDistance 0)
+		if (NetLand_IsMushItem(lo.Gun)) { ch.MusketerDistance = 0; }
+	}
 	LAi_CharacterDisableDialog(ch);
 	int iRel = sti(NCClients[wID].BotRel);
 	if (bMine)
 	{
 		ch.NetLandBotMine = 1;
 		// the harmless bot stands (single player: a citizen); the others fight
-		if (iNetLandBotSkill <= 0) { LAi_SetStayType(ch); }
+		if (NetLand_BotSkillNow() <= 0) { LAi_SetStayType(ch); }
 		else { LAi_SetWarriorType(ch); }
 		LAi_group_MoveCharacter(ch, NetLand_BotGroup(iRel, true));
 	}
@@ -7598,6 +7941,7 @@ void NetLand_OnBotInfo(int iMsg)
 	string sNick = NMGetString(iMsg);
 	int iLevel = NMGetByte(iMsg);
 	string sGun = NMGetString(iMsg);
+	string sArmor = NMGetString(iMsg);		// COOP s44
 	if (wBot < NET_BOT_FIRST || wBot >= NET_MAXCLIENTS) { return; }
 	if (iRemoved)
 	{
@@ -7621,6 +7965,7 @@ void NetLand_OnBotInfo(int iMsg)
 	NCClients[wBot].LandBotBlade = sBlade;
 	NCClients[wBot].LandBotLevel = iLevel;
 	NCClients[wBot].LandBotGun = sGun;
+	NCClients[wBot].LandBotArmor = sArmor;
 	NCClients[wBot].BotRel = iRel;
 	NCClients[wBot].NickName = sNick;
 	if (!bNetLandActive) { return; }
@@ -8369,6 +8714,9 @@ int NetServer_LandBotInfoMsg(int i)
 	NMAddString(iSMsg, NSClients[i].LandBotNick, 32);
 	NMAddByte(iSMsg, sti(NSClients[i].LandBotLevel));
 	NMAddString(iSMsg, NSClients[i].LandBotGun, 32);
+	string sBotArm = "";		// COOP s44: the cuirass of the captain of a bot ship
+	if (CheckAttribute(&NSClients[i], "LandBotArmor")) { sBotArm = NSClients[i].LandBotArmor; }
+	NMAddString(iSMsg, sBotArm, 16);
 	return iSMsg;
 }
 
@@ -8412,6 +8760,19 @@ void NetServer_LandBotsReset()
 	NetServer.LandBotN = 0;
 }
 
+// COOP s46: the characters of the location of the host (the server runs in his game) + the bots that have not come yet. The
+// engine holds 64 characters in a location; a bot over it is not made on some machine ("Many characters in location")
+int NetServer_LandCharsUsed()
+{
+	int iUsed = LAi_numloginedcharacters;
+	for (int iB=NET_BOT_FIRST; iB<NET_MAXCLIENTS; iB++)
+	{
+		if (!NetServer_IsLandBot(iB)) { continue; }
+		if (NetLand_BotChr(iB) < 0) { iUsed++; }
+	}
+	return iUsed;
+}
+
 void NetServer_LandAdminBotAdd(int wAdmin, int iRel, int iShipW, int iBladeIdx, int iLevel, int iGunLo)
 {
 	// the window "Bot+" of a land duel: the ship word is the face (9 bits) and the high part of the gun (+1, 0: none)
@@ -8431,6 +8792,13 @@ void NetServer_LandAdminBotAdd(int wAdmin, int iRel, int iShipW, int iBladeIdx, 
 		break;
 	}
 	if (iFree < 0) { Trace("COOP: land bot: no free slot"); return; }
+	int iCharsU = NetServer_LandCharsUsed();
+	if (iCharsU >= NET_LAND_CHARS_MAX)
+	{
+		Trace("COOP: land bot not added: " + iCharsU + " characters in the location");
+		NetServer_BotNote(wAdmin, NET_BOTNOTE_LANDFULL, iCharsU);
+		return;
+	}
 	string sBlade = "";
 	if (iBladeIdx >= 0 && iBladeIdx < ITEMS_QUANTITY) { sBlade = Items[iBladeIdx].id; }
 	if (NetLand_FaceToModel(iFace) == "") { iFace = NetLand_BotNextFace(-1, 1); }
@@ -8444,6 +8812,7 @@ void NetServer_LandAdminBotAdd(int wAdmin, int iRel, int iShipW, int iBladeIdx, 
 	NSClients[iFree].LandBotBlade = sBlade;
 	NSClients[iFree].LandBotLevel = iLevel;
 	NSClients[iFree].LandBotGun = sGun;
+	NSClients[iFree].LandBotArmor = "";		// COOP s44
 	NSClients[iFree].LandBotNick = "Бот " + NetServer.LandBotN;
 	Trace("COOP: land bot " + iFree + " added by " + wAdmin + ": face " + iFace + ", blade " + sBlade + ", gun " + sGun + ", level " + iLevel + ", relation " + iRel);
 	NetServer_LandBotSendInfo(iFree);
@@ -8571,6 +8940,9 @@ void NetServer_OnLandBot(int wID, int iSub, int iMsg)
 		NSClients[wBot].LandBotDeadSeen = iDeadS;
 		NetServer_LandSendOthers(wID, iSMsg, bRelS);
 		NMDelete(iSMsg);
+		// COOP s41: the captain of a bot ship on the boarding deck has fallen: the duel ends (net\Board.c)
+		if (bRelS && CheckAttribute(&NSClients[wBot], "BoardCapOf")) { NetServer_BDCaptainDead(sti(NSClients[wBot].BoardCapOf)); }
+		else { if (bRelS) { NetServer_BDFighterDead(wBot); } }		// COOP s43: the last NPC of a bot ship ends the duel
 		return;
 	}
 	if (iSub == NSC_LAND_BOTHIT)
@@ -8917,7 +9289,7 @@ void NetLand_OnStat(int iMsg)
 	NCClients[wID].LandStat.Kills = iKills;
 	NCClients[wID].LandStat.Deaths = iDeaths;
 	NCClients[wID].LandStat.Dmg = makeint(fDmg);
-	NCClients[wID].LandStat.Dead = iDead;
+	NCClients[wID].LandStat.Died = iDead;		// COOP s38: not "Dead": net.dll sinks a NetShip when ANY attribute of it named "Dead" changes (the crash of the boarding)
 }
 
 int NetLand_StatValue(int wID, string sKey)
@@ -9036,6 +9408,14 @@ void NetServer_OnLandBotEvt(int wID, int iMsg)
 
 // for the windows (net\interfaces): the values of this file
 int NetLand_GetBotSkill() { return iNetLandBotSkill; }
+
+// COOP s38: the skill of the bots of this machine now: the crews of a boarding (net\Board.c) fight like the medium bots at least
+// (the "harmless" bots of the sea battle stood on the deck)
+int NetLand_BotSkillNow()
+{
+	// COOP s41: the crews of the boarding follow the difficulty of the bots too (harmless ones stand, easy ones fight weakly)
+	return iNetLandBotSkill;
+}
 int NetLand_LoLevel() { if (!CheckAttribute(&oNetLandLo, "Level")) { return 1; } return sti(oNetLandLo.Level); }
 int NetLand_LoPoison() { if (!CheckAttribute(&oNetLandLo, "Poison")) { return 0; } return sti(oNetLandLo.Poison); }
 void NetLand_LoSetPoison(int iOn)
@@ -9094,7 +9474,7 @@ void NetLand_SetSpeed(int iValue)
 	float fOldSp = fNetLandSpeed;
 	fNetLandSpeed = fSpeed;
 	iNetLandSpeedAt = Net_GetTickCount();
-	SetTimeScale(fSpeed);
+	SetTimeScale(fSpeed * fNetLandTimeK);		// COOP s38: with the correction of the clock
 	Trace("COOP: land the speed of the game x" + fSpeed);
 	if (!bNetLandActive) { return; }
 	float fSpDiff = fOldSp - fSpeed;
@@ -9562,12 +9942,13 @@ bool NetLand_ProfLoadLo(aref lo)
 // the windows, the info screens)
 void NetLand_KeepSpeed(int iNow)
 {
-	if (fNetLandSpeed > 0.99 && fNetLandSpeed < 1.01) { return; }
+	float fEffSp = fNetLandSpeed * fNetLandTimeK;		// COOP s38: with the correction of the clock (NetLand_FrameMeter)
+	if (fEffSp > 0.99 && fEffSp < 1.01) { return; }
 	int iAgo = iNow - iNetLandSpeedAt;
 	if (iAgo >= 0 && iAgo < 500) { return; }
 	iNetLandSpeedAt = iNow;
 	if (CheckAttribute(&InterfaceStates, "Launched")) { if (sti(InterfaceStates.Launched)) { return; } }
-	SetTimeScale(fNetLandSpeed);
+	SetTimeScale(fEffSp);
 }
 
 // the hero of this puppet swims (the name of his animation: "swim")

@@ -59,11 +59,11 @@ void InitInterface_R(string iniName, ref _shipyarder)
 	SetEventHandler("acceptaddofficer","AcceptAddOfficer",0);
 	SetEventHandler("BuyShipEvent","BuyShipEvent",0);
     //////////////////
-    EI_CreateFrame("SHIP_BIG_PICTURE_BORDER",156,40,366,275); // tak from SHIP_BIG_PICTURE
-    EI_CreateHLine("SHIP_BIG_PICTURE_BORDER", 161,246,361,1, 4);
-    EI_CreateFrame("SHIP_BIG_PICTURE_BORDER",20,46,134,161);
-    EI_CreateHLine("SHIP_BIG_PICTURE_BORDER", 8,187,147,1, 4);
-    EI_CreateHLine("SHIP_BIG_PICTURE_BORDER", 8,166,147,1, 4);
+    EI_CreateFrame("SHIP_BIG_PICTURE_BORDER", XI_WX + 156,40, XI_WX + 366,275); // tak from SHIP_BIG_PICTURE
+    EI_CreateHLine("SHIP_BIG_PICTURE_BORDER", XI_WX + 161,246, XI_WX + 361,1, 4);
+    EI_CreateFrame("SHIP_BIG_PICTURE_BORDER", XI_WX + 20,46, XI_WX + 134,161);
+    EI_CreateHLine("SHIP_BIG_PICTURE_BORDER", XI_WX + 8,187, XI_WX + 147,1, 4);
+    EI_CreateHLine("SHIP_BIG_PICTURE_BORDER", XI_WX + 8,166, XI_WX + 147,1, 4);
 
     SetNewGroupPicture("Money_PIC", "ICONS_CHAR", "Money");
     SetNewGroupPicture("REPAIR_Money_PIC", "ICONS_CHAR", "Money");

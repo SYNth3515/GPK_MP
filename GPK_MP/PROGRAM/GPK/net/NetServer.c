@@ -28,9 +28,9 @@
 #include "GPK\Net\Server\Games\Naval.c"
 
 #define NET_TOTALCLIENTS			255		// total massive
-#define NET_MAXPLAYERS				16		// COOP: slots of the players (0..15)
-#define NET_MAXCLIENTS				66		// absolute maximum is 254. COOP: 16 players + 50 bots
-#define NET_BOT_FIRST				16		// COOP: the bots of the admin live in the slots 16..65 (server\Bots.c)
+#define NET_MAXPLAYERS				32		// COOP: slots of the players (0..31; s46: 16 before)
+#define NET_MAXCLIENTS				82		// absolute maximum is 254. COOP: 32 players + 50 bots
+#define NET_BOT_FIRST				32		// COOP: the bots of the admin live in the slots 32..81 (server\Bots.c)
 #define NET_BOT_MAX					50
 #define NET_FORTCLIENT				253
 
@@ -54,9 +54,11 @@ void Net_DeleteServer()
 {
 	DelEventHandler("NetServer_UpdateMasterServerInfo", "NetServer_UpdateMasterServerInfo");
 
-	DeleteClass(&NetServer);
-
-	if (!NetServer_IsStarted()) { return; }
+	// COOP s46: the server entity goes LAST. net.dll keeps its pointer in a global that its destructor does not clear, and the
+	// natives NetServer_SendMessage / NetServer_ClearPacketsQueue / NetServer_SendMasterServerMessage use it without a check:
+	// NetServer_EndGame below wrote into the freed server and the heap broke (crash in ntdll after "end: client done" when the
+	// host disconnected from the lobby of a running game).
+	if (!NetServer_IsStarted()) { DeleteClass(&NetServer); return; }
 
 	if (sti(NetServer.InetServer))
 	{
@@ -81,6 +83,9 @@ void Net_DeleteServer()
 	DelEventHandler("ExitApplication", "NetServer_ExitApplication");
 	DelEventHandler("NetServer_OnNetMessage", "NetServer_OnNetMessage");
 	DelEventHandler("frame", "NetServer_OneSecondTick");
+
+	Trace("COOP: server deleted");
+	DeleteClass(&NetServer);
 
 	iSecondsToStartGame = -1;
 	bServerStartRequested = false;

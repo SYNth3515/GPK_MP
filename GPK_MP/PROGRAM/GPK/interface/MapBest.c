@@ -177,7 +177,7 @@ void DoPostExit()
 
 void SelectRColony()
 {	
-	float fMouseX = stf(GameInterface.mousepos.x) - 6.0 + 5;
+	float fMouseX = stf(GameInterface.mousepos.x) - 6.0 + 5 - XI_WX; // COOP s46m
 	float fMouseY = stf(GameInterface.mousepos.y) - 50.0 + 5;
 
 	//определяем верхний левый угол картинки

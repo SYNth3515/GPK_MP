@@ -48,13 +48,13 @@ void InitInterface_R(string iniName, ref _chr) // _chr нужно для читового просмо
     
     XI_RegistryExitKey("IExit_F2");
     //////////////////
-    EI_CreateFrame("SHIP_BIG_PICTURE_BORDER",156,78,366,313); // tak from SHIP_BIG_PICTURE
-    EI_CreateHLine("SHIP_BIG_PICTURE_BORDER", 161,284,361,1, 4);
-    EI_CreateFrame("SHIP_BIG_PICTURE_BORDER",20,85,134,199);
-    EI_CreateHLine("SHIP_BIG_PICTURE_BORDER", 8,225,147,1, 4);
-    EI_CreateHLine("SHIP_BIG_PICTURE_BORDER", 8,204,147,1, 4);
+    EI_CreateFrame("SHIP_BIG_PICTURE_BORDER", XI_WX + 156,78, XI_WX + 366,313); // tak from SHIP_BIG_PICTURE
+    EI_CreateHLine("SHIP_BIG_PICTURE_BORDER", XI_WX + 161,284, XI_WX + 361,1, 4);
+    EI_CreateFrame("SHIP_BIG_PICTURE_BORDER", XI_WX + 20,85, XI_WX + 134,199);
+    EI_CreateHLine("SHIP_BIG_PICTURE_BORDER", XI_WX + 8,225, XI_WX + 147,1, 4);
+    EI_CreateHLine("SHIP_BIG_PICTURE_BORDER", XI_WX + 8,204, XI_WX + 147,1, 4);
     
-    EI_CreateHLine("SHIP_BIG_PICTURE_BORDER", 657,214,789,1, 4);
+    EI_CreateHLine("SHIP_BIG_PICTURE_BORDER", XI_WX + 657,214, XI_WX + 789,1, 4);
     SetNewGroupPicture("CREW_PICTURE", "SHIP_STATE_ICONS", "Crew");
     SetNewGroupPicture("Money_PIC", "ICONS_CHAR", "Money");
     

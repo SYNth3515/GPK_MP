@@ -447,7 +447,7 @@ void procSelecterMove()
 	}
 
 	if( bMakeMove ) {
-		SendMessage( &GameInterface, "lslllll", MSG_INTERFACE_MSG_TO_NODE,"SAVE_SELECTER",0, nLeft,nTop,nRight,nBottom );
+		SendMessage( &GameInterface, "lslllll", MSG_INTERFACE_MSG_TO_NODE,"SAVE_SELECTER",0, XI_WX + nLeft,nTop, XI_WX + nRight,nBottom );
 	}
 }
 
@@ -558,7 +558,7 @@ void SelectSaveImage( int nSaveIndex )
 	int nLeft,nTop,nRight,nBottom;
 	bool bMakeMove = GetMoveToOtherSave( nSaveIndex, &nLeft,&nTop,&nRight,&nBottom );
 	if( bMakeMove ) {
-		SendMessage( &GameInterface, "lslllll", MSG_INTERFACE_MSG_TO_NODE,"SAVE_SELECTER",0, nLeft,nTop,nRight,nBottom );
+		SendMessage( &GameInterface, "lslllll", MSG_INTERFACE_MSG_TO_NODE,"SAVE_SELECTER",0, XI_WX + nLeft,nTop, XI_WX + nRight,nBottom );
 	}
 	SetCurrentNode( "SAVE_SELECTER" );
 }

@@ -35,7 +35,7 @@ void InitInterface(string iniName)
 	SetEventHandler("ievnt_command","ProcCommand",0); // выход на карту только тут (по НЕТ)
 	SetEventHandler("evntDoPostExit","DoPostExit",0); // выход из интерфейса
 	
-	EI_CreateFrame("INFO_BORDERS", 250,152,550,342);
+	EI_CreateFrame("INFO_BORDERS", XI_WX + 250,152, XI_WX + 550,342);
 	PlaySound("interface\_EvShip"+rand(1)+".wav");
 }
 

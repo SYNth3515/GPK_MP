@@ -1097,12 +1097,9 @@ string BLI_NetHeroFaceTexture(int chrindex)
 	{
 		return "";
 	}
-	object oFaceFiles;
-	if (NFFindFiles(&oFaceFiles, "resource\textures\" + sUserFacesPath, sFace + ".tga.tx", false) <= 0)
-	{
-		return "";
-	}
-	return sUserFacesPath + sFace + ".tga";
+	// COOP s46: an NPC skin icon (npc_N, e.g. Mansfield) or a 256 portrait was not in NET/FACES, so the HUD fell back
+	// to FaceId, and FaceMaker has no case for those models: the hero showed the portrait of Blaze
+	return NetLand_ProfFaceTex();
 }
 
 void SetOfficerTexture(int officerIdx)

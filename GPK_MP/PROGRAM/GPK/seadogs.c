@@ -351,13 +351,28 @@ void Main_InitGame()
 }
 void Main_LogoVideo()
 {
-	
+	object oNoIntroOpt;
+	string sNoIntroFile = "options";
+	bool bNoIntro = false;
 	int i = sti(InterfaceStates.videoIdx);
 	switch(i)
 	{
 	case 0:
-		InterfaceStates.videoIdx = 1;
-		StartPostVideo("AkellaLogo",1);
+		// COOP s43: the option "no intro videos" (option_screen: NOINTRO_CHECKBOX, the file "options": cameramode.NoIntro)
+		SendMessage(&GameInterface, "lsa", MSG_INTERFACE_LOADOPTIONS, sNoIntroFile, &oNoIntroOpt);
+		if (CheckAttribute(&oNoIntroOpt, "cameramode.NoIntro")) { bNoIntro = sti(oNoIntroOpt.cameramode.NoIntro) != 0; }
+		InterfaceStates.NoIntro = bNoIntro;
+		if (bNoIntro)
+		{
+			Trace("COOP: the intro videos are off (options)");
+			InterfaceStates.videoIdx = 4;
+			PostEvent(EVENT_END_VIDEO, 1);
+		}
+		else
+		{
+			InterfaceStates.videoIdx = 1;
+			StartPostVideo("AkellaLogo",1);
+		}
 	break;
 
 	case 1:

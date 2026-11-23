@@ -989,6 +989,8 @@ float LAi_NPC_GetActionEnergy()
 float LAi_NPC_EvtGetHP()
 {
 	aref chr = GetEventData();
+	// COOP s46: the copy of an NPC of the host (net\LandNpc.c) shows the health of the NPC there
+	if(CheckAttribute(chr, "NetLandNpcHP")) { npc_return_tmp = stf(chr.NetLandNpcHP); return npc_return_tmp; }
 	npc_return_tmp = LAi_GetCharacterRelHP(chr);
 	return npc_return_tmp;
 }
@@ -999,6 +1001,7 @@ float LAi_NPC_EvtGetHP()
 float LAi_NPC_EvtGetEny()
 {
 	aref chr = GetEventData();
+	if(CheckAttribute(chr, "NetLandNpcEny")) { npc_return_tmp = stf(chr.NetLandNpcEny); return npc_return_tmp; }		// COOP s46
 	npc_return_tmp = LAi_GetCharacterRelEnergy(chr);
 	return npc_return_tmp;
 }

@@ -238,7 +238,7 @@ void NetServer_AdminMute(int wTarget)
 int NetServer_IsGod(int i)
 {
 	if (i < 0 || i >= NET_MAXCLIENTS) { return 0; }
-	if (NetServer_BDOf(i) > 0) { return 1; }		// COOP s37: the ships of a boarding duel are not hurt (net\Board.c)
+	if (NetServer_ShipHeld(i)) { return 1; }		// COOP s37: the ships of a boarding duel are not hurt (net\Board.c), s41: a prize and its captor
 	if (!CheckAttribute(&NSClients[i], "God")) { return 0; }
 	if (sti(NSClients[i].God)) { return 1; }
 	return 0;
@@ -437,7 +437,7 @@ void NetServer_AdminChangeWeather(int iTime, int iType)
 	bServerWeatherIsStorm = Whr_GetLong(aCurWeather, "Storm");
 	bServerWhrTornado = Whr_GetLong(aCurWeather, "Tornado");
 
-	float fAngle = Whr_GetFloat(aCurWeather, "Wind.Angle");
+	float fAngle = fServerWeatherAngle;		// COOP s45: the wind keeps its random course (the angle of the weather is always the same)
 	float fSpeed = Whr_GetFloat(aCurWeather, "Wind.Speed");
 	if (NetServer_WhrIsStorm()) { fSpeed = 7.0; }
 	if (iType == 4 && NetServer_WhrIsStorm()) { fSpeed = fCoopTornadoWind; }

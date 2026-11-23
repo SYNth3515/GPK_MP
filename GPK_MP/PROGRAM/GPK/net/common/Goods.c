@@ -47,9 +47,9 @@ void Net_InitGoods()
 	rG.WUnits = 20;
 	rG.Units = 100;
 	rG.SpeedV0 = 1.0;
-	rG.DamageHull = 8.0;
-	rG.DamageRig = 4.0;
-	rG.DamageCrew = 0.25;
+	rG.DamageHull = 8.0;		// COOP s45: the values of the single player (store\initGoods.c; the rig was 4.0, the crew 0.25)
+	rG.DamageRig = 0.5;
+	rG.DamageCrew = 0.2;
 
 	// GRAPES
 	n++; 
@@ -60,10 +60,10 @@ void Net_InitGoods()
 	rG.Weight = 1;
 	rG.WUnits = 20;
 	rG.Units = 100;
-	rG.SpeedV0 = 0.7;
-	rG.DamageHull = 1.5;
-	rG.DamageRig = 1.5;
-	rG.DamageCrew = 2.0;
+	rG.SpeedV0 = 0.6;
+	rG.DamageHull = 1.0;		// COOP s45: the values of the single player (store\initGoods.c; it was 0.7 speed, 1.5 hull, 1.5 rig, 2.0 crew)
+	rG.DamageRig = 2.0;
+	rG.DamageCrew = 1.5;
 
 	// KNIPPELS
 	n++; 
@@ -75,9 +75,9 @@ void Net_InitGoods()
 	rG.WUnits = 20;
 	rG.Units = 100;
 	rG.SpeedV0 = 0.9;
-	rG.DamageHull = 2.0;
-	rG.DamageRig = 17.0;
-	rG.DamageCrew = 0.35;
+	rG.DamageHull = 1.5;		// COOP s45: the values of the single player (store\initGoods.c; it was 2.0 hull, 17 rig, 0.35 crew)
+	rG.DamageRig = 9.0;
+	rG.DamageCrew = 0.3;
 
 	// BOMBS
 	n++; 
@@ -89,8 +89,8 @@ void Net_InitGoods()
 	rG.WUnits = 20;
 	rG.Units = 100;
 	rG.SpeedV0 = 0.8;
-	rG.DamageHull = 17.0;
-	rG.DamageRig = 3.5;
+	rG.DamageHull = 15.0;		// COOP s45: the values of the single player (store\initGoods.c; it was 17 hull, 3.5 rig)
+	rG.DamageRig = 1.0;
 	rG.DamageCrew = 0.5;
 
 	// PLANKS

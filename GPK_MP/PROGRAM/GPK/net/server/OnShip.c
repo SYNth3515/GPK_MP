@@ -72,7 +72,8 @@ void NetServer_OnShip(int wNetClientID, int iMsg)
 	if (!NetServer_HasShip(wNetClientID)) { return; }
 	if (NetServer_IsClientDead(rClient) && iSubCode != NSC_SHIP_LOAD_REQUEST) { return; }
 	// COOP s37: the captain fights on the deck (net\Board.c): the ship stands with the sails down, no shot, no order
-	if (NetServer_BDOf(wNetClientID) > 0 && iSubCode != NSC_SHIP_LOAD_REQUEST)
+	// COOP s41: the same while he chooses what to do with his prize (or his ship is the prize of another one)
+	if (NetServer_ShipHeld(wNetClientID) && iSubCode != NSC_SHIP_LOAD_REQUEST && iSubCode != NSC_SHIP_PRIZE_DONE)
 	{
 		rClient.Ship.SailState = 0.0;
 		rClient.Ship.TurnLeft = 0;
@@ -169,6 +170,9 @@ void NetServer_OnShip(int wNetClientID, int iMsg)
 		case NSC_SHIP_PERK_USE:
 			NetServer_UseActivePerk(wNetClientID, NMGetByte(iMsg));
 		break;
+		case NSC_SHIP_PRIZE_DONE:
+			NetServer_PrizeDone(wNetClientID, iMsg);		// COOP s41: net\Board.c
+		break;
 	}
 
 	rClient.Ship.SailState = Clampf(stf(rClient.Ship.SailState));
@@ -252,7 +256,7 @@ bool NetServer_IsBoardable(int wAttackerID, int wTargetID)
 
 	if (CheckAttribute(rA, "Dead") && sti(rA.Dead)) { return false; }
 	if (CheckAttribute(rT, "Dead") && sti(rT.Dead)) { return false; }
-	if (NetServer_BDOf(wAttackerID) > 0 || NetServer_BDOf(wTargetID) > 0) { return false; }		// COOP s37: on the deck now
+	if (NetServer_ShipHeld(wAttackerID) || NetServer_ShipHeld(wTargetID)) { return false; }		// COOP s37: on the deck now (s41: or a prize)
 	if (stf(rA.Ship.HP) <= 0.0) { return false; }
 	if (stf(rT.Ship.HP) <= 0.0) { return false; }
 
@@ -275,6 +279,20 @@ bool NetServer_IsBoardable(int wAttackerID, int wTargetID)
 	return true;
 }
 
+// COOP s43: the relative speed of a boarding. The 3..5 of the single player never came true in the net game: its ships go
+// 40..60 (Ship.MaxSpeedZ); a ship could be boarded only when it nearly stood. Now 25..40 % of the top speed of the
+// attacker (the grappling skill), never less than the old 3..5.
+float NetServer_BoardMaxRelSpeed(ref rA, float fGrappling)
+{
+	float fMax = Bring2Range(3.0, 5.0, 0.0, 1.0, fGrappling);
+	if (CheckAttribute(rA, "Ship.MaxSpeedZ"))
+	{
+		float fTop = stf(rA.Ship.MaxSpeedZ) * Bring2Range(0.25, 0.40, 0.0, 1.0, fGrappling);
+		if (fTop > fMax) { fMax = fTop; }
+	}
+	return fMax;
+}
+
 // bLoose: used for the final check when the request arrives (ships moved a bit since the button was shown)
 bool NetServer_CheckBoardPair(ref rA, ref rT, bool bLoose)
 {
@@ -286,9 +304,9 @@ bool NetServer_CheckBoardPair(ref rA, ref rT, bool bLoose)
 	float fGrappling = NetServer_GetGrappling(rA);
 	bool bProfessional = NetServer_HasPerk(rA, "GrapplingProfessional");
 
-	float fMaxDistance = NetServer_CalcGrapplingPerk(rA) * Bring2Range(15.0, 40.0, 0.0, 1.0, fGrappling);
+	float fMaxDistance = NET_BOARD_DIST_MULT * NetServer_CalcGrapplingPerk(rA) * Bring2Range(15.0, 40.0, 0.0, 1.0, fGrappling);		// COOP s45: x NET_BOARD_DIST_MULT
 	float fMaxAngle = Bring2Range(0.70, 0.45, 0.0, 1.0, fGrappling);
-	float fMaxSpeed = Bring2Range(3.0, 5.0, 0.0, 1.0, fGrappling);
+	float fMaxSpeed = NetServer_BoardMaxRelSpeed(rA, fGrappling);
 
 	if (bLoose)
 	{
@@ -385,6 +403,45 @@ int NetServer_FindBoardTarget(int wAttackerID)
 	return iBest;
 }
 
+// COOP s43: diagnostics: a player near an enemy ship (hulls closer than 60 m) that can not be boarded: why (every 3 s in the log)
+void NetServer_BoardWhyNot(int wA)
+{
+	if (!NetServer_BoardSlotReady(wA)) { return; }
+	ref rA = NetServer_GetClient(wA);
+	int iT = 0;
+	if (CheckAttribute(rA, "BoardWhyT")) { iT = sti(rA.BoardWhyT); }
+	iT = iT + 1;
+	rA.BoardWhyT = iT;
+	if (iT < 6) { return; }		// 6 x 4 ship updates of 120 ms: ~3 s
+	for (int i=0; i<NET_MAXCLIENTS; i++)
+	{
+		if (i == wA) { continue; }
+		if (!NetServer_BoardSlotReady(i)) { continue; }
+		ref rT = NetServer_GetClient(i);
+		float fDX = stf(rA.Ship.Pos.x) - stf(rT.Ship.Pos.x);
+		float fDZ = stf(rA.Ship.Pos.z) - stf(rT.Ship.Pos.z);
+		float fDist = sqrt(fDX * fDX + fDZ * fDZ);
+		float fHull = fDist - NetServer_GetShipHalfWidth(rA) - NetServer_GetShipHalfWidth(rT);
+		if (fHull > 60.0) { continue; }
+		rA.BoardWhyT = 0;
+		bool bAble = NetServer_IsBoardable(wA, i);
+		float fGr = NetServer_GetGrappling(rA);
+		float fMaxD = NET_BOARD_DIST_MULT * NetServer_CalcGrapplingPerk(rA) * Bring2Range(15.0, 40.0, 0.0, 1.0, fGr);
+		float fMaxA = Bring2Range(0.70, 0.45, 0.0, 1.0, fGr);
+		float fMaxS = NetServer_BoardMaxRelSpeed(rA, fGr);
+		float fDot = GetDotProduct(stf(rA.Ship.Ang.y), stf(rT.Ship.Ang.y));
+		if (fDot < 0.0) { fDot = -fDot; }
+		float fSA = stf(rA.Ship.Speed.z);
+		float fST = stf(rT.Ship.Speed.z);
+		float fRel2 = fSA * fSA + fST * fST - 2.0 * fSA * fST * GetDotProduct(stf(rA.Ship.Ang.y), stf(rT.Ship.Ang.y));
+		if (fRel2 < 0.0) { fRel2 = 0.0; }
+		float fRel = sqrt(fRel2);
+		int iHeld = 0;
+		if (NetServer_ShipHeld(wA) || NetServer_ShipHeld(i)) { iHeld = 1; }
+		Trace("COOP: board why not " + wA + " -> " + i + ": boardable " + bAble + " held " + iHeld + " hull gap " + fHull + " (max " + fMaxD + ") parallel " + fDot + " (need > " + fMaxA + ") rel speed " + fRel + " (max " + fMaxS + ") half widths " + NetServer_GetShipHalfWidth(rA) + " / " + NetServer_GetShipHalfWidth(rT));
+	}
+}
+
 // called from the ship update tick: tell the client what it can board, only when that changes
 void NetServer_UpdateBoardState(int wClientID)
 {
@@ -399,6 +456,7 @@ void NetServer_UpdateBoardState(int wClientID)
 
 	int iTarget = -1;
 	if (!sti(NetServer.NoBoarding)) { iTarget = NetServer_FindBoardTarget(wClientID); }		// COOP: boarding can be switched off
+	if (iTarget < 0 && wClientID < NET_MAXPLAYERS && !sti(NetServer.NoBoarding)) { NetServer_BoardWhyNot(wClientID); }		// COOP s43
 
 	int iSent = -1;
 	if (CheckAttribute(rClient, "BoardSent")) { iSent = sti(rClient.BoardSent); }
@@ -516,13 +574,13 @@ void NetServer_TryBoardPlayer(int wAttackerID, int wTargetID)
 	}
 
 	// COOP s37: the fast boarding is off (Create game): two players fight on the deck with their crews (net\Board.c);
-	// the bots board as before. The immortality of the admin wins at once (as below).
+	// COOP s41: a player and a bot too (the captain and the crew of the bot are land bots of the player); only two bots
+	// board each other the fast way. The immortality of the admin wins at once (as below).
 	if (NetServer_BoardRealOn() && iGodSide == 0)
 	{
-		if (!NetServer_IsBot(wAttackerID) && !NetServer_IsBot(wTargetID))
+		if (!NetServer_IsBot(wAttackerID) || !NetServer_IsBot(wTargetID))
 		{
-			NetServer_BDStart(wAttackerID, wTargetID);
-			return;
+			if (NetServer_BDStart(wAttackerID, wTargetID)) { return; }
 		}
 	}
 
@@ -575,7 +633,7 @@ void NetServer_TryBoardPlayer(int wAttackerID, int wTargetID)
 
 	Trace("COOP: boarding attacker=" + wAttackerID + " target=" + wTargetID + " crew " + fAttackCrew + " vs " + fDefendCrew + " power " + fAttackPower + " vs " + fDefendPower + " winner=" + wWinnerID + " lost=" + fDeadCrew + " god=" + iGodSide);
 
-	NetServer_SetClientDead(rLoser, NETKILL_BY_BOARDING, wWinnerID);
+	NetServer_BoardWon(wWinnerID, sti(rLoser.ID));		// COOP s41: the prize of a player (net\Board.c), else it goes down
 }
 
 void NetServer_Ship2ShipCollision()
@@ -1038,11 +1096,12 @@ void NetServer_OnShipHullHit()
 	if (NetServer_SeaPerk(wBallClientID, NET_SPERK_CRITICAL) && rand(19) == 10) { bSeriousBoom = true; }
 	if (NetServer_SeaPerk(wBallClientID, NET_SPERK_CANNONPRO) && rand(9) == 4) { bSeriousBoom = true; }
 
+	// COOP s45: the chances of Ship_HullHitEvent of the single player (sea_ai\AIShip.c)
 	switch (rBall.Name)
 	{
 		case "Balls":
-			if (rand(160) == 80) { bSeriousBoom = true; }
-			if (rand(25) == 12) { bInflame = true; }
+			if (rand(85) == 17) { bSeriousBoom = true; }
+			if (rand(30) == 15) { bInflame = true; }
 		break;
 		case "Grapes":
 			bSeriousBoom = false;
@@ -1051,9 +1110,18 @@ void NetServer_OnShipHullHit()
 			bSeriousBoom = false;
 		break;
 		case "Bombs":
-			if (rand(100) == 50) { bSeriousBoom = true; }
-			if (rand(8) == 4) { bInflame = true; }
+			if (rand(50) == 10) { bSeriousBoom = true; }
+			if (rand(5) == 1) { bInflame = true; }
 		break;
+	}
+
+	// COOP s45: the hull damage falls with the distance of the flight of the ball like in the single player (1.2 at the cannon,
+	// 0.25 at the end of the range), when the engine gives the two distances of the ball
+	float fDistanceDamageMultiply = 1.0;
+	if (CheckAttribute(&NSBalls, "CurrentMaxBallDistance") && CheckAttribute(&NSBalls, "CurrentBallDistance"))
+	{
+		float fBallMaxD = stf(NSBalls.CurrentMaxBallDistance);
+		if (fBallMaxD > 1.0) { fDistanceDamageMultiply = Bring2Range(1.2, 0.25, 0.0, fBallMaxD, stf(NSBalls.CurrentBallDistance)); }
 	}
 
 	// COOP: passive perk ShipDefenseProfessional of the target: 70% of the critical hits do not happen
@@ -1065,17 +1133,17 @@ void NetServer_OnShipHullHit()
 		if (NetServer_SeaPerk(wBallClientID, NET_SPERK_CREWDAMAGE)) { fCrewDamage = fCrewDamage * 1.15; }		// COOP: passive perk CrewDamageUp
 		//float fRigDamage = stf(rBall.DamageRig) * fCannonDamageMultiply * AIShip_isPerksUse(aBallClient.Perks.SailsDamageUp, 1.0, 1.15);
 
+		// COOP s45: a critical hit like in the single player: the crew x7 (it was x4 and x6 more, x10), the hull x8..12 (it was x16..24)
 		if (bSeriousBoom)
-		{ 
-			fCrewDamage = fCrewDamage * 4.0;
-			fHP = fCannonDamageMultiply * stf(rBall.DamageHull) * (16.0 + frnd() * 8.0);
+		{
+			fCrewDamage = fCrewDamage * 7.0;
+			fHP = fDistanceDamageMultiply * fCannonDamageMultiply * stf(rBall.DamageHull) * (8.0 + frnd() * 4.0);
 			NetServer_ShipApplyHullHitpoints(rOurClient, fHP, NETKILL_BY_BALL, wBallClientID);
-			NetServer_ShipApplyCrewHitpoints(rOurClient, fCrewDamage * 1.5, wBallClientID);
 			if (!bTeam) { NetServer_AddClientExp(rBallClient, 150); }
 		}
 		else
-		{ 
-			fHP = fCannonDamageMultiply * stf(rBall.DamageHull);
+		{
+			fHP = fDistanceDamageMultiply * fCannonDamageMultiply * stf(rBall.DamageHull);
 			NetServer_ShipApplyHullHitpoints(rOurClient, fHP, NETKILL_BY_BALL, wBallClientID); 
 			if (!bTeam) { NetServer_AddClientExp(rBallClient, 20); }
 		}
@@ -1318,13 +1386,41 @@ void NetServer_ShipApplyCrewHitpoints(ref rOurClient, float fCrewHP, int wBallCl
 	if (NetServer_IsGod(sti(rOurClient.ID))) { return; }		// COOP s27: immortality of the admin menu
 	NetServer_BotProvoked(sti(rOurClient.ID), wBallClientID);		// COOP s28: grapes on a neutral bot
 	ref rBaseShip = Net_GetShipByIndex(sti(rOurClient.Ship.Type));
-	float fMultiply = Bring2Range(1.0, 0.2, 0.0, 1.0, stf(rOurClient.Skills.Defence) / NETSKILL_MAX);
+	// COOP s45: like Ship_ApplyCrewHitpoints of the single player: 1 - 0.75 * Defence (it was 1 - 0.8 * Defence), and the cannons
+	// do not take the last 25 % of the minimal crew (it was 5 %)
+	float fMultiply = 1.0 - 0.75 * Clampf(stf(rOurClient.Skills.Defence) / NETSKILL_MAX);
 	if (NetServer_SeaPerk(sti(rOurClient.ID), NET_SPERK_DOCTOR)) { fMultiply = fMultiply * 0.8; }		// COOP: passive perk Doctor2 (includes Doctor1)
 	float fNewCrewQuantity = stf(rOurClient.Ship.Crew.Quantity) - fCrewHP * fMultiply;
-	float f5Percent = stf(rBaseShip.MinCrew) * 0.05;
+	float f5Percent = stf(rBaseShip.MinCrew) * 0.25;
 	if (fNewCrewQuantity < f5Percent) { fNewCrewQuantity = f5Percent; }
 	if (fNewCrewQuantity < 1.0) { fNewCrewQuantity = 1.0; }
+	if (fNewCrewQuantity >= stf(rOurClient.Ship.Crew.Quantity)) { return; }		// COOP s45: a hit never adds sailors (a crew below the limit)
 	rOurClient.Ship.Crew.Quantity = fNewCrewQuantity;
+}
+
+// COOP s45: a value of the ship of the same name in the table of the single player (ShipsTypes, ships\ships_init.c: the
+// game loads it at the start), the default when it has no such ship or value
+float NetServer_SPShipAttr(ref rNetShip, string sAttr, float fDef)
+{
+	int iSP = -2;
+	if (CheckAttribute(rNetShip, "SPIdx")) { iSP = sti(rNetShip.SPIdx); }
+	if (iSP == -2)
+	{
+		iSP = -1;
+		string sNm = "";
+		if (CheckAttribute(rNetShip, "Name")) { sNm = rNetShip.Name; }
+		for (int i=0; i<SHIP_TYPES_QUANTITY; i++)
+		{
+			if (iSP >= 0) { continue; }
+			if (!CheckAttribute(&ShipsTypes[i], "Name")) { continue; }
+			if (ShipsTypes[i].Name == sNm) { iSP = i; }
+		}
+		rNetShip.SPIdx = iSP;
+		Trace("COOP: the ship " + sNm + " of the net is the ship " + iSP + " of the single player");
+	}
+	if (iSP < 0) { return fDef; }
+	if (!CheckAttribute(&ShipsTypes[iSP], sAttr)) { return fDef; }
+	return stf(ShipsTypes[iSP].(sAttr));
 }
 
 void NetServer_ShipUpdateParameters()
@@ -1365,7 +1461,9 @@ void NetServer_ShipUpdateParameters()
 		float fMinRatio = Bring2Range(0.0, 1.0, fCrewMin25Percent, fCrewMax, fCrewCur);
 
 	// wind
-		float fWindPower = NetServer_WhrGetWindSpeed() / WIND_NORMAL_POWER;
+		// COOP s46: the wind of the single player (m/s of the weather, 4..13). NetServer_WhrGetWindSpeed() is x5 of it (for the sails
+		// of the engine): with the formula of the single player (s45) the ships went 5 times as fast (a xebec 40 knots)
+		float fWindPower = stf(NSWeather.WindSpeed) / WIND_NORMAL_POWER;
 		float fWindDotShip = GetDotProduct(NetServer_WhrGetWindAngle(), stf(rClient.Ship.Ang.y));		// Wind.ay | Ship.ay
 
 	// calculate MaxSpeedZ
@@ -1384,34 +1482,70 @@ void NetServer_ShipUpdateParameters()
 		// COOP: passive perk SailingProfessional (includes ShipSpeedUp): x1.20, like SpeedBySkill of single player
 		float fSpeedPerk = 1.0;
 		if (NetServer_SeaPerk(wOurClientID, NET_SPERK_SAILING)) { fSpeedPerk = 1.20; }
-		rClient.Ship.MaxSpeedZ = fGameSpeed * fMaxSpeedZ * fWindPower * fSpeedFromWeight * fSpeedFromPeople * fTRFromSailDamage * fTRFromSkill * fSpeedFromHp * fSpeedPerk;
+
+		// COOP s45: the speed like the single player with arcade sails (scripts\ShipsUtilites.c FindShipSpeed / SpeedBySkill,
+		// characters\GeneratorUtilite.c Sea_ApplyMaxSpeedZ, sea_ai\AIShip.c Ship_UpdateParameters x2.5). The speed rate, its weight
+		// factor and WindAgainstSpeed are the ones of the table of the single player. The net formula had no course to the wind
+		// and no x2.5: the net ships were about 1.7 times slower.
+		float fSZRate = NetServer_SPShipAttr(rShip, "SpeedRate", stf(rShip.SpeedRate)) * stf(rClient.Ship.SpeedRateModifier);
+		float fSZWeightK = NetServer_SPShipAttr(rShip, "SpeedDependWeight", 0.15);
+		float fSZAgainst = NetServer_SPShipAttr(rShip, "WindAgainstSpeed", 3.0);
+		float fSZHp = 0.8 + 0.3 * Clampf(stf(rClient.Ship.HP) / stf(rClient.Ship.MaxHP));
+		if (fSZHp > 1.0) { fSZHp = 1.0; }
+		float fSZSails = Bring2Range(0.1, 1.0, 0.1, 100.0, stf(rClient.Ship.SP));
+		float fSZWeight = Clampf(1.03 - fSZWeightK * fLoad);
+		float fSZSkill = (0.7 + 0.03 * 10.0 * stf(rClient.Skills.Sailing) / NETSKILL_MAX) * fSpeedPerk;
+		float fSZOpt = fCrewMax * 0.8;		// OptCrew of the single player, a crew of the full experience
+		if (fSZOpt < 1.0) { fSZOpt = 1.0; }
+		float fSZPeople = 0.85 + 0.15 * Clampf(fCrewCur / fSZOpt);
+		float fSZCruise = fSZRate * fSZWeight * fSZSkill * fSZHp * fSZSails * fSZPeople * fWindPower;		// fShipSpeed of the single player
+		float fSZTop = fSZCruise;
+		if (fWindDotShip >= -0.1) { fSZTop = fSZTop * (0.81 + fWindDotShip / (1.9 + pow(fSZAgainst, 0.33))); }
+		else { fSZTop = fSZTop * (0.75 - fWindDotShip / 3.2 - pow(abs(fWindDotShip), fSZAgainst)); }
+		if (fSZTop < 0.0) { fSZTop = 0.0; }
+		rClient.Ship.MaxSpeedZ = fGameSpeed * 2.5 * fSZTop;		// x2.5: the arcade sails
 
 		/*if (fWindDotShip < -0.70)
 		{
 			rClient.Ship.MaxSpeedZ = stf(rClient.Ship.MaxSpeedZ) * (fWindDotShip + 1.0);
 		}*/
 
-	// Turn rate depend from sail State
-		float	fTRFromSailState = 1.0;
-		float	fTRResult;
-		switch (MakeInt(stf(rClient.Ship.SailState) * 2.0))
-		{
-			case 0: fTRFromSailState = 0.1; break;
-			case 1: fTRFromSailState = 1.0; break;
-			case 2: fTRFromSailState = 0.5; break;
-		}
-		fTRResult = Bring2Range(0.1, 1.0, 0.00001, 1.0, fTRFromWeight * fTRFromSpeed * fTRFromSkill * fTRFromPeople * fTRFromSailDamage * fTRFromSailState * fSpeedFromHp);
-
-		//float fTurnPerk = NetServer_IsPerkUse(rClient.Perks.ShipTurnRateUp, 1.0, 1.15); 
-		//fTurnPerk = NetServer_IsPerkUse(rClient.Perks.SailingProfessional, fTurnPerk, 1.20); 
-		//float fFastTurn180 = NetServer_IsPerkUse(rClient.Perks.Turn180, 1.0, 8.0); 
-		// COOP: passive perk SailingProfessional (includes ShipTurnRateUp) x1.20, active perk Turn180 x4 (TurnBySkill of single player)
+	// COOP s45: the turn like the single player with arcade sails (iArcadeSails = 1: sea_ai\AIShip.c Ship_UpdateParameters,
+	// scripts\ShipsUtilites.c FindShipTurnRate and TurnBySkill). The turn rate and its weight factor are the ones of the table of
+	// the single player (NetServer_SPShipAttr). The net formula (TurnRate / 444.444, the factors in 0.1..1 of it) turned the ships
+	// about 3.5 times slower.
+		float fSPTurnRate = NetServer_SPShipAttr(rShip, "TurnRate", stf(rShip.TurnRate));
+		float fSPTurnWeight = NetServer_SPShipAttr(rShip, "TurnDependWeight", 0.2);
+		float fTRMaxY = fSPTurnRate * stf(rClient.Ship.TurnRateModifier) / 244.444;
+		float fTRHp = 0.7 + 0.3 * Clampf(stf(rClient.Ship.HP) / stf(rClient.Ship.MaxHP));
+		float fTRWeight = Clampf(1.03 - fSPTurnWeight * fLoad);
+		float fTROpt = fCrewMax * 0.8;		// OptCrew of the single player, a crew of the full experience
+		if (fTROpt < 1.0) { fTROpt = 1.0; }
+		float fTRPeople = 0.3 + 0.7 * Clampf(fCrewCur / fTROpt);
+		float fTRSkill = 0.5 + 0.05 * 10.0 * stf(rClient.Skills.Sailing) / NETSKILL_MAX;
+		float fTRSails = Bring2Range(0.05, 1.0, 0.1, 100.0, stf(rClient.Ship.SP));
+		// COOP: passive perk SailingProfessional (includes ShipTurnRateUp) x1.20, active perk Turn180 x4 (TurnBySkill)
 		float fTurnPerk = 1.0;
 		if (NetServer_SeaPerk(wOurClientID, NET_SPERK_SAILING)) { fTurnPerk = 1.20; }
 		if (NetServer_ActivePerkIsOn(wOurClientID, NET_APERK_TURN180)) { fTurnPerk = fTurnPerk * 4.0; }
-		rClient.Ship.MaxSpeedY = fGameSpeed * 2.0 * fTRResult * fMaxSpeedY * fTurnPerk;
-		// COOP s37: the ship of a captain who fights on the deck stands still
-		if (NetServer_BDOf(wOurClientID) > 0)
+		float fTRShip = fTRWeight * fTRSkill * fTurnPerk * fTRPeople * fTRSails * fTRHp;
+
+		float fTRFromSailState = 1.0;
+		int iTRSail = MakeInt(stf(rClient.Ship.SailState) * 2.0);
+		if (iTRSail <= 0) { fTRFromSailState = 0.05; }
+		if (iTRSail >= 2) { fTRFromSailState = 0.68; }
+
+		// slower = worse turn: a player 0.5, a bot 0.51 - rate / 100 (the difficulty of the bots)
+		float fTRSpdK = 0.5;
+		if (bBotShip) { fTRSpdK = 0.51 - makefloat(NetServer_BDCapRate()) * 0.01; }
+		float fTRTop = fGameSpeed * fSZCruise;		// the single player compares with the speed before the wind course and the x2.5
+		float fTRSpd = 1.0 - fTRSpdK;
+		if (fTRTop > 0.01) { fTRSpd = 1.0 - fTRSpdK * (1.0 - Clampf(fCurrentSpeedZ / fTRTop)); }
+
+		float fTRResult = Bring2Range(0.07, 0.95, 0.00001, 1.0, fTRMaxY * fTRShip * fTRFromSailState * fTRSpd);
+		rClient.Ship.MaxSpeedY = fGameSpeed * 2.0 * fTRResult;		// x2: the arcade sails
+		// COOP s37: the ship of a captain who fights on the deck stands still (s41: a prize and its captor too)
+		if (NetServer_ShipHeld(wOurClientID))
 		{
 			rClient.Ship.MaxSpeedZ = 0.0;
 			rClient.Ship.MaxSpeedY = 0.0;
@@ -1995,6 +2129,19 @@ void NetServer_RespawnShip(int wID)
 	ref rC = NetServer_GetClient(wID);
 	if (!NetServer_HasShip(wID)) { return; }
 
+	bool bPrizeBack = NetServer_PrizeRestoreOrig(wID);		// COOP s44: it sank as the old ship of a captor (net\Board.c)
+	// COOP s46: the Esc menu "Корабль" chose a new loadout: it comes now (server\Buy.c NetServer_OnBuy_Respawn)
+	if (!NetServer_IsBot(wID) && CheckAttribute(rC, "RespawnBuy.Type"))
+	{
+		aref arRB;
+		makearef(arRB, rC.RespawnBuy);
+		NetServer_BuyApply(wID, arRB);
+		DeleteAttribute(rC, "RespawnBuy");
+		DeleteAttribute(rC, "PrizeOrig");
+		NetServer_SnapshotLoadout(rC);		// the bought crew, charge, goods and cannons on the borts (read just below)
+		bPrizeBack = true;		// every machine creates the new type at the respawn place (NSC_SHIP_PRIZE_SWAP)
+		Trace("COOP: respawn of " + wID + " with the new loadout, ship type " + rC.Ship.Type);
+	}
 	rC.Life = NetServer_GetShipLife(wID) + 1;
 	rC.Dead = false;
 	rC.WreckedNow = false;
@@ -2067,6 +2214,9 @@ void NetServer_RespawnShip(int wID)
 	NMAddFloat(iSMsg, stf(rC.Ship.Ang.y));
 	NetServer_SendToInGame(iSMsg);
 	NMDelete(iSMsg);
+
+	// COOP s44: the machines have the old ship of the captor in this slot: the own one is created after the respawn (alive)
+	if (bPrizeBack) { NetServer_PrizeSendSwap(wID, stf(rC.Ship.Pos.x), stf(rC.Ship.Pos.z), stf(rC.Ship.Ang.y)); }
 
 	NetServer_SendAllPerkStates(wID);
 	if (NetServer_IsBot(wID)) { NetServer_BotAfterRespawn(wID); }		// COOP: the brain and the packets of a bot (server\Bots.c)

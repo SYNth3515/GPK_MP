@@ -4,6 +4,7 @@ string isUsersName="";
 #define MM_URL_GITHUB	"https://github.com/SYNth3515/GPK_MP"
 #define MM_URL_SUPPORT	"https://yoomoney.ru/to/4100119665987017/0"
 #define MM_URL_VK		"https://vk.ru/gpk_mp"
+#define MM_URL_RELEASE	"https://github.com/SYNth3515/GPK_MP/releases/latest"
 
 //ref rCharacter; // boal
 int iChar;
@@ -54,6 +55,7 @@ void InitInterface(string iniName)
 	SetEventHandler("OnMainMenuGithub","MainMenu_OnGithub",0);
 	SetEventHandler("OnMainMenuSupport","MainMenu_OnSupport",0);
 	SetEventHandler("OnMainMenuVK","MainMenu_OnVK",0);
+	SetEventHandler("OnMainMenuUpdate","MainMenu_OnUpdate",0);	// COOP s46o
 
 	GameInterface.SavePath = "SAVE";
 
@@ -119,6 +121,7 @@ void CreditsPress()
 	SetNodeUsing("BTN_GITHUB", false);
 	SetNodeUsing("BTN_SUPPORT", false);
 	SetNodeUsing("QR_SUPPORT", false);
+	SetNodeUsing("BTN_UPDATE", false);
 	IDoExit( RC_INTERFACE_DO_CREDITS, false );
 
 	/*SetEventHandler(EVENT_END_VIDEO,"LaunchMainMenu_afterVideo",0);
@@ -170,6 +173,22 @@ void MainMenu_OnVK()
 	MainMenu_OpenURL(MM_URL_VK);
 }
 
+// COOP s46o: the button "Обновить" (only when the version is old): gpk_updater.ps1 next to engine.exe waits for the end of the
+// game, takes the changed files of the latest GitHub release, installs them and starts the game again. "gpk:" runs hidden
+// (CREATE_NO_WINDOW): "start" gives the PowerShell its own window with the progress.
+void MainMenu_OnUpdate()
+{
+	if (NFExist("gpk_updater.ps1") == 0)
+	{
+		MainMenu_OpenURL(MM_URL_RELEASE);	// no updater: the page of the release
+		return;
+	}
+	Trace("COOP: main menu update: gpk_updater.ps1 starts, the game quits");
+	OpenURL("gpk:cmd /c start powershell -NoProfile -ExecutionPolicy Bypass -File gpk_updater.ps1");
+	SetNodeUsing("BTN_UPDATE", false);
+	SetEventHandler("frame","QuitPress",0);
+}
+
 void IDoExit(int exitCode, bool bClear)
 {
 	InterfaceStates.BackEnvironmentIsCreated = true;
@@ -178,6 +197,7 @@ void IDoExit(int exitCode, bool bClear)
 	DelEventHandler("OnMainMenuGithub","MainMenu_OnGithub");
 	DelEventHandler("OnMainMenuSupport","MainMenu_OnSupport");
 	DelEventHandler("OnMainMenuVK","MainMenu_OnVK");
+	DelEventHandler("OnMainMenuUpdate","MainMenu_OnUpdate");
 	DelEventHandler("frame","MM_CreditsFrame");
 	
 	interfaceResultCommand = exitCode;
@@ -262,6 +282,7 @@ void CreateBackEnvironment()
 		MenuCreateLogo();
 	}
 
+	MainMenu_CreateAnimals();		// COOP s46: the seagull on the post of the rope bridge in any weather (was: day only)
 	if( Whr_IsNight() ) {
 		InterfaceBackScene.light.turnon = true;
 		InterfaceBackScene.light.model = "mainmenu\Fonar_night";
@@ -279,8 +300,6 @@ void CreateBackEnvironment()
 		InterfaceBackScene.light.minflarecolor = 120.0;
 		InterfaceBackScene.light.maxflarecolor = 200.0;
 	} else {
-		MainMenu_CreateAnimals();
-
 		InterfaceBackScene.light.turnon = false;
 		InterfaceBackScene.light.model = "mainmenu\Fonar_day";
 		InterfaceBackScene.light.locator = "Light";
@@ -438,7 +457,7 @@ void ICreateWeather()
 // Local date: "от dd.mm.yy" in VERSION_NUMBER2 (_LSC_on_off.h).
 // Latest release name must also contain a date dd.mm.yy.
 // ============================================================================
-#define MM_STATUS_Y		165
+#define MM_STATUS_Y		155		// COOP s46o: 165 before, now in the middle of the button "Обновить" (mainmenu.ini BTN_UPDATE)
 
 #define MM_UPD_WAIT		30000	// ms: no answer from GitHub in that time -> "Проверка обновлений недоступна"
 #define MM_UPD_POLL		1000	// ms between the reads of gpk_update.ini
@@ -454,9 +473,12 @@ void MM_StartUpdateDownload()
 	if (CheckAttribute(&InterfaceStates, "GpkUpdStarted")) { return; }
 	InterfaceStates.GpkUpdStarted = true;
 	string sCmd = "gpk:powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ";
-	sCmd = sCmd + "$ErrorActionPreference='Stop';[Net.ServicePointManager]::SecurityProtocol=3072;";
-	sCmd = sCmd + "$r=Invoke-RestMethod -Uri 'https://api.github.com/repos/SYNth3515/GPK_MP/releases/latest' -TimeoutSec 20 -UseBasicParsing;";
-	sCmd = sCmd + "Set-Content -Path 'gpk_update.tmp' -Value @('[Update]',('Latest='+$r.name)) -Encoding Default;";
+	// COOP s46o: WebClient and the JSON serializer of .NET instead of Invoke-RestMethod (PowerShell 3+): Windows 7 has 2.0
+	sCmd = sCmd + "$ErrorActionPreference='Stop';[Net.ServicePointManager]::SecurityProtocol=[Enum]::ToObject([Net.SecurityProtocolType],3072);";
+	sCmd = sCmd + "$w=New-Object Net.WebClient;$w.Encoding=[Text.Encoding]::UTF8;$w.Headers.Add('User-Agent','GPK_MP');";
+	sCmd = sCmd + "$j=$w.DownloadString('https://api.github.com/repos/SYNth3515/GPK_MP/releases/latest');";
+	sCmd = sCmd + "Add-Type -AssemblyName System.Web.Extensions;$r=(New-Object Web.Script.Serialization.JavaScriptSerializer).DeserializeObject($j);";
+	sCmd = sCmd + "[IO.File]::WriteAllLines('gpk_update.tmp',[string[]]@('[Update]',('Latest='+$r['name'])),[Text.Encoding]::GetEncoding(1251));";
 	sCmd = sCmd + "Move-Item -Path 'gpk_update.tmp' -Destination 'gpk_update.ini' -Force";
 	OpenURL(sCmd);
 }
@@ -509,6 +531,7 @@ void MM_InitVersionCheck()
 	iMMUpdPoll = 0;
 	MM_StartUpdateDownload();
 	CreateString(true, "VerStatus", "", FONT_NORMAL, argb(255, 180, 180, 180), 415, MM_STATUS_Y, SCRIPT_ALIGN_RIGHT, 0.9);
+	SetNodeUsing("BTN_UPDATE", false);	// COOP s46o: shown by MM_UpdateVersionStatus when the version is old
 	MM_UpdateVersionStatus();
 }
 
@@ -518,6 +541,7 @@ void MM_UpdateVersionStatus()
 {
 	int iLocal, iLatest, iCol;
 	string sText;
+	bool bOld = false;
 	iLocal = MM_ParseDate(VERSION_NUMBER2);
 	iLatest = MM_ParseDate(MM_GetLatestReleaseName());
 	sText = "Проверка обновлений...";
@@ -529,6 +553,7 @@ void MM_UpdateVersionStatus()
 		{
 			sText = "Версия устарела";
 			iCol = argb(255, 255, 90, 90);
+			bOld = true;
 		}
 		else
 		{
@@ -538,6 +563,7 @@ void MM_UpdateVersionStatus()
 	}
 	GameInterface.strings.VerStatus = sText;
 	ChangeStringColor("VerStatus", iCol);
+	SetNodeUsing("BTN_UPDATE", bOld);	// COOP s46o
 }
 
 // ============================================================================
@@ -602,6 +628,20 @@ float fMMCamT = 0.0;
 // The hero is a model of the script (NetMMHero, net\Land.c) with the blade and the gun of the loadout of the profile, drawn
 // inside the scene (with its lights). The code of the hero and of the ship is shared with the profile screens
 // (net\MenuScene.c: NetMM_HeroSpawn, NetMM_ShipSpawn).
+// COOP s46: the seagull sits on the top of the post of the rail of the rope bridge to the left of the hero, nearer
+// to the camera (MainMenu.gm object 2, the post top at 1.29 m over the planks), its side to the camera. Message 52 of the
+// patched XINTERFACE.dll: the matrix of the animated model 0 of the scene (the seagull is the only one)
+#define MM_GULL_X		71.58
+#define MM_GULL_Y		5.56
+#define MM_GULL_Z		30.05
+void MM_SeagullPlace()
+{
+	if (!CheckAttribute(&InterfaceBackScene, "seagull")) { return; }
+	float fSP = sin(MM_CAM_PHI_C);
+	float fCP = cos(MM_CAM_PHI_C);
+	SendMessage(&InterfaceBackScene, "llffffffffffff", 52, 0, -fSP, 0.0, -fCP, 0.0, 1.0, 0.0, fCP, 0.0, -fSP, MM_GULL_X, MM_GULL_Y, MM_GULL_Z);
+}
+
 void MM_HeroCreate()
 {
 	MM_HeroDelete();
@@ -609,6 +649,7 @@ void MM_HeroCreate()
 	int iShip = NetMM_HeroSpawn(&InterfaceBackScene, MM_HERO_PHI0);
 	InterfaceBackScene.mmheroidx = 0;
 	MM_ShipCreate(iShip);
+	MM_SeagullPlace();		// COOP s46
 	fMMCamT = 0.0;
 	MM_HeroFrame(0);
 }

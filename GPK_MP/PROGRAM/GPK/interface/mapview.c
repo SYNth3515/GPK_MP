@@ -202,7 +202,7 @@ void SelectRColony()
 	float X, Y;
 	int   X1, Y1;
 
-	float fMouseX = stf(GameInterface.mousepos.x);
+	float fMouseX = stf(GameInterface.mousepos.x) - XI_WX; // COOP s46m
 	float fMouseY = stf(GameInterface.mousepos.y);
 			
 	string sColony;

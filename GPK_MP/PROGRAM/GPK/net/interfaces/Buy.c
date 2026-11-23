@@ -37,6 +37,11 @@ float fServerInfoPiecesLoaded = 0.0;
 bool bServerInfoReady = false;
 bool bBuyProfLists = false;		// COOP s30: the lists of the window "Герб/Паруса/Флаг" are filled (the ship screen of the profile)
 
+// COOP s38: the switch of the bot respawn of the lobby (Buy_BotRespFrame)
+bool bBuyBotRespSync = false;
+int iBuyBotRespShown = -1;
+int iBuyBotRespAdm = -1;
+
 void InitInterface(string iniName)
 {
 	int i;
@@ -202,6 +207,9 @@ void InitInterface(string iniName)
 	XI_WindowDisable("WND_BOTADD", true);
 	iBuyLBotsCapShown = -2;
 	SetNodeUsing("BTN_LOBBY_BOTS", !bNetBuyProfile);
+	SetNodeUsing("CHECKBUTTON_LOBBY_BOTRESPAWN", !bNetBuyProfile);		// COOP s38
+	iBuyBotRespShown = -1;
+	iBuyBotRespAdm = -1;
 	SetEventHandler("NCEvent_ServerChanged", "Buy_OnServerChanged", 0);
 	iBuyGsShown = -1;
 	SetNodeUsing("BTN_GAMESETTINGS", false);
@@ -229,8 +237,18 @@ void InitInterface(string iniName)
 	SetEventHandler("OnProfZoomOut", "Buy_ProfZoomOut", 0);
 	SetEventHandler("OnProfFlags", "Buy_ProfFlagsOpen", 0);
 	SetEventHandler("OnPflClose", "Buy_ProfFlagsClose", 0);
-	if (bNetBuyProfile) { Buy_ProfModeInit(); }
-	else { Buy_GetFullServerInfo(); }
+	if (bNetBuyRespawn)
+	{
+		SetNodeUsing("BTN_PROF_OK", true);
+		SetNodeUsing("BTN_PROF_BACK", true);
+		SetNodeUsing("BTN_PROF_PREVIEW", false);
+		Buy_RespModeInit();
+	}
+	else
+	{
+		if (bNetBuyProfile) { Buy_ProfModeInit(); }
+		else { Buy_GetFullServerInfo(); }
+	}
 
 	// temporary disable
 	for (i=0; i<Net_GetPerksNum(); i++)
@@ -476,7 +494,7 @@ void Buy_DetailsOpen()
 	if (bBuyAdminOpen) { return; }
 	if (bBuyChatOpen) { return; }
 	if (bSelectNewTeamWindow) { return; }
-	if (bNetBuyProfile) { return; }
+	if (bNetBuyProfile || bNetBuyRespawn) { return; }
 	bBuyDetailsOpen = true;
 
 	XI_WindowDisable("WND_NETBUY", true);
@@ -579,6 +597,7 @@ void NetBuy_OnFrame()
 	int i;
 	int iTeamQuantity[4];
 	if (bNetBuyProfile) { Buy_ProfFrame(); return; }		// COOP: the ship of a profile: no server
+	if (bNetBuyRespawn) { return; }		// COOP s46: the ship of the next respawn: no lobby
 
 	if (bStartCountDown)
 	{
@@ -644,12 +663,16 @@ void NetBuy_OnFrame()
 	if (bNetClientIsAdmin != bBuyAdminShown)
 	{
 		bBuyAdminShown = bNetClientIsAdmin;
+		if (bNetClientIsAdmin) { NetClient_AdminSend(NET_ADMIN_SYNC, DST_INVALID, 0.0); }		// COOP s38: the bot respawn switch
 		if (bNetClientIsAdmin)
 		{
 			Button_SetText("BTN_ADMIN", "#" + XI_ConvertString("btnNetBuy_AdminOn"));
 			Button_SetEnable("BTN_ADMIN", false);
 		}
 	}
+
+	// COOP s38: the switch "the bots respawn" beside "Bots": the admin changes it, the others see it
+	Buy_BotRespFrame();
 
 	// set selectteam button
 	ref rOurClient = NetClient_GetThisClient();
@@ -1616,7 +1639,7 @@ void Buy_TryChangeTeam()
 
 void Buy_OnTableClick()
 {
-	if (bNetBuyProfile) { return; }		// COOP: the ship editor of the profile: no server
+	if (bNetBuyProfile || bNetBuyRespawn) { return; }		// COOP: the ship editor of the profile: no server
 	string sControl = GetEventData();
 	int iRow = GetEventData();
 	int iColumn = GetEventData();
@@ -1687,6 +1710,11 @@ void Buy_CheckButtonChange()
 	{
 		case "RADIO_CANNONS_UPGRADELIST":
 			Buy_SetCannonUpgrade(iNumber - 1, false);
+		break;
+		case "CHECKBUTTON_LOBBY_BOTRESPAWN":		// COOP s38
+			if (bBuyBotRespSync) { break; }
+			if (!bNetClientIsAdmin) { Buy_BotRespShow(); break; }
+			NetClient_AdminSend(NET_ADMIN_BOT_RESPAWN, DST_INVALID, makefloat(iState));
 		break;
 		case "CHECKBUTTONS_PERKS":
 			Buy_SetPerk(iNumber - 1, iState);
@@ -2408,7 +2436,7 @@ int iBuyGsShown = -1;
 
 bool Buy_GameSettingsOk()
 {
-	if (bNetBuyProfile) { return false; }
+	if (bNetBuyProfile || bNetBuyRespawn) { return false; }
 	if (!NetServer_IsStarted()) { return false; }
 	if (!bServerInfoReady) { return false; }
 	if (sti(NCServer.GameRunning)) { return false; }
@@ -2438,7 +2466,7 @@ void Buy_OnGameSettings()
 // the server has a new game: the lobby reads all of its info again (the map, the ships, the money)
 void Buy_OnServerChanged()
 {
-	if (bNetBuyProfile) { return; }
+	if (bNetBuyProfile || bNetBuyRespawn) { return; }
 	DelEventHandler("NetClient_OnServerInfo_Event", "Buy_OnServerInfo");
 	Buy_GetFullServerInfo();
 }
@@ -2476,18 +2504,7 @@ void Buy_GetBuyInfo()
 	NMAddClientID(iSMsg, wClientID);
 	NMAddByte(iSMsg, NC_BUY);
 	NMAddByte(iSMsg, NSC_BUY_FULLINFO);
-	NMAddWord(iSMsg, iCurrentShipType);
-	NMAddByte(iSMsg, iCurrentShipUpgradeHull + 1);
-	NMAddByte(iSMsg, iCurrentShipUpgradeRigging + 1);
-	NMAddByte(iSMsg, iCurrentCannonType);
-	NMAddByte(iSMsg, iCurrentCannonUpgrade + 1);
-	for (i=0; i<Net_GetSkillsNum(); i++) { NMAddByte(iSMsg, iSkillsQuantity[i]); }
-	for (i=0; i<6; i++) { NMAddByte(iSMsg, iPerks[i]); }
-	for (i=0; i<Net_GetGoodsNum(); i++) { NMAddWord(iSMsg, iNetGoodsQuantity[i]); }
-	NMAddByte(iSMsg, iCrewPercent);
-	NMAddByte(iSMsg, Buy_GetStartCharge());		// COOP: the server reads the start charge after the crew
-	NMAddByte(iSMsg, iCannonsPercent + 1);		// COOP: percent of the cannons (+ 1: 0 means an old client)
-	NMAddDword(iSMsg, Buy_SeaPerksMask());		// COOP s28: the sea perks bought here (server\Buy.c)
+	Buy_AddPayload(iSMsg);
 	NetClient_SendMessage(iSMsg, true);
 	NMDelete(iSMsg);
 
@@ -2498,6 +2515,32 @@ void Buy_GetBuyInfo()
 	XI_WindowDisable("WND_STARTGAME_WAIT", false);
 }
 
+// COOP s38: the switch of the bot respawn of the lobby (the admin menu of the game has the same one)
+
+void Buy_BotRespShow()
+{
+	bBuyBotRespSync = true;
+	int iOn = 0;
+	if (bNetCliBotRespawn) { iOn = 1; }
+	CheckButton_SetState("CHECKBUTTON_LOBBY_BOTRESPAWN", 1, iOn);
+	bBuyBotRespSync = false;
+	iBuyBotRespShown = iOn;
+}
+
+void Buy_BotRespFrame()
+{
+	int iOn = 0;
+	if (bNetCliBotRespawn) { iOn = 1; }
+	if (iOn != iBuyBotRespShown) { Buy_BotRespShow(); }
+	int iAdm = 0;
+	if (bNetClientIsAdmin) { iAdm = 1; }
+	if (iAdm != iBuyBotRespAdm)
+	{
+		iBuyBotRespAdm = iAdm;
+		SetSelectable("CHECKBUTTON_LOBBY_BOTRESPAWN", bNetClientIsAdmin);
+	}
+}
+
 void Buy_StartGame()
 {
 	IDoExit(RC_INTERFACE_DO_NOTHING);
@@ -2505,6 +2548,7 @@ void Buy_StartGame()
 
 void OnDisconnect()
 {
+	if (bNetBuyRespawn) { Buy_RespLeave(); return; }		// COOP s46: Esc / "Назад": back to the Esc menu of the game
 	if (bNetBuyProfile) { Buy_ProfLeave(); return; }
 	NetClient_ClearPacketsQueue();
 
@@ -2514,6 +2558,18 @@ void OnDisconnect()
 	NetClient_SendMessage(iSMsg, false);
 	NMDelete(iSMsg);
 
+	// COOP s43: the host leaves the lobby of a running game: the server goes first. Its ships live in the same engine: the
+	// client deleted the sea, the island and the rest under them and the game crashed (c0000096) on the Find game screen.
+	// The whole net stops (Net_Stop: the server, the client and the entity Net): net.dll keeps a pointer of the server that its
+	// destructor does not clear, the Net entity of the Find game screen ran the deleted server (AV net.dll +A519). The Find
+	// game screen starts the net again (seadogs.c: PrepareNetEnvironment -> Net_Start).
+	if (NetServer_IsStarted() && bServerGameStarted)
+	{
+		Trace("COOP: the host disconnects from a running game: the whole net stops");
+		Net_Stop();
+		IDoExit(RC_INTERFACE_NET_FINDGAME);
+		return;
+	}
 	Net_DeleteClient();
 	IDoExit(RC_INTERFACE_NET_FINDGAME);
 }
@@ -2523,6 +2579,7 @@ void OnTmpStart()
 	// COOP: the game is running: every player joins it with this button (the server asks for the buy info)
 	if (sti(NCServer.GameRunning))
 	{
+		if (bNetHostParked) { NetClient_HostUnpark(); return; }		// COOP s38: the sea of the host waits hidden (net\Board.c)
 		if (!bServerInfoReady) { return; }
 		if (bBuyHostStartSent) { return; }
 		bBuyHostStartSent = true;
@@ -2554,7 +2611,7 @@ void Buy_UpdateCredit()
 {
 	string sValue = "#" + iCurrentCredit + " / " + iMaxCredit;
 	StringCollection_SetText("STRINGS_MAP_INFO_VALUE", 2, sValue);
-	if (bNetBuyProfile) { SetFormatedText("TEXT_PROF_MONEY", "Кол-во денег: " + iCurrentCredit + " / " + iMaxCredit); }
+	if (bNetBuyProfile || bNetBuyRespawn) { SetFormatedText("TEXT_PROF_MONEY", "Кол-во денег: " + iCurrentCredit + " / " + iMaxCredit); }
 	Buy_UpdateDeadweight();
 
 	int i, bState;
@@ -2840,7 +2897,7 @@ void Buy_Server_UpdateShipType()
 
 void Buy_Server_UpdateReady()
 {
-	if (bNetBuyProfile) { return; }		// COOP: the ship editor of the profile: no server
+	if (bNetBuyProfile || bNetBuyRespawn) { return; }		// COOP: the ship editor of the profile: no server
 	int iSMsg = NMCreate();
 	NMAddClientID(iSMsg, wClientID);
 	NMAddByte(iSMsg, NC_BUY);
@@ -3071,6 +3128,7 @@ void Buy_ProfFlagsClose()
 
 void Buy_ProfOk()
 {
+	if (bNetBuyRespawn) { Buy_RespOk(); return; }
 	if (!bNetBuyProfile) { return; }
 	Buy_ProfApplyLook();		// COOP s30: the ship name, the sails and the flag (before the save: it writes Profiles.nsv)
 	Buy_ProfApplyLast();
@@ -3081,9 +3139,131 @@ void Buy_ProfOk()
 
 void Buy_ProfLeave()
 {
+	if (bNetBuyRespawn) { Buy_RespLeave(); return; }
 	if (!bNetBuyProfile) { return; }
 	bNetBuyProfile = false;
 	sNetLandProfNick = "";
 	bNetLobbyChatActive = false;
 	IDoExit(RC_INTERFACE_NET_PLAYERSETTINGS);
+}
+
+// COOP s46: the loadout of NSC_BUY_FULLINFO / NSC_BUY_RESPAWN (server\Buy.c: NetServer_BuyRead)
+void Buy_AddPayload(int iSMsg)
+{
+	int i;
+	NMAddWord(iSMsg, iCurrentShipType);
+	NMAddByte(iSMsg, iCurrentShipUpgradeHull + 1);
+	NMAddByte(iSMsg, iCurrentShipUpgradeRigging + 1);
+	NMAddByte(iSMsg, iCurrentCannonType);
+	NMAddByte(iSMsg, iCurrentCannonUpgrade + 1);
+	for (i=0; i<Net_GetSkillsNum(); i++) { NMAddByte(iSMsg, iSkillsQuantity[i]); }
+	for (i=0; i<6; i++) { NMAddByte(iSMsg, iPerks[i]); }
+	for (i=0; i<Net_GetGoodsNum(); i++) { NMAddWord(iSMsg, iNetGoodsQuantity[i]); }
+	NMAddByte(iSMsg, iCrewPercent);
+	NMAddByte(iSMsg, Buy_GetStartCharge());		// COOP: the server reads the start charge after the crew
+	NMAddByte(iSMsg, iCannonsPercent + 1);		// COOP: percent of the cannons (+ 1: 0 means an old client)
+	NMAddDword(iSMsg, Buy_SeaPerksMask());		// COOP s28: the sea perks bought here (server\Buy.c)
+}
+
+// ========================================
+// COOP s46: "Корабль" of the Esc menu of a sea game with respawn (NetMenu.c): this screen over the running game, without
+// the lobby. The money and the ships of the server are known already (no server info request: it would reset the players).
+// "Принять" sends the loadout, the server gives it at the next respawn (the ship that sails now does not change)
+// ========================================
+void Buy_RespModeInit()
+{
+	int i;
+	bServerInfoReady = true;
+	bNetLobbyChatActive = false;		// the chat of the game stays the chat of the game
+	iMaxCredit = sti(NCServer.Credit);
+	iCurrentCredit = 0;
+	iCurrentShipType = -1;
+	iCurrentShipUpgradeHull = -1;
+	iCurrentShipUpgradeRigging = -1;
+	iCurrentCannonType = -1;
+	iCurrentCannonUpgrade = -1;
+
+	XI_WindowShow("WND_NETBUY_WAITINFO", false);
+	XI_WindowDisable("WND_NETBUY_WAITINFO", true);
+	XI_WindowShow("WND_STARTGAME_WAIT", false);
+	XI_WindowDisable("WND_STARTGAME_WAIT", true);
+	XI_WindowDisable("WND_NETBUY", false);
+
+	// only the shop: no players, no chat, no start
+	SetNodeUsing("TABLE_PLAYERS", false);
+	SetNodeUsing("SCROLL_PLAYERS", false);
+	SetNodeUsing("BTN_CHAT", false);
+	SetNodeUsing("BTN_ADMIN", false);
+	SetNodeUsing("BTN_START", false);
+	SetNodeUsing("BTN_RESET", false);
+	SetNodeUsing("BTN_DISCONNECT", false);
+	SetNodeUsing("BTN_LOBBY_LOADOUT", false);
+	SetNodeUsing("BTN_DETAILS", false);
+	SetNodeUsing("BTN_GAMESETTINGS", false);
+	SetNodeUsing("BTN_LOBBY_BOTS", false);
+	SetNodeUsing("CHECKBUTTON_LOBBY_BOTRESPAWN", false);
+	SetNodeUsing("TEXT_PROF_MONEY", true);
+
+	for (i=0; i<Net_GetSkillsNum(); i++)
+	{
+		iSkillsQuantity[i] = 1;
+		StringCollection_SetTextValue("STRINGS_SKILLS_QUANTITY", i + 1, iSkillsQuantity[i]);
+		StringCollection_SetTextValue("STRINGS_SKILLS_MONEY", i + 1, Net_GetSkillCost(i, 1));
+	}
+	for (i=0; i<6; i++)
+	{
+		iPerks[i] = 0;
+		StringCollection_SetTextValue("STRINGS_PERKS_MONEY", i + 1, Net_GetPerkCost(i));
+	}
+	Buy_SeaPerksReset();
+	iCrewPercent = 100;
+	StringCollection_SetText("STRINGS_AMMO_QUANTITY", 8, "#" + iCrewPercent + "%");
+	iCannonsPercent = 100;
+	StringCollection_SetText("STRINGS_CANNONS_PERCENT", 1, "#" + iCannonsPercent + "%");
+	CheckButton_SetState("RADIO_START_CHARGE", 1, true);
+	for (i=0; i<Net_GetGoodsNum(); i++)
+	{
+		iNetGoodsQuantity[i] = 0;
+		StringCollection_SetTextValue("STRINGS_AMMO_MONEY", i + 1, Net_GetGoodCost(i, sti(NetGoods[i].Units)));
+		StringCollection_SetTextValue("STRINGS_AMMO_QUANTITY", i + 1, iNetGoodsQuantity[i]);
+	}
+	Buy_SetShip(1);
+
+	string sIslandMap = "OpenSea";
+	if (CheckAttribute(&NCServer, "IslandID")) { if (NCServer.IslandID != "") { sIslandMap = NCServer.IslandID; } }
+	Picture_SetPicture("SERVER_MAP_PICTURE", "Interfaces\Net\Islands\" + sIslandMap + ".tga");
+	SetFormatedText("CAPTION_MAP_NAME", "Корабль после гибели текущего");
+	StringCollection_SetText("STRINGS_MAP_INFO_VALUE", 1, "txtCS_" + NetModes[sti(NCServer.GameType)].Name);
+	StringCollection_SetText("STRINGS_MAP_INFO_VALUE", 4, "#" + NCServer.MaxShipClass);
+	Buy_UpdatePlayersQuantity();
+
+	Buy_AddGood(1, 2);
+	Buy_AddGood(7, 2);
+	Buy_ProfRestore();		// the last loadout of this profile (the lobby saved it at the start, "Принять" here too)
+	Buy_UpdateCredit();
+	SetCurrentNode("BTN_PROF_OK");
+	Trace("COOP: the ship of the next respawn: the buy screen over the game");
+}
+
+void Buy_RespOk()
+{
+	if (!bNetBuyRespawn) { return; }
+	if (iCurrentCredit > iMaxCredit) { SetFormatedText("TEXT_PROF_MONEY", "Не хватает денег"); return; }
+	int iSMsg = NMCreate();
+	NMAddClientID(iSMsg, wClientID);
+	NMAddByte(iSMsg, NC_BUY);
+	NMAddByte(iSMsg, NSC_BUY_RESPAWN);
+	Buy_AddPayload(iSMsg);
+	NetClient_SendMessage(iSMsg, true);
+	NMDelete(iSMsg);
+	Buy_ProfSave(false);
+	Trace("COOP: the loadout of the next respawn is sent, ship type " + iCurrentShipType);
+	Buy_RespLeave();
+}
+
+void Buy_RespLeave()
+{
+	if (!bNetBuyRespawn) { return; }
+	bNetBuyRespawn = false;
+	IDoExit(RC_INTERFACE_NET_OPTIONS_EXIT);		// back to the Esc menu of the game (seadogs.c)
 }

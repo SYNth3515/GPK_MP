@@ -648,6 +648,44 @@ void NetServer_ClientToLobby(int wID)
 	NMDelete(iSMsg);
 }
 
+// COOP s38: the host goes to the lobby from a sea battle (net\Board.c: NetClient_HostPark): his ship stops and waits, he stays
+// in the game for the server (his machine keeps the sea and gets everything as before), a boarding duel of his is lost
+void NetServer_ClientParkAtSea(int wID)
+{
+	if (wID < 0 || wID >= NET_MAXPLAYERS) { return; }
+	if (!sti(NSClients[wID].Use)) { return; }
+	NetServer_BDLeft(wID);
+	NetServer_PrizeCaptorGone(wID);		// COOP s41: his prize goes down
+	ref rC = NetServer_GetClient(wID);
+	rC.HostParked = true;
+	if (NetServer_HasShip(wID))
+	{
+		rC.Ship.SailState = 0.0;
+		rC.Ship.TurnLeft = 0;
+		rC.Ship.TurnRight = 0;
+		rC.Ship.TurnState = 0.0;
+	}
+	Trace("COOP: client " + wID + " (" + rC.NickName + ") went to the lobby, his ship waits");
+	int iSMsg = NMCreate();
+	NMAddByte(iSMsg, NC_CLIENT);
+	NMAddByte(iSMsg, NSC_CLIENT_TOLOBBY);
+	NMAddClientID(iSMsg, wID);
+	for (int i=0; i<NET_MAXCLIENTS; i++)
+	{
+		if (i == wID) { continue; }
+		if (!sti(NSClients[i].Use)) { continue; }
+		NetServer_SendMessage(i, iSMsg, true);
+	}
+	NMDelete(iSMsg);
+}
+
+void NetServer_ClientUnparkAtSea(int wID)
+{
+	if (wID < 0 || wID >= NET_MAXPLAYERS) { return; }
+	DeleteAttribute(&NSClients[wID], "HostParked");
+	Trace("COOP: client " + wID + " is back from the lobby");
+}
+
 void NetServer_StartGame()
 {
 	int iSMsg = NMCreate();

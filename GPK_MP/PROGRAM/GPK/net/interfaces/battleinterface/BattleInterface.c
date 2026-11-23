@@ -492,7 +492,7 @@ void NetBI_InitBattleInterface()
 	NetBInterface.ShowNavigator = true;
 	NetBInterface.ShowCommands = true;
 	if(iArcadeSails == 1) {
-		NetBInterface.ShipSpeedScaler = 1.0 / 8.0;
+		NetBInterface.ShipSpeedScaler = 1.0 / 2.5;		// COOP s45: the knots of the single player (the speed is x2.5 of it now, server\OnShip.c); it was 1 / 8
 	} else {
 		NetBInterface.ShipSpeedScaler = 1.0 / 3.0;
 	}
@@ -1044,7 +1044,20 @@ float Net_GetRigDamage(int shootIdx, int iBallType, ref damage_chr)
 	ref rBall = Net_GetGoodByIndex(iBallType);
 	float fDmgRig = stf(rBall.DamageRig);
 	fDmgRig = fDmgRig * stf(damage_chr.ship.SailsDamageModifier);
-	if (NetServer_SeaPerk(shootIdx, NET_SPERK_SAILSDAMAGE)) { fDmgRig = fDmgRig * 1.15; }		// COOP: passive perk SailsDamageUp of the shooter
+	// COOP s45: like GetRigDamage of the single player (battle_interface\BattleInterface.c): the distance of the flight 1.2 .. 0.25
+	// (when the engine gives it), CannonProfessional of the shooter x1.3 (else SailsDamageUp x1.15), ShipDefenseProfessional of
+	// the target x0.65
+	if (CheckAttribute(&NSBalls, "CurrentMaxBallDistance") && CheckAttribute(&NSBalls, "CurrentBallDistance"))
+	{
+		float fRigMaxD = stf(NSBalls.CurrentMaxBallDistance);
+		if (fRigMaxD > 1.0) { fDmgRig = fDmgRig * Bring2Range(1.2, 0.25, 0.0, fRigMaxD, stf(NSBalls.CurrentBallDistance)); }
+	}
+	if (NetServer_SeaPerk(shootIdx, NET_SPERK_CANNONPRO)) { fDmgRig = fDmgRig * 1.3; }
+	else
+	{
+		if (NetServer_SeaPerk(shootIdx, NET_SPERK_SAILSDAMAGE)) { fDmgRig = fDmgRig * 1.15; }		// COOP: passive perk SailsDamageUp of the shooter
+	}
+	if (CheckAttribute(damage_chr, "ID")) { if (NetServer_SeaPerk(sti(damage_chr.ID), NET_SPERK_DEFENCE)) { fDmgRig = fDmgRig * 0.65; } }
 	return fDmgRig;
 }
 

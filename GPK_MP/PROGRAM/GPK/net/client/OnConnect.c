@@ -95,6 +95,8 @@ void NetClient_LeaveToLobby()
 {
 	DelEventHandler("NetClient_LeaveToLobby", "NetClient_LeaveToLobby");
 	if (!bNetClientConnected) { return; }
+	// COOP s38: a sea battle: the sea of the host is hidden, not deleted (the crash of logs 2 / 3: net\Board.c)
+	if (NetClient_HostCanPark()) { NetClient_HostPark(); return; }
 	NetServer_ClientToLobby(wClientID);
 	NetClient_OnBackToLobby();
 	NCServer.GameRunning = true;

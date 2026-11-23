@@ -433,6 +433,7 @@ void NetClient_OnBotInfo(int iMsg)
 	int iType = NMGetWord(iMsg);
 	string sNick = NMGetString(iMsg);
 	int iAnnounce = NMGetByte(iMsg);
+	int iBotFaceW = NMGetWord(iMsg);		// COOP s41: the portrait of its captain + 1 (0 = none)
 
 	if (wID < NET_BOT_FIRST || wID >= NET_MAXCLIENTS) { return; }
 
@@ -463,6 +464,21 @@ void NetClient_OnBotInfo(int iMsg)
 		rC.UserData.Sail.Texture = NFGetTexture("UserDataImages", sUserSailsPath + "_emptysail_.tga");
 		rC.UserData.Flag = "_emptyflag_";
 		rC.UserData.Flag.Texture = NFGetTexture("UserDataImages", sUserFlagsPath + "_emptyflag_.tga");
+	}
+	// COOP s41: the portrait of the captain of the bot (the skin of its captain on the boarding deck is the same face)
+	if (iBotFaceW > 0)
+	{
+		string sBotFace = NetLand_FaceNumName(iBotFaceW - 1);		// COOP s45: face_N or npc_N (net\Land.c)
+		if (!CheckAttribute(rC, "BotFace") || rC.UserData.Face != sBotFace)
+		{
+			rC.BotFace = iBotFaceW - 1;
+			rC.UserData.Face = sBotFace;
+			string sBotTex = "interfaces\portraits\256\" + sBotFace + ".tga";
+			string sBotNpcTex = NetLand_NpcFaceTex(sBotFace);
+			if (sBotNpcTex != "") { sBotTex = sBotNpcTex; }
+			rC.UserData.Face.Texture = NFGetTexture("UserDataImages", sBotTex);
+			if (!sti(rC.UserData.Face.Texture)) { rC.UserData.Face.Texture = NFGetTexture("UserDataImages", sUserFacesPath + "_emptyface_.tga"); }
+		}
 	}
 
 	// a new relation of a ship that exists here: the battle interface takes the new colour
@@ -761,6 +777,7 @@ void NetClient_OnBotNote(int iMsg)
 		case NET_BOTNOTE_FORTADDED:	NetClient_LogMessageNum("Net_BotFortAdded", iValue, 0);	break;
 		case NET_BOTNOTE_FORTFIXED:	NetClient_LogMessageNum("Net_BotFortFixed", iValue, 0);	break;
 		case NET_BOTNOTE_FORTMOVEOFF:	NetClient_LogMessageNum("Net_BotFortMoveOff", iValue, 0);	break;
+		case NET_BOTNOTE_LANDFULL:	NetClient_LogMessageNum("Net_BotLandFull", iValue, 0);	break;		// COOP s46
 		case NET_BOTNOTE_FORTGONE:	NetClient_LogMessageNum("Net_BotFortGone", iValue, 0);	break;
 	}
 }
@@ -808,4 +825,26 @@ void NetClient_DownloadServerFile(string sFileName, int iEventID, int iEventSubI
 	NMAddString(iSMsg, sFileName, 128);
 	NetClient_SendMessage(iSMsg, true);
 	NMDelete(iSMsg);
+}
+
+// COOP s43: net.dll sends Net_ShipStartLoad / Net_ShipEndLoad (the attributes of the NCClients / NSClients slot) around the load
+// of the model of every NetShip. Nobody handled them: the ships of the server (the host) and the ships made again loaded the
+// hull textures with an empty texture path ("Can't load texture resource\textures\XEBECVML.TGA"). Now the path of the hull is set
+// like in NetClient_ShipCreate (client\OnClient.c).
+void Net_ShipStartLoad()
+{
+	aref rC = GetEventData();
+	if (!CheckAttribute(rC, "Model")) { return; }
+	int iHull = 1;
+	if (CheckAttribute(rC, "Ship.Upgrades.Hull")) { iHull = sti(rC.Ship.Upgrades.Hull); }
+	if (iHull < 1 || iHull > 3) { iHull = 1; }
+	string sHullStr = NetShipHullUpgrades[iHull - 1].str;
+	string sModel = rC.Model;
+	string sPath = "ships\" + sModel + "\" + sHullStr + "\";
+	SetTexturePath(0, sPath);
+}
+
+void Net_ShipEndLoad()
+{
+	SetTexturePath(0, "");
 }

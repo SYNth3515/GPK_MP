@@ -286,3 +286,25 @@ bool NetClient_WhrIsNight() { return bClientWeatherIsNight; }
 bool NetClient_WhrIsLight() { return bClientWeatherIsLight; }
 bool NetClient_WhrIsRain() { return bClientWeatherIsRain; }
 bool NetClient_WhrIsStorm() { return bClientWeatherIsStorm; }
+
+// COOP s38: the weather of the net stops under the boarding deck (net\Board.c: the weather of the location is there); here,
+// where its objects are declared
+void NetBoard_NetWeatherRun(bool bRun)
+{
+	if (bRun)
+	{
+		if (IsEntity(&NCWeather)) { LayerAddObject("net_execute", &NCWeather, 1000000); }
+		if (IsEntity(&NCSky)) { LayerAddObject("net_execute", &NCSky, 2); }
+		if (IsEntity(&NCSunGlow)) { LayerAddObject("net_execute", &NCSunGlow, -2); }
+		if (IsEntity(&NCAstronomy)) { LayerAddObject("net_execute", &NCAstronomy, -1); }
+		if (IsEntity(&NCLightning)) { LayerAddObject("net_execute", &NCLightning, -2); }
+		if (IsEntity(&NCRain)) { LayerAddObject("net_execute", &NCRain, 65537); }
+		return;
+	}
+	LayerDelObject("net_execute", &NCWeather);
+	LayerDelObject("net_execute", &NCSky);
+	LayerDelObject("net_execute", &NCSunGlow);
+	LayerDelObject("net_execute", &NCAstronomy);
+	LayerDelObject("net_execute", &NCLightning);
+	LayerDelObject("net_execute", &NCRain);
+}

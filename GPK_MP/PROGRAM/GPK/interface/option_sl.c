@@ -114,6 +114,8 @@ void GetRealOptions(ref optref)
 	if( CheckAttribute(&InterfaceStates,"OldMusic") ) { optref.cameramode.OldMusic = sti(InterfaceStates.OldMusic); }
 	optref.cameramode.HideDeckCrew = false;
 	if( CheckAttribute(&InterfaceStates,"HideDeckCrew") ) { optref.cameramode.HideDeckCrew = sti(InterfaceStates.HideDeckCrew); }
+	optref.cameramode.NoIntro = false;		// COOP s43: no intro videos at the start (seadogs.c: Main_LogoVideo)
+	if( CheckAttribute(&InterfaceStates,"NoIntro") ) { optref.cameramode.NoIntro = sti(InterfaceStates.NoIntro); }
 
 	GetControlsOptions(optref);
 
@@ -227,6 +229,8 @@ void SetCurentOptions(ref optref)
 	if( CheckAttribute(optref,"cameramode.OldMusic") ) { InterfaceStates.OldMusic = optref.cameramode.OldMusic; }
 	InterfaceStates.HideDeckCrew = false;
 	if( CheckAttribute(optref,"cameramode.HideDeckCrew") ) { InterfaceStates.HideDeckCrew = optref.cameramode.HideDeckCrew; }
+	InterfaceStates.NoIntro = false;		// COOP s43
+	if( CheckAttribute(optref,"cameramode.NoIntro") ) { InterfaceStates.NoIntro = optref.cameramode.NoIntro; }
 
 	// mouse
 	if( CheckAttribute(optref,"cameramode.InvertCameras") ) {

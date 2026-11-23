@@ -44,6 +44,7 @@ void NetServer_OnBuy(int wNetClientID, int iMsg)
 				}
 			}
 			rClient.Ship.Type = NMGetWord(iMsg);
+			DeleteAttribute(rClient, "PrizeOrig");		// COOP s44: the ship chosen now is the own one (net\Board.c)
 			iSMsg = NMCreate();
 			NMAddByte(iSMsg, NC_PLAYERINFO);
 			NMAddByte(iSMsg, NSC_PLAYERINFO_SHIPCHANGE);
@@ -63,6 +64,10 @@ void NetServer_OnBuy(int wNetClientID, int iMsg)
 		break;
 		case NSC_BUY_FULLINFO:
 			NetServer_OnBuy_FullInfo(wNetClientID, iMsg);
+			return;
+		break;
+		case NSC_BUY_RESPAWN:		// COOP s46: Esc menu "Корабль": the loadout waits for the next respawn
+			NetServer_OnBuy_Respawn(wNetClientID, iMsg);
 			return;
 		break;
 	}
@@ -251,49 +256,65 @@ void NetServer_StartServerCountDown()
 	PostEvent("NetServer_StartServerCountDown", 250);
 }
 
-void NetServer_OnBuy_FullInfo(int wNetClientID, int iMsg)
+// COOP s46: the payload of NSC_BUY_FULLINFO / NSC_BUY_RESPAWN -> arB (applied now, or at the next respawn: NetServer_RespawnShip)
+void NetServer_BuyRead(aref arB, int iMsg)
+{
+	int i;
+	string sK, sP, sG;
+	arB.Type = NMGetWord(iMsg);
+	arB.Hull = NMGetByte(iMsg);
+	arB.Rig = NMGetByte(iMsg);
+	arB.CType = NMGetByte(iMsg);
+	arB.CUpg = NMGetByte(iMsg);
+	for (i=0; i<Net_GetSkillsNum(); i++) { sK = "k" + i; arB.Sk.(sK) = NMGetByte(iMsg); }
+	for (i=0; i<6; i++) { sP = "p" + i; arB.Pk.(sP) = NMGetByte(iMsg); }
+	for (i=0; i<Net_GetGoodsNum(); i++) { sG = "g" + i; arB.Goods.(sG) = NMGetWord(iMsg); }
+	arB.Crew = NMGetByte(iMsg);
+	arB.Charge = NMGetByte(iMsg);
+	arB.CPct = NMGetByte(iMsg);
+	arB.SeaPerks = NMGetDword(iMsg);
+}
+
+void NetServer_BuyApply(int wNetClientID, aref arB)
 {
 	int i;
 	int iCredit = 0;
+	string sK, sP, sG;
 
 	ref rClient = NetServer_GetCLient(wNetClientID);
 
-	// COOP: a player who already has a ship in the running game can not buy again (a repeated / late packet)
-	if (bServerGameStarted)
-	{
-		if (NetServer_IsInGame(wNetClientID)) { return; }
-		if (NetServer_HasShip(wNetClientID)) { return; }
-	}
-
 	// receive and calculates all 
-	int iShipType = NMGetWord(iMsg);
-	int iShipUpgradeHull = NMGetByte(iMsg);
-	int iShipUpgradeRigging = NMGetByte(iMsg);
+	int iShipType = sti(arB.Type);
+	int iShipUpgradeHull = sti(arB.Hull);
+	int iShipUpgradeRigging = sti(arB.Rig);
 	if (iShipUpgradeRigging < 1 || iShipUpgradeRigging > 4) { iShipUpgradeRigging = 1; }
 
-	int iCannonsType = NMGetByte(iMsg);
-	int iCannonsUpgrade = NMGetByte(iMsg);
+	int iCannonsType = sti(arB.CType);
+	int iCannonsUpgrade = sti(arB.CUpg);
 
 	int iSkills[8], iPerks[6], iGoods[8];
 
 	// add skills money
 	for (i=0; i<Net_GetSkillsNum(); i++) 
 	{ 
-		iSkills[i] = NMGetByte(iMsg); 
+		sK = "k" + i;
+		iSkills[i] = sti(arB.Sk.(sK)); 
 		iCredit = iCredit + Net_GetSkillCost(i, iSkills[i]);
 	}
 
 	// add perks money
 	for (i=0; i<6; i++) 
 	{ 
-		iPerks[i] = NMGetByte(iMsg); 
+		sP = "p" + i;
+		iPerks[i] = sti(arB.Pk.(sP)); 
 		if (iPerks[i]) { iCredit = iCredit + Net_GetPerkCost(i); }
 	}
 
 	// add goods money
 	for (i=0; i<Net_GetGoodsNum(); i++) 
 	{ 
-		iGoods[i] = NMGetWord(iMsg); 
+		sG = "g" + i;
+		iGoods[i] = sti(arB.Goods.(sG)); 
 		iCredit = iCredit + Net_GetGoodCost(i, iGoods[i]);
 		
 		ref rGood = Net_GetGoodByIndex(i);
@@ -301,13 +322,13 @@ void NetServer_OnBuy_FullInfo(int wNetClientID, int iMsg)
 		rClient.Ship.Goods.(sGood) = iGoods[i];
 	}
 
-	int iCrewPercent = NMGetByte(iMsg);
+	int iCrewPercent = sti(arB.Crew);
 	if (iCrewPercent < 10) { iCrewPercent = 10; }
 	if (iCrewPercent > 100) { iCrewPercent = 100; }
 	iCredit = iCredit + Net_GetCrewCost(iShipType, iCrewPercent);	// hiring the crew is paid
 
 	// start charge chosen in the buy menu (0 balls, 1 grapes, 2 knippels, 3 bombs); if there is none of it in the hold, the first available one
-	int iStartCharge = NMGetByte(iMsg);
+	int iStartCharge = sti(arB.Charge);
 	if (iStartCharge < 0 || iStartCharge > 3) { iStartCharge = 0; }
 	if (iGoods[iStartCharge] <= 0)
 	{
@@ -315,11 +336,11 @@ void NetServer_OnBuy_FullInfo(int wNetClientID, int iMsg)
 	}
 
 	// COOP: percent of the cannons bought in the lobby (sent as percent + 1; 0 = an old client = all cannons)
-	int iCannonsPercent = NMGetByte(iMsg) - 1;
+	int iCannonsPercent = sti(arB.CPct) - 1;
 	if (iCannonsPercent < 0 || iCannonsPercent > 100) { iCannonsPercent = 100; }
 
 	// COOP s28: the sea perks bought in the lobby, a bit mask (common\Perks.c: NET_SPERK_*)
-	int iSeaPerks = NMGetDword(iMsg);
+	int iSeaPerks = sti(arB.SeaPerks);
 	if (iSeaPerks < 0 || iSeaPerks >= Net_SeaPerkPow2(NET_SPERK_NUM)) { iSeaPerks = 0; }
 	rClient.SeaPerks = iSeaPerks;
 	for (i=0; i<NET_SPERK_NUM; i++)
@@ -368,6 +389,27 @@ void NetServer_OnBuy_FullInfo(int wNetClientID, int iMsg)
 	NetServer_CannonRecalculateParameters(rClient);
 	NetServer_CalculateFireTime(rClient);
 	NetServer_CalculateReloadTime(rClient);
+}
+
+void NetServer_OnBuy_FullInfo(int wNetClientID, int iMsg)
+{
+	int i;
+	ref rClient = NetServer_GetCLient(wNetClientID);
+
+	// COOP: a player who already has a ship in the running game can not buy again (a repeated / late packet)
+	if (bServerGameStarted)
+	{
+		if (NetServer_IsInGame(wNetClientID)) { return; }
+		if (NetServer_HasShip(wNetClientID)) { return; }
+	}
+
+	DeleteAttribute(rClient, "BuyIn");
+	rClient.BuyIn = "";
+	aref arB;
+	makearef(arB, rClient.BuyIn);
+	NetServer_BuyRead(arB, iMsg);
+	NetServer_BuyApply(wNetClientID, arB);
+	DeleteAttribute(rClient, "BuyIn");
 
 	rClient.StartReady = true;
 
@@ -403,4 +445,23 @@ void NetServer_OnBuy_FullInfo(int wNetClientID, int iMsg)
 		NetServer_StartServerGame();
 		return;
 	}
+}
+
+// COOP s46: the Esc menu "Корабль" (respawn mode only): the new ship, cannons, crew, goods, skills and perks are kept and
+// given at the next respawn of this player (NetServer_RespawnShip). The ship that sails now does not change.
+void NetServer_OnBuy_Respawn(int wNetClientID, int iMsg)
+{
+	if (wNetClientID < 0 || wNetClientID >= NET_BOT_FIRST) { return; }
+	if (!bServerGameStarted) { return; }
+	if (!sti(NetServer.Respawn)) { return; }
+	if (NetServer_LandMode()) { return; }
+	ref rClient = NetServer_GetCLient(wNetClientID);
+	DeleteAttribute(rClient, "RespawnBuy");
+	rClient.RespawnBuy = "";
+	aref arB;
+	makearef(arB, rClient.RespawnBuy);
+	NetServer_BuyRead(arB, iMsg);
+	if (sti(arB.Type) < 0 || sti(arB.Type) >= Net_GetShipsNum()) { DeleteAttribute(rClient, "RespawnBuy"); return; }
+	Trace("COOP: respawn loadout of " + wNetClientID + ": ship type " + arB.Type + " (at the next respawn)");
+	NetServer_SayTo(wNetClientID, "Новый корабль будет выдан после гибели текущего");
 }

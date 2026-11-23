@@ -1,3 +1,6 @@
+// COOP s46m: the single player interfaces (made for 800 wide) stand in the middle of the 1066 wide screen
+#define XI_WX	133
+
 #define INTERFACE_QUANTITY				56
 
 #define INTERFACE_STORE					0

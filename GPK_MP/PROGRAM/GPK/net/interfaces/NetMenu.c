@@ -28,6 +28,7 @@ void InitInterface(string iniName)
 	SetEventHandler("OnNetMenuDisconnect", "ICancelProcedure", 0);
 	SetEventHandler("OnNetMenuReturn", "IReturnToGame", 0);
 	SetEventHandler("OnNetMenuOptions", "NetMenu_OpenOptions", 0);	// COOP: button "Options"
+	SetEventHandler("OnNetMenuShip", "NetMenu_OpenShip", 0);		// COOP s46: "Корабль" (the ship of the next respawn)
 	SetEventHandler("exitCancel", "NetMenu_Cancel", 0);
 	SetEventHandler("NetInfoShow", "NetMenu_InfoShow", 0);		// COOP s31: the right click in the loadout: a description (net/NetInfo.c)
 	SetEventHandler("MouseRClickUp", "NetInfo_Hide", 0);
@@ -163,6 +164,7 @@ void IDoExit(int exitCode)
 	DelEventHandler("OnNetMenuDisconnect", "ICancelProcedure");
 	DelEventHandler("OnNetMenuReturn", "IReturnToGame");
 	DelEventHandler("OnNetMenuOptions", "NetMenu_OpenOptions");
+	DelEventHandler("OnNetMenuShip", "NetMenu_OpenShip");
 	DelEventHandler("exitCancel", "NetMenu_Cancel");
 	DelEventHandler("NetInfoShow", "NetMenu_InfoShow");
 	DelEventHandler("MouseRClickUp", "NetInfo_Hide");
@@ -327,6 +329,24 @@ void NetMenu_OpenOptions()
 	IDoExit( RC_INTERFACE_DO_OPTIONS );
 }
 
+// COOP s46: "Корабль": the buy screen of the lobby over the running sea game (interfaces\Buy.c: Buy_RespModeInit); the
+// loadout chosen there is given at the next respawn (server\Buy.c: NetServer_OnBuy_Respawn)
+bool NetMenu_ShipOk()
+{
+	if (NetLand_IsActive()) { return false; }
+	if (iNetPreview > 0) { return false; }
+	if (!bNetClientInGame) { return false; }
+	if (!CheckAttribute(&NCServer, "Respawn")) { return false; }
+	return sti(NCServer.Respawn) != 0;
+}
+
+void NetMenu_OpenShip()
+{
+	if (!NetMenu_ShipOk()) { return; }
+	bNetBuyRespawn = true;
+	IDoExit(RC_INTERFACE_NET_BUY);
+}
+
 // Esc: from the admin windows back to the menu, from the menu back to the game
 void NetMenu_Cancel()
 {
@@ -368,6 +388,7 @@ void NetMenu_Show(string sWindow)
 
 	// COOP: the loadout button only in a land duel
 	SetNodeUsing("BTN_NETMENU_LOADOUT", NetLand_IsActive());
+	SetNodeUsing("BTN_NETMENU_SHIP", NetMenu_ShipOk());		// COOP s46: the sea with respawn (the same place: never both)
 
 	if (sWindow == "main") { SetCurrentNode("BTN_ENDGAME_RETURN"); }
 }

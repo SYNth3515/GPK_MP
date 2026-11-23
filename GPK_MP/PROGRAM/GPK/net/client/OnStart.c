@@ -15,6 +15,7 @@ void NetClient_RestartBattleMusic()
 	int iGen = GetEventData();
 	if (iGen != iNetMusicGen) { return; }
 	if (!bNetClientInGame) { return; }
+	if (bNetHostParked) { return; }		// COOP s38: the host is in the lobby
 	SetMusic("music_sea_battle");
 }
 int iCoopHb = 0;

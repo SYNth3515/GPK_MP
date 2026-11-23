@@ -27,6 +27,8 @@
 // auto boarding (player vs player, no land fight). Rules are taken from single player:
 //   availability: Ship_CheckMainCharacter (distance minus half ship widths, angle, relative speed, grappling skill and perks)
 //   result:       Ship_AutoAbordage (crew * grappling strength, winner loses loserPower / divider sailors)
+#define NET_LAND_NPC_FACE			2000	// COOP s45: LandBotFace / BotFace above this = an NPC skin npc_N (N = face - this, NetLand_NpcModel in net\Land.c)
+#define NET_BOARD_DIST_MULT			1.5		// COOP s45: the boarding distance of the single player (15..40 m between the hulls by the grappling) times this: with the distance of the single player the ships of the net were in reach for a moment only
 #define NET_BOARD_MIN_CREW_RATIO		0.0		// attacker crew must be >= this part of target crew (0.0 = boarding is allowed at any odds)
 #define NET_BOARD_RAND_MIN				0.01	// random bonus to the strength of each side in the boarding fight: from 1%
 #define NET_BOARD_RAND_MAX				0.05	// ... to 5% (so with almost equal crews the winner and the losses are random)
@@ -148,12 +150,14 @@
 #define NSC_LAND_NPCSTATE_R		31
 #define NSC_LAND_BOARD_START	32		// COOP s37: server -> captain: the real boarding begins (net\Board.c)
 #define NSC_LAND_BOARD_END		33		// COOP s37: server -> captain: byte won
+#define NSC_LAND_NPCDMG			34		// COOP s38: a player -> server -> the host: word gen, byte k, word damage, byte kind (net\LandNpc.c)
+#define NSC_LAND_NPCHIT_R		35		// COOP s38: the host -> a player: word damage, word damage if blocked, word view, byte kind
 #define NSC_LAND_BOTSTATE		7		// clientID bot (of the sender), float x, y, z, ay, byte flags (1 fight, 2 dead), word hp, word hp max, byte death variant, string action
 #define NSC_LAND_BOTHIT			8		// clientID attacker (the sender or his bot), clientID bot, word damage, word damage if blocked, byte kind (to the owner of the bot)
 #define NSC_LAND_BOTHITP		9		// clientID bot (of the sender), clientID victim player, word damage, word damage if blocked, byte kind, byte sequence
 #define NSC_LAND_BOTSTATE_R		20		// the data of NSC_LAND_BOTSTATE
 #define NSC_LAND_BOTHIT_R		21		// the data of NSC_LAND_BOTHIT (only to the owner of the bot)
-#define NSC_LAND_BOTINFO_R		22		// clientID bot, clientID owner, byte relation, byte removed, word face, string blade, string name
+#define NSC_LAND_BOTINFO_R		22		// clientID bot, clientID owner, byte relation, byte removed, word face, string blade, string name, byte level, string gun, string armor (s44)
 #define NET_LANDADM_BOTSKILL	7		// to all: value = the difficulty of the bots 0..3
 #define NET_LANDADM_SPEED		8		// to all: value = the game speed * 4
 #define NET_LANDADM_BOTCMD		6		// to the owner of the bot (clientID): value NET_LANDBOT_* + 16 * the admin
@@ -260,6 +264,8 @@
 #define NET_BOTNOTE_FORTADDED           6       // byte value = relation (NET_BOTREL_*)
 #define NET_BOTNOTE_FORTFIXED           7       // the fort of the game mode cannot be moved
 #define NET_BOTNOTE_FORTMOVEOFF         8       // "fort to the admin" is switched off (bNetFortMove in server\Fort.c)
+#define NET_BOTNOTE_LANDFULL            10      // COOP s46: byte value = the characters in the location of the land duel (NET_LAND_CHARS_MAX)
+#define NET_LAND_CHARS_MAX              60      // COOP s46: characters of one location at most (the engine stops at 64)
 #define NET_BOTNOTE_FORTGONE            9       // the fort of Bot+ was removed in this game: it cannot be built again (bNetFortMove in server\Fort.c)
 
 // NC_STARTGAME
@@ -363,6 +369,10 @@
 #define NSC_SHIP_CANNONS_SET			40		// client -> server: byte cannons on the bow, stern, left, right; removed and not placed ones go overboard
 #define NSC_SHIP_GONE					41		// COOP s27: server -> in game clients: wID; the sunk ship is deleted (some time after its death)
 #define NSC_SHIP_REBUILD				42		// COOP s27: server -> in game clients: wID, float x, z, ay; the ship is deleted and created again (the masts after a repair)
+#define NSC_SHIP_PRIZE					43		// COOP s41: server -> the winner of a boarding: the prize and the two loads (net\Board.c)
+#define NSC_SHIP_PRIZE_DONE				44		// COOP s41: winner -> server: the choice (sink / exchange / capture) and our column
+#define NSC_SHIP_PRIZE_SWAP				45		// COOP s41: server -> in game clients: a ship has the type of its prize now
+#define NSC_SHIP_PRIZE_END				46		// COOP s41: server -> the winner: the choice is over (the window closes)
 #define NET_BORT_NUM					4		// cannon borts: 0 bow (fcannon), 1 stern (bcannon), 2 left (lcannon), 3 right (rcannon)
 #define NET_APERK_NUM					4
 #define NET_APERK_IMMEDIATERELOAD		0		// "Предварительная перезарядка": reload time x0.5 (SP: TimeDelay 300, TimeDuration 60)
@@ -411,6 +421,7 @@
 #define	NSC_BUY_TEAMCHANGE				3
 #define	NSC_BUY_SHIPCHANGE				4
 #define NSC_BUY_FULLINFO				5
+#define NSC_BUY_RESPAWN					7	// COOP s46: client -> server: the loadout of NSC_BUY_FULLINFO for the next respawn (Esc menu "Корабль")
 #define NSC_BUY_CHOICE					6	// COOP s30: client -> server -> all: the choice of the lobby as a string (interfaces\Buy.c: Buy_ChoiceCode)
 
 // NC_SERVERINFO

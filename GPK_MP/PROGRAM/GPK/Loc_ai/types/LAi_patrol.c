@@ -363,6 +363,7 @@ void LAi_type_patrol_Goto(aref chr)
 void LAi_type_patrol_TestControl(aref chr)
 {
 	chr.chr_ai.type.player = 5 + rand(10);
+	if (bNetLandActive) { return; }	// COOP s46n: no check of the hero in a land duel of the net game (the nation of the hero made the soldiers attack at once)
 	int iRand;
 	bool bFightMode = LAi_CheckFightMode(pchar);
 	if (GetNationRelation2MainCharacter(sti(chr.nation)) == RELATION_ENEMY || GetNationRelation(sti(chr.nation), GetBaseHeroNation()) == RELATION_ENEMY) iRand = 2;

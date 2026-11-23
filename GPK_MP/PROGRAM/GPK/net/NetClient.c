@@ -115,6 +115,16 @@ void Net_DeleteClient()
 	DeleteClass(&NetClient);
 	DeleteClass(&NCLightPillar);
 
+	// COOP s46: the faces, the sails and the flags of the players (OnClient.c: NFGetTexture "UserDataImages") were never
+	// released: every game leaked them. The client is gone, nothing shows them any more.
+	NFDelGroupTextures("UserDataImages");
+	for (int iUd=0; iUd<NET_MAXCLIENTS; iUd++)
+	{
+		DeleteAttribute(&NCClients[iUd], "UserData");
+		DeleteAttribute(&NCClients[iUd], "Stat.Kills");
+	}
+	Trace("COOP: user textures released");
+
 	LanguageCloseFile(iLangNetClient); iLangNetClient  = -1;
 
 	Net_SaveFile(false, &NCInetServers, "InetServers.nsv");

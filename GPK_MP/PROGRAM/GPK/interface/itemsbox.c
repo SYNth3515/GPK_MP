@@ -116,8 +116,8 @@ void InitInterface_RS(string iniName, ref itemsRef, string faceID)
 	InterfaceInitButtons(refCharacter);
 	
 	// Тут позиционим кнопки взятия на таблице
-	SendMessage(&GameInterface,"lsllllll", MSG_INTERFACE_MSG_TO_NODE, "TABLE_ADD_ALL_BUTTON", 0, iTableAddAllBtnX, iTableAddAllBtnY, iTableAddAllBtnX + 30, iTableAddAllBtnY + 30, 0);
-	SendMessage(&GameInterface,"lsllllll", MSG_INTERFACE_MSG_TO_NODE, "TABLE_REMOVE_ALL_BUTTON", 0, iTableRemoveAllBtnX, iTableRemoveAllBtnY, iTableRemoveAllBtnX + 30, iTableRemoveAllBtnY + 30, 0);
+	SendMessage(&GameInterface,"lsllllll", MSG_INTERFACE_MSG_TO_NODE, "TABLE_ADD_ALL_BUTTON", 0, XI_WX + iTableAddAllBtnX, iTableAddAllBtnY, XI_WX + iTableAddAllBtnX + 30, iTableAddAllBtnY + 30, 0);
+	SendMessage(&GameInterface,"lsllllll", MSG_INTERFACE_MSG_TO_NODE, "TABLE_REMOVE_ALL_BUTTON", 0, XI_WX + iTableRemoveAllBtnX, iTableRemoveAllBtnY, XI_WX + iTableRemoveAllBtnX + 30, iTableRemoveAllBtnY + 30, 0);
 	
 	if(sInterfaceType == INTERFACETYPE_CHEST || sInterfaceType == INTERFACETYPE_BARREL) // Только если сундук - у него никаких кнопок нету
 	{
@@ -189,23 +189,23 @@ void InterfaceInitButtons(ref _refCharacter)
 	{
 		case INTERFACETYPE_EXCHANGE_ITEMS:
 			SetNodeUsing("GETALL_BUTTON", true);
-			SendMessage(&GameInterface, "lslllll", MSG_INTERFACE_MSG_TO_NODE, "GETALL_BUTTON", 1, 340, 552, 475, 577);
+			SendMessage(&GameInterface, "lslllll", MSG_INTERFACE_MSG_TO_NODE, "GETALL_BUTTON", 1, XI_WX + 340, 552, XI_WX + 475, 577);
 		break;
 		
 		case INTERFACETYPE_DEADMAN:
 			SetNodeUsing("GETALL_BUTTON", true);
 			SetNodeUsing("DELBODY_BUTTON", true);
 			
-			SendMessage(&GameInterface, "lslllll", MSG_INTERFACE_MSG_TO_NODE, "GETALL_BUTTON", 1, 265, 552, 395, 577);
-			SendMessage(&GameInterface, "lslllll", MSG_INTERFACE_MSG_TO_NODE, "DELBODY_BUTTON", 1, 415, 552, 545, 577);
+			SendMessage(&GameInterface, "lslllll", MSG_INTERFACE_MSG_TO_NODE, "GETALL_BUTTON", 1, XI_WX + 265, 552, XI_WX + 395, 577);
+			SendMessage(&GameInterface, "lslllll", MSG_INTERFACE_MSG_TO_NODE, "DELBODY_BUTTON", 1, XI_WX + 415, 552, XI_WX + 545, 577);
 			
 			// Проверка на возможность использования черепа
 			if(CheckCharacterItem(_refCharacter, "SkullAztec") && IsAztecSkullOfficer(arDeadChar) && LAi_IsDead(characters[sti(arDeadChar.index)]) && CheckNPCQuestDate(_refCharacter, "AztecSkull"))
 			{
 				SetNodeUsing("SKULL_BUTTON", true);
-				SendMessage(&GameInterface, "lslllll", MSG_INTERFACE_MSG_TO_NODE, "GETALL_BUTTON", 1, 180, 552, 310, 577);
-				SendMessage(&GameInterface, "lslllll", MSG_INTERFACE_MSG_TO_NODE, "SKULL_BUTTON", 1, 340, 552, 475, 577);
-				SendMessage(&GameInterface, "lslllll", MSG_INTERFACE_MSG_TO_NODE, "DELBODY_BUTTON", 1, 505, 552, 635, 577);
+				SendMessage(&GameInterface, "lslllll", MSG_INTERFACE_MSG_TO_NODE, "GETALL_BUTTON", 1, XI_WX + 180, 552, XI_WX + 310, 577);
+				SendMessage(&GameInterface, "lslllll", MSG_INTERFACE_MSG_TO_NODE, "SKULL_BUTTON", 1, XI_WX + 340, 552, XI_WX + 475, 577);
+				SendMessage(&GameInterface, "lslllll", MSG_INTERFACE_MSG_TO_NODE, "DELBODY_BUTTON", 1, XI_WX + 505, 552, XI_WX + 635, 577);
 			}
 		break;
 		
@@ -656,8 +656,8 @@ void SetControlsTabMode(int _mode)
 	AddToTable(refToChar);
 	
 	// Сбросим позицию стрелок
-	SendMessage(&GameInterface,"lsllllll", MSG_INTERFACE_MSG_TO_NODE, "TABLE_ADD_ALL_BUTTON", 0, iTableAddAllBtnX, iTableAddAllBtnY, iTableAddAllBtnX + 30, iTableAddAllBtnY + 30, 0);
-	SendMessage(&GameInterface,"lsllllll", MSG_INTERFACE_MSG_TO_NODE, "TABLE_REMOVE_ALL_BUTTON", 0, iTableRemoveAllBtnX, iTableRemoveAllBtnY, iTableRemoveAllBtnX + 30, iTableRemoveAllBtnY + 30, 0);
+	SendMessage(&GameInterface,"lsllllll", MSG_INTERFACE_MSG_TO_NODE, "TABLE_ADD_ALL_BUTTON", 0, XI_WX + iTableAddAllBtnX, iTableAddAllBtnY, XI_WX + iTableAddAllBtnX + 30, iTableAddAllBtnY + 30, 0);
+	SendMessage(&GameInterface,"lsllllll", MSG_INTERFACE_MSG_TO_NODE, "TABLE_REMOVE_ALL_BUTTON", 0, XI_WX + iTableRemoveAllBtnX, iTableRemoveAllBtnY, XI_WX + iTableRemoveAllBtnX + 30, iTableRemoveAllBtnY + 30, 0);
     
 	SetNewGroupPicture("TABBTN_1", "TABS", Pic1);
 	SetNewGroupPicture("TABBTN_2", "TABS", Pic2);
@@ -782,8 +782,8 @@ void AddToTable(ref rChar)
 				iSelLine = iLinesCount - sti(GameInterface.TABLE_LIST.top);
 			}
 			
-			SendMessage(&GameInterface,"lsllllll", MSG_INTERFACE_MSG_TO_NODE, "TABLE_ADD_ALL_BUTTON", 0, iTableAddAllBtnX, iTableAddAllBtnY + 60 * (iSelLine - 1), iTableAddAllBtnX + 30, iTableAddAllBtnY + 60 * (iSelLine - 1) + 30, 0);
-			SendMessage(&GameInterface,"lsllllll", MSG_INTERFACE_MSG_TO_NODE, "TABLE_REMOVE_ALL_BUTTON", 0, iTableRemoveAllBtnX, iTableRemoveAllBtnY + 60 * (iSelLine - 1), iTableRemoveAllBtnX + 30, iTableRemoveAllBtnY + 60 * (iSelLine - 1) + 30, 0);
+			SendMessage(&GameInterface,"lsllllll", MSG_INTERFACE_MSG_TO_NODE, "TABLE_ADD_ALL_BUTTON", 0, XI_WX + iTableAddAllBtnX, iTableAddAllBtnY + 60 * (iSelLine - 1), XI_WX + iTableAddAllBtnX + 30, iTableAddAllBtnY + 60 * (iSelLine - 1) + 30, 0);
+			SendMessage(&GameInterface,"lsllllll", MSG_INTERFACE_MSG_TO_NODE, "TABLE_REMOVE_ALL_BUTTON", 0, XI_WX + iTableRemoveAllBtnX, iTableRemoveAllBtnY + 60 * (iSelLine - 1), XI_WX + iTableRemoveAllBtnX + 30, iTableRemoveAllBtnY + 60 * (iSelLine - 1) + 30, 0);
 			
 			sList = "tr" + sti(GameInterface.TABLE_LIST.select);
 			iCurGoodsIdx = sti(GameInterface.TABLE_LIST.(sList).index);
@@ -1056,8 +1056,8 @@ void CS_TableSelectChange()
 		iSelLine = iSelected - sti(GameInterface.TABLE_LIST.top);
 	}
 	
-	SendMessage(&GameInterface,"lsllllll", MSG_INTERFACE_MSG_TO_NODE, "TABLE_ADD_ALL_BUTTON", 0, iTableAddAllBtnX, iTableAddAllBtnY + 60 * (iSelLine - 1), iTableAddAllBtnX + 30, iTableAddAllBtnY + 60 * (iSelLine - 1) + 30, 0);
-	SendMessage(&GameInterface,"lsllllll", MSG_INTERFACE_MSG_TO_NODE, "TABLE_REMOVE_ALL_BUTTON", 0, iTableRemoveAllBtnX, iTableRemoveAllBtnY + 60 * (iSelLine - 1), iTableRemoveAllBtnX + 30, iTableRemoveAllBtnY + 60 * (iSelLine - 1) + 30, 0);
+	SendMessage(&GameInterface,"lsllllll", MSG_INTERFACE_MSG_TO_NODE, "TABLE_ADD_ALL_BUTTON", 0, XI_WX + iTableAddAllBtnX, iTableAddAllBtnY + 60 * (iSelLine - 1), XI_WX + iTableAddAllBtnX + 30, iTableAddAllBtnY + 60 * (iSelLine - 1) + 30, 0);
+	SendMessage(&GameInterface,"lsllllll", MSG_INTERFACE_MSG_TO_NODE, "TABLE_REMOVE_ALL_BUTTON", 0, XI_WX + iTableRemoveAllBtnX, iTableRemoveAllBtnY + 60 * (iSelLine - 1), XI_WX + iTableRemoveAllBtnX + 30, iTableRemoveAllBtnY + 60 * (iSelLine - 1) + 30, 0);
 	
 	String sList = "tr" + iSelected;
 	SetCharWeight();
@@ -1128,8 +1128,8 @@ void ProcessFrame()
 		SetCharacterName();
 		
 		// Стрлочки на первую позицию
-		SendMessage(&GameInterface,"lsllllll", MSG_INTERFACE_MSG_TO_NODE, "TABLE_ADD_ALL_BUTTON", 0, iTableAddAllBtnX, iTableAddAllBtnY, iTableAddAllBtnX + 30, iTableAddAllBtnY + 30, 0);
-		SendMessage(&GameInterface,"lsllllll", MSG_INTERFACE_MSG_TO_NODE, "TABLE_REMOVE_ALL_BUTTON", 0, iTableRemoveAllBtnX, iTableRemoveAllBtnY, iTableRemoveAllBtnX + 30, iTableRemoveAllBtnY + 30, 0);
+		SendMessage(&GameInterface,"lsllllll", MSG_INTERFACE_MSG_TO_NODE, "TABLE_ADD_ALL_BUTTON", 0, XI_WX + iTableAddAllBtnX, iTableAddAllBtnY, XI_WX + iTableAddAllBtnX + 30, iTableAddAllBtnY + 30, 0);
+		SendMessage(&GameInterface,"lsllllll", MSG_INTERFACE_MSG_TO_NODE, "TABLE_REMOVE_ALL_BUTTON", 0, XI_WX + iTableRemoveAllBtnX, iTableRemoveAllBtnY, XI_WX + iTableRemoveAllBtnX + 30, iTableRemoveAllBtnY + 30, 0);
 	}
 }
 
@@ -1221,8 +1221,8 @@ void onGetAllBtnClick()
 	
 	AddToTable(refToChar); // Рефрешь таблицы
 	// Рефреш позиции стрелочек
-	SendMessage(&GameInterface,"lsllllll", MSG_INTERFACE_MSG_TO_NODE, "TABLE_ADD_ALL_BUTTON", 0, iTableAddAllBtnX, iTableAddAllBtnY, iTableAddAllBtnX + 30, iTableAddAllBtnY + 30, 0);
-	SendMessage(&GameInterface,"lsllllll", MSG_INTERFACE_MSG_TO_NODE, "TABLE_REMOVE_ALL_BUTTON", 0, iTableRemoveAllBtnX, iTableRemoveAllBtnY, iTableRemoveAllBtnX + 30, iTableRemoveAllBtnY + 30, 0);
+	SendMessage(&GameInterface,"lsllllll", MSG_INTERFACE_MSG_TO_NODE, "TABLE_ADD_ALL_BUTTON", 0, XI_WX + iTableAddAllBtnX, iTableAddAllBtnY, XI_WX + iTableAddAllBtnX + 30, iTableAddAllBtnY + 30, 0);
+	SendMessage(&GameInterface,"lsllllll", MSG_INTERFACE_MSG_TO_NODE, "TABLE_REMOVE_ALL_BUTTON", 0, XI_WX + iTableRemoveAllBtnX, iTableRemoveAllBtnY, XI_WX + iTableRemoveAllBtnX + 30, iTableRemoveAllBtnY + 30, 0);
 	// <-- Warship fix 10.06.09
 }
 

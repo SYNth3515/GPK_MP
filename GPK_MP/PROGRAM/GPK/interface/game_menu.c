@@ -235,7 +235,7 @@ void ShowConfirmWindow(bool show)
 		XI_WindowDisable("MAIN_WINDOW", true);
 		XI_WindowDisable("CONFIRM_WINDOW", false);
 		XI_WindowShow("CONFIRM_WINDOW", true);
-		EI_CreateFrame("CONFIRM_WINDOW_BORDER",190,190,610,360);
+		EI_CreateFrame("CONFIRM_WINDOW_BORDER", XI_WX + 190,190, XI_WX + 610,360);
 
 	} else {
 

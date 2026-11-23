@@ -105,7 +105,7 @@ void DoPostExit()
 
 void SelectRColony()
 {
-	float fMouseX = stf(GameInterface.mousepos.x) - 6.0 + 5;
+	float fMouseX = stf(GameInterface.mousepos.x) - 6.0 + 5 - XI_WX; // COOP s46m
 	float fMouseY = stf(GameInterface.mousepos.y) - 50.0 + 5;
 
 	//iMouseX = iMouseX * 1.6;
@@ -165,7 +165,7 @@ void FillColonyInfo(int iColony)
 	string sNation = GameInterface.MAP.imagelist.(sColony).pic;
 	SetNewGroupPicture("INFO_NATION_PICTURE", "NATIONS", sNation);
 
-	EI_CreateFrame("INFO_NATIONS_BORDERS",210,152,274,215);
+	EI_CreateFrame("INFO_NATIONS_BORDERS", XI_WX + 210,152, XI_WX + 274,215);
 
 	SelectColony(iColony);
 }

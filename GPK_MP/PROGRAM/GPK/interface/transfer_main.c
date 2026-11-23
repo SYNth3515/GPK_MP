@@ -108,19 +108,19 @@ void InitInterface_RS(string iniName, ref _chr, string _type)
 	SetEventHandler("HIRE_REMOVE_ALL_BUTTON", "HIRE_REMOVE_ALL_BUTTON", 0);
 	
     //////////////////
-    EI_CreateFrame("SHIP_BIG_PICTURE_BORDER",9,53,219,313); // tak from SHIP_BIG_PICTURE
-    EI_CreateHLine("SHIP_BIG_PICTURE_BORDER", 14,284,214,1, 4);
-    EI_CreateHLine("SHIP_BIG_PICTURE_BORDER", 14,78,214,1, 4);
+    EI_CreateFrame("SHIP_BIG_PICTURE_BORDER", XI_WX + 9,53, XI_WX + 219,313); // tak from SHIP_BIG_PICTURE
+    EI_CreateHLine("SHIP_BIG_PICTURE_BORDER", XI_WX + 14,284, XI_WX + 214,1, 4);
+    EI_CreateHLine("SHIP_BIG_PICTURE_BORDER", XI_WX + 14,78, XI_WX + 214,1, 4);
     
-    EI_CreateFrame("SHIP_BIG_PICTURE_BORDER2",582,53,792,313); // tak from SHIP_BIG_PICTURE2
-    EI_CreateHLine("SHIP_BIG_PICTURE_BORDER2", 586,284,788,1, 4);
-    EI_CreateHLine("SHIP_BIG_PICTURE_BORDER2", 586,78,788,1, 4);
+    EI_CreateFrame("SHIP_BIG_PICTURE_BORDER2", XI_WX + 582,53, XI_WX + 792,313); // tak from SHIP_BIG_PICTURE2
+    EI_CreateHLine("SHIP_BIG_PICTURE_BORDER2", XI_WX + 586,284, XI_WX + 788,1, 4);
+    EI_CreateHLine("SHIP_BIG_PICTURE_BORDER2", XI_WX + 586,78, XI_WX + 788,1, 4);
     
-    EI_CreateHLine("SHIP_BIG_PICTURE_BORDER", 431, 214, 573, 1, 4);
-    EI_CreateHLine("SHIP_BIG_PICTURE_BORDER", 431, 85, 573, 1, 4);
-    EI_CreateVLine("SHIP_BIG_PICTURE_BORDER", 431, 57, 249, 1, 4);
+    EI_CreateHLine("SHIP_BIG_PICTURE_BORDER", XI_WX + 431, 214, XI_WX + 573, 1, 4);
+    EI_CreateHLine("SHIP_BIG_PICTURE_BORDER", XI_WX + 431, 85, XI_WX + 573, 1, 4);
+    EI_CreateVLine("SHIP_BIG_PICTURE_BORDER", XI_WX + 431, 57, 249, 1, 4);
     
-    EI_CreateHLine("CREW_FRAME_BORDER", 228, 435, 573, 1, 4);
+    EI_CreateHLine("CREW_FRAME_BORDER", XI_WX + 228, 435, XI_WX + 573, 1, 4);
     
     SetNewGroupPicture("CREW_PICTURE", "SHIP_STATE_ICONS", "Crew");
 	SetNewGroupPicture("CREW_PICTURE2", "SHIP_STATE_ICONS", "Crew");
@@ -1610,7 +1610,7 @@ void SetGoodsArrows()
 		    iLine = iSelected - 1 - sti(GameInterface.TABLE_LIST.top);
 			if  (GetCargoGoods(pchar, idx) > 0 && GetGoodQuantityByWeight(idx, GetCargoFreeSpace(xi_refCharacter)) > 0)
 	        {
-				SendMessage(&GameInterface,"lsllllll", MSG_INTERFACE_MSG_TO_NODE,"B_RIGHT",0, 425 ,296 + 29*iLine, 455, 296 + 28 + 29*iLine, 0);
+				SendMessage(&GameInterface,"lsllllll", MSG_INTERFACE_MSG_TO_NODE,"B_RIGHT",0, XI_WX + 425,296 + 29*iLine, XI_WX + 455, 296 + 28 + 29*iLine, 0);
 				SetNodeUsing("B_RIGHT", true);
 	        }
 	        else
@@ -1619,7 +1619,7 @@ void SetGoodsArrows()
 	        }
 	        if (GetCargoGoods(xi_refCharacter, idx) > 0 && GetGoodQuantityByWeight(idx, GetCargoFreeSpace(pchar)) > 0)
 	        {
-				SendMessage(&GameInterface,"lsllllll", MSG_INTERFACE_MSG_TO_NODE,"B_LEFT",0, 292,296 + 29*iLine,322,296 + 28 + 29*iLine, 0);
+				SendMessage(&GameInterface,"lsllllll", MSG_INTERFACE_MSG_TO_NODE,"B_LEFT",0, XI_WX + 292,296 + 29*iLine, XI_WX + 322,296 + 28 + 29*iLine, 0);
 	            SetNodeUsing("B_LEFT",  true);
 	        }
 	        else

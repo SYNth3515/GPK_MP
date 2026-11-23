@@ -197,6 +197,9 @@ int NetServer_BotInfoMessage(int i, bool bAnnounce)
 	NMAddWord(iSMsg, sti(rB.Ship.Type));
 	NMAddString(iSMsg, rB.NickName, 24);
 	NMAddByte(iSMsg, bAnnounce);
+	int iBotFaceW = 0;		// COOP s41: the portrait + 1 (0 = none)
+	if (CheckAttribute(rB, "BotFace")) { iBotFaceW = sti(rB.BotFace) + 1; }
+	NMAddWord(iSMsg, iBotFaceW);
 	return iSMsg;
 }
 
@@ -313,6 +316,9 @@ void NetServer_BotSetup(int i, int wOwner, int iShipType, int iCannonType, int i
 	rB.NickName = "Бот " + iNum;
 	rB.NickPassword = "";
 	rB.UserData.Face = "";
+	// COOP s41: the portrait of the captain of the bot (a face that has a skin, like the ones of the players): its icon in the
+	// battle and the skin of its captain on the boarding deck (net\Board.c)
+	rB.BotFace = NetLand_RandomPlayerFace(iServerTime + iNum * 37);		// COOP s45: any face of a player, the same chance (net\Land.c)
 	rB.UserData.Flag = "";
 	rB.UserData.Sail = "";
 	rB.Exp = 0;
@@ -737,7 +743,7 @@ int NetServer_LBotAnyPlayer()
 
 void NetServer_BotSetRespawn(int iOn)
 {
-	if (!bServerGameStarted) { return; }
+	// COOP s38: the lobby has the switch too (before the game): it stays for the game
 	if (iOn != 0) { NetServer.BotRespawn = true; } else { NetServer.BotRespawn = false; }
 	NetServer_BotSendOpts(DST_ALL);
 	Trace("COOP: bot respawn = " + NetServer.BotRespawn);
@@ -778,6 +784,8 @@ void NetServer_BotRemove(int i)
 {
 	ref rB = NetServer_GetClient(i);
 	if (NetServer_BotRemoved(i)) { return; }
+	NetServer_BDLeft(i);			// COOP s41: its captain was on the boarding deck: the player wins
+	NetServer_PrizeSlotGone(i);		// COOP s41: a prize / a captor that waits
 
 	rB.BotRemoved = true;
 	rB.BotDeadAt = iServerTime;
@@ -1616,6 +1624,16 @@ void NetServer_BotThink(int i)
 		rB.Ship.TurnLeft = 0.0;
 		rB.Ship.TurnRight = 0.0;
 		rB.Ship.TurnState = 0.0;
+		return;
+	}
+
+	// COOP s41: the captain fights on the boarding deck / the ship is a prize waiting for the choice of its captor: it stands
+	if (NetServer_ShipHeld(i))
+	{
+		rB.Ship.TurnLeft = 0.0;
+		rB.Ship.TurnRight = 0.0;
+		rB.Ship.TurnState = 0.0;
+		rB.Ship.SailState = 0.0;
 		return;
 	}
 

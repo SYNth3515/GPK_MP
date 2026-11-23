@@ -32,11 +32,24 @@ native void XI_RegistryExitKey(string key_name);
 
 #libriary "script_interface_functions"
 
+int xi_wx_traced = -1; // COOP s46m
+
+int XI_WShift()
+{
+    if (xi_wx_traced != CurrentInterface) { xi_wx_traced = CurrentInterface; Trace("COOP s46m: interface " + CurrentInterface + " shift " + XI_WX + " (main menu " + INTERFACE_MAINMENU + ")"); }
+    if (CurrentInterface == INTERFACE_MAINMENU) { return 0; }
+    return XI_WX;
+}
+
 void CreateImage(string AttrName,string imgListName,string imgName,int left,int top,int right,int bottom)
 {
 	GameInterface.pictures.(AttrName).tex = imgListName;
     GameInterface.pictures.(AttrName).pic = imgName;
-    SendMessage(&GameInterface,"lslllll",MSG_INTERFACE_PLACE_IMAGE,AttrName,true,left,top,right,bottom);
+    int nWX = XI_WShift(); // COOP s46m
+    if (right <= left) { nWX = 0; }
+    int nL = left + nWX;
+    int nR = right + nWX;
+    SendMessage(&GameInterface,"lslllll",MSG_INTERFACE_PLACE_IMAGE,AttrName,true,nL,top,nR,bottom);
 }
 
 void CreateAbsoluteImage(string AttrName,string imgListName,string imgName,int left,int top,int right,int bottom)
@@ -54,7 +67,9 @@ void SetPictureBlind(string picName,bool blindFlag,int minCol,int maxCol)
 void CreateString(int enable,string strName, string strData, string fontName, int color, int x, int y, int alignment, float scale)
 {
     GameInterface.strings.(strName) = strData;
-    SendMessage(&GameInterface,"lssllllf",MSG_INTERFACE_CREATE_STRING, strName, fontName, color, x,y,alignment,scale);
+    int nX = x; // COOP s46m
+    if (nX > 0) { nX = nX + XI_WShift(); }
+    SendMessage(&GameInterface,"lssllllf",MSG_INTERFACE_CREATE_STRING, strName, fontName, color, nX,y,alignment,scale);
     if(enable==FALSE)
     {
         SendMessage(&GameInterface,"ls", MSG_INTERFACE_DISABLE_STRING, strName);

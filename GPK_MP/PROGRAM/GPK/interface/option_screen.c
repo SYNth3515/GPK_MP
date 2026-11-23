@@ -190,6 +190,9 @@ void IReadVariableAfterInit()
 	int nHideDeckCrew = 0;
 	if( CheckAttribute(&InterfaceStates,"HideDeckCrew") ) { nHideDeckCrew = sti(InterfaceStates.HideDeckCrew); }
 	SendMessage(&GameInterface,"lslll",MSG_INTERFACE_MSG_TO_NODE,"DECKCREW_CHECKBOX", 2, 1, nHideDeckCrew );
+	int nNoIntro = 0;		// COOP s43: no intro videos at the start
+	if( CheckAttribute(&InterfaceStates,"NoIntro") ) { nNoIntro = sti(InterfaceStates.NoIntro); }
+	SendMessage(&GameInterface,"lslll",MSG_INTERFACE_MSG_TO_NODE,"NOINTRO_CHECKBOX", 2, 1, nNoIntro );
 }
 
 void SetControlsTabMode(int nMode)
@@ -341,6 +344,7 @@ void procCheckBoxChange()
 
 	if( sNodName == "OLDMUSIC_CHECKBOX" ) { InterfaceStates.OldMusic = bBtnState; }		// COOP s28
 	if( sNodName == "DECKCREW_CHECKBOX" ) { InterfaceStates.HideDeckCrew = bBtnState; }		// COOP s28
+	if( sNodName == "NOINTRO_CHECKBOX" ) { InterfaceStates.NoIntro = bBtnState; }		// COOP s43
 }
 
 void procSlideChange()
@@ -784,6 +788,10 @@ void ShowInfo()
 		case "DECKCREW_CHECKBOX":
 			sHeader = XI_ConvertString("Hide Deck Crew");
 			sText1 = XI_ConvertString("Hide Deck Crew_descr");
+		break;
+		case "NOINTRO_CHECKBOX":
+			sHeader = XI_ConvertString("No Intro");
+			sText1 = XI_ConvertString("No Intro_descr");
 		break;
 		case "GAMMA_SLIDE":
 			sHeader = XI_ConvertString("gamma");

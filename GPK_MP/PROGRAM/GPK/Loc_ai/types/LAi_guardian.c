@@ -390,6 +390,7 @@ void LAi_type_guardian_Return_Event()
 //ѕроверить персонажа с заданной веро€тностью
 void LAi_type_guardian_TestControl(aref chr)
 {
+	if (bNetLandActive) { return; }	// COOP s46n: no check of the hero in a land duel of the net game
 	if (!CheckAttribute(chr, "protector.CheckAlways")) //флаг "опрашивать всегда" через паузу, не один раз.
 	{						
 		if (GetBaseHeroNation() == sti(chr.nation) && GetRelation2BaseNation(sti(chr.nation)) != RELATION_ENEMY && GetNationRelation2MainCharacter(sti(chr.nation)) != RELATION_ENEMY) return;

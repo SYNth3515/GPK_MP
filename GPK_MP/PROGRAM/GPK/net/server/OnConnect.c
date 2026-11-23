@@ -47,6 +47,7 @@ void NetServer_DropClient(int wNetClientID)
 	rClient.InGame = false;
 	rClient.JoinRequested = false;
 	NetServer_BDLeft(wNetClientID);		// COOP s37: a captain on the deck has left: the other one wins
+	NetServer_PrizeCaptorGone(wNetClientID);		// COOP s41: his prize goes down
 
 	// COOP: the player left the running game: his ship stays (it can not be deleted on the clients) and waits for a reconnect.
 	// It drops the sails and stops; it can still be shot and sunk.
@@ -191,6 +192,22 @@ void NetServer_OnConnect(int dwIP, int wPort, int iMsg)
 			if (sti(NSClients[i].dwIP) != dwIP) { continue; }
 			Trace("COOP: " + sNickName + " connects again, the old connection of slot " + i + " is dropped");
 			NetServer_DropClient(i);
+		}
+	}
+
+	// COOP s38: "Join during the game" is off: nobody comes into the running game, not even into its lobby (a player whose
+	// ship waits for him - a reconnect - does)
+	if (bServerGameStarted && !NetServer_LateJoinOn())
+	{
+		if (NetServer_FindParkedSlot(sNickName, sNickPassword) == DST_INVALID)
+		{
+			Trace("COOP: " + sNickName + " is not let in: the game runs and the join during the game is off");
+			iSMsg = NMCreate();
+			NMAddByte(iSMsg, NC_CONNECT);
+			NMAddByte(iSMsg, NSC_CONNECT_REJECTED);
+			NetServer_SendMessageDirect(dwIP, wPort, iSMsg);
+			NMDelete(iSMsg);
+			return;
 		}
 	}
 
