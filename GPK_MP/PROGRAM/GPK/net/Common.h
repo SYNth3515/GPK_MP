@@ -12,7 +12,7 @@
 #define CONVOY_POINT_RADIUS		40.0
 
 #define NET_TEST_DWORD			12345678		// hack
-#define NET_SCRIPT_VERSION		114		// COOP s46 114: the health, the energy and the anger of the NPC copies; 113: 32 players, the bots in the slots 32..81; s45 111: a bot captain can have an NPC skin (BotFace 2001+); s44 110: the armor in the info of a land bot (s41 109: bot portraits, the bots board players on the deck, the prize of a boarding (s39: 108)
+#define NET_SCRIPT_VERSION		115		// COOP s47 115: the maps of RESOURCE Downloads (NetDl.c, the subcodes NSC_DL_*, the key in NSC_CONNECT_ACCEPTED); s46 114: the health, the energy and the anger of the NPC copies; 113: 32 players, the bots in the slots 32..81; s45 111: a bot captain can have an NPC skin (BotFace 2001+); s44 110: the armor in the info of a land bot (s41 109: bot portraits, the bots board players on the deck, the prize of a boarding (s39: 108)
 
 string sUserFacesPath = "net\faces\";
 string sUserSailsPath = "net\sails\";

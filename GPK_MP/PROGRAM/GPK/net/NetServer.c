@@ -52,6 +52,7 @@ float fServerStartGameSpeed = 1.0;	// COOP: the game speed of the running game (
 
 void Net_DeleteServer()
 {
+	NetDl_SrvReset();		// COOP s47: the file senders of the downloads (objects of the entity Net)
 	DelEventHandler("NetServer_UpdateMasterServerInfo", "NetServer_UpdateMasterServerInfo");
 
 	// COOP s46: the server entity goes LAST. net.dll keeps its pointer in a global that its destructor does not clear, and the
@@ -233,6 +234,7 @@ void Net_CreateServer(ref rSrvParams)
 	NetServer.ConvoyPoint.x = 0.0;
 	NetServer.ConvoyPoint.z = 0.0;
 
+	DeleteAttribute(&NetServer, "Public");	// COOP s47d: the public addresses the master tells (server\OnNetMessage.c)
 	Trace("COOP: before CreateEntity NetServer");
 	CreateEntity(&NetServer, "NetServer");
 	Trace("COOP: after CreateEntity NetServer");

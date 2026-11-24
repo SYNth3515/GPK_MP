@@ -108,9 +108,41 @@ int iPunchCount = 0;
 // P2P: the master server tells us the address of a client that wants to connect (message starts with ClientID 0xFE like any
 // client message). We send one tiny packet to that address from the game socket: this opens our NAT for the client,
 // so its connect request is not dropped by the router. Other master messages (the ack of ADD/UPDATE) need no action.
+// COOP s47d: the master answers ADD / UPDATE with the public address it sees for this server (one per path: the real one and
+// the exit of a VPN). The Internet tab of the host shows its own server with it (interfaces\FindGame.c, FG_SetOwnPublicAddr).
+void NetServer_OnPublicAddress(int iMsg)
+{
+	int dwPubIP = NMGetDword(iMsg);
+	int wPubPort = ntohs(NMGetWord(iMsg));
+	if (wPubPort <= 0) { return; }
+	string sPubIP = inet_ntoa(dwPubIP);
+	if (!CheckAttribute(&NetServer, "Public")) { NetServer.Public = ""; }
+	aref arPub;
+	makearef(arPub, NetServer.Public);
+	int iNum = GetAttributesNum(arPub);
+	for (int i=0; i<iNum; i++)
+	{
+		aref arA = GetAttributeN(arPub, i);
+		if (arA.IP == sPubIP && sti(arA.Port) == wPubPort) { return; }
+	}
+	if (iNum >= 8) { return; }
+	string sKey = "a" + iNum;
+	NetServer.Public.(sKey).IP = sPubIP;
+	NetServer.Public.(sKey).Port = wPubPort;
+	if (wPubPort == sti(NetServer.ServerPort))
+	{
+		Trace("Master: this server is seen on the Internet as " + sPubIP + ":" + wPubPort + " (the port is kept: the players connect there)");
+	}
+	else
+	{
+		Trace("Master: this server is seen on the Internet as " + sPubIP + ":" + wPubPort + " (another port: a NAT or a VPN, the players need P2P)");
+	}
+}
+
 void NetServer_OnMasterServer(int dwIP, int wPort, int iMsg)
 {
 	int iSubCode = NMGetByte(iMsg);
+	if (iSubCode == NSC_MASTERSERVER_ADDRESS) { NetServer_OnPublicAddress(iMsg); return; }	// COOP s47d
 	if (iSubCode != NSC_MASTERSERVER_PUNCH) { return; }
 	if (!sti(NetServer.InetServer) || !sti(NetServer.P2P)) { Trace("P2P: punch request ignored (Internet/P2P switch is off)"); return; }
 
@@ -139,6 +171,7 @@ void NetServer_OnBroadcast(int dwIP, int wPort, int iMsg)
 
 	if (byCallbackCode == NSC_BROADCAST_LOCAL && sti(NetServer.LanServer) != true) { return; }
 	if (byCallbackCode == NSC_BROADCAST_INET && sti(NetServer.InetServer) != true) { return; }
+	if (byCallbackCode == NSC_BROADCAST_INET) { Trace("Srv: Internet ping from " + inet_ntoa(dwIP) + ":" + ntohs(wPort) + ", answered"); }	// COOP s47c
 
 	int iSMsg = NMCreate();
 	// COOP s27: the button "Подробно" of the list of the servers: all the parameters of this server

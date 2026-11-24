@@ -95,6 +95,8 @@ void NetClient_WhrCreateSeaEnvironment()
 	NCSea.Sea2.Frenel = Whr_GetFloat(aSea2, "Frenel");
 
 	NCSea.MaxSeaHeight = 50.0;
+	string sWavesId = aCurWeather.id;
+	NetWeather_SetWaves(&NCSea, sWavesId);	// COOP s47: the waves by the weather type (server\Admin.c)
 	
 	NCSea.isDone = "";
 }

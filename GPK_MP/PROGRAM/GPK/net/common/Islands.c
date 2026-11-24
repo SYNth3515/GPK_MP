@@ -3,6 +3,12 @@ int iNetIslandsIndex[MAX_ISLANDS];
 
 ref Net_GetIsland(string sIslandID)
 {
+	// COOP s47: a map of RESOURCE\Downloads is put into its island slot (net\NetDl.c)
+	if (NetDl_IsKey(sIslandID))
+	{
+		int iDl = NetDl_PrepareIsland(sIslandID);
+		if (iDl >= 0) { return &Islands[iDl]; }
+	}
 	return GetIslandByID(sIslandID);
 }
 ref Net_GetIslandByIndex(int iIndex) { return GetIslandByIndex(iNetIslandsIndex[iIndex]); }
@@ -10,6 +16,7 @@ ref Net_GetIslandByIndex(int iIndex) { return GetIslandByIndex(iNetIslandsIndex[
 int Net_GetIslandsNum() { return iNumNetIslands; }
 int Net_GetIslandIndex(string sIslandID)
 {
+	if (NetDl_IsKey(sIslandID)) { return NetDl_PrepareIsland(sIslandID); }		// COOP s47
 	return FindIsland(sIslandID);
 }
 
@@ -43,6 +50,7 @@ int Net_IslandGetNumForts(ref rIsland)
 // Названия островов для мультиплеера (в Корсарах 3 строк для островов Мэйна нет)
 string Net_GetIslandName(string sID)
 {
+	if (NetDl_IsKey(sID)) { return NetDl_Name(sID); }		// COOP s47: a downloaded map ("Другое" when it is not here)
 	if (sID == "Barbados") { return "Барбадос"; }
 	if (sID == "Jamaica") { return "Ямайка"; }
 	if (sID == "PuertoRico") { return "Пуэрто-Рико"; }

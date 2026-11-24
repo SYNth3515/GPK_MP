@@ -2,6 +2,7 @@
 #define PROGRAM_NET_HPP
 
 #define NET_DEFAULT_SERVER_PORT			29020
+#define NET_LAN_SCAN_PORTS				20		// COOP s47: the LAN search asks the ports 29020 .. 29039 (a server with another port is found)
 
 #define NETSHIP_MAST_TOUCH_BALL			0
 #define NETSHIP_MAST_TOUCH_ISLAND		1
@@ -99,6 +100,13 @@
 #define NSC_FILE_TRANSFER_READY			3
 #define NSC_FILE_RECEIVER_READY			4
 #define NSC_FILE_CANCEL					5
+// COOP s47: the maps of RESOURCE\Downloads (net\NetDl.c); the subcodes from 20 have no file ids after them
+#define NSC_DL_LISTREQ					20		// client -> server: the key of the map
+#define NSC_DL_LIST						21		// server -> client: the files of the map (path, size, crc)
+#define NSC_DL_REQ						22		// client -> server: the file i
+#define NSC_DL_DATA						23		// server -> client: the chunk k of the file i (not guaranteed)
+#define NSC_DL_ACK						24		// client -> server: the next chunk expected (not guaranteed)
+#define NSC_DL_NOMAP					25		// server -> client: no such map
 
 // NC_CONNECT
 #define NSC_CONNECT_REQUEST							0
@@ -413,6 +421,7 @@
 #define NSC_MASTERSERVER_DELSERVER		4
 #define NSC_MASTERSERVER_DISCONNECT		5
 #define NSC_MASTERSERVER_PUNCH			6	// P2P: client -> master: "I connect to this server"; master -> host: address of that client
+#define NSC_MASTERSERVER_ADDRESS		7	// COOP s47d: master -> host, the answer to ADD / UPDATE: [ip4][port BE] the public address of this server
 
 // NC_BUY
 #define NSC_BUY_OK						0

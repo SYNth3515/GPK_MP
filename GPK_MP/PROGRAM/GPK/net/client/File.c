@@ -1,6 +1,7 @@
 void NetClient_OnFile(int iMsg)
 {
 	int iSubCode = NMGetByte(iMsg);
+	if (iSubCode >= NSC_DL_LISTREQ) { NetDl_CliOnFile(iSubCode, iMsg); return; }		// COOP s47: net\NetDl.c
 	int iFileID1 = NMGetDword(iMsg);
 	int iFileID2 = NMGetDword(iMsg);
 

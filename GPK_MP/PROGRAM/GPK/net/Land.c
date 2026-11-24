@@ -2260,6 +2260,13 @@ void NetLand_OnStart(int iMsg)
 		sLoc = NetTdm_Prepare(sTdmKey);
 		if (sLoc == "") { Trace("COOP: land duel: no TDM location " + sTdmKey); return; }
 	}
+	// COOP s47: a map of RESOURCE\Downloads (net\NetDl.c) goes into the same slot
+	if (NetDl_IsKey(sLoc))
+	{
+		string sDlKey = sLoc;
+		sLoc = NetDl_PrepareLand(sDlKey);
+		if (sLoc == "") { Trace("COOP: land duel: no downloaded map " + sDlKey); return; }
+	}
 	if (FindLocation(sLoc) < 0) { Trace("COOP: land duel: no location " + sLoc); return; }
 	// COOP s27: "Clone_location" is the template of the single player (a quest copies another location into it); its own farm
 	// field lies in locations\decks\FarmField, the path "locations\" of the template found no model (a dark screen)
@@ -7286,6 +7293,7 @@ string NetLand_LoadingImage(string sLoc)
 	if (sLoc == "Ship_deck" || sLoc == "Deck_Near_Ship") { return "loading\sea.tga"; }
 	if (sLoc == "Clone_location") { return "loading\towns\pearl1.tga"; }		// COOP s27: the farm: the picture of the pirate settlement
 	if (NetTdm_IsKey(sLoc)) { return NetTdm_Image(sLoc); }		// COOP s27: the locations of TDM
+	if (NetDl_IsKey(sLoc)) { return NetDl_Picture(); }		// COOP s47: a downloaded map: the picture of the sea
 	int iLocIdx = FindLocation(sLoc);
 	if (iLocIdx >= 0)
 	{
@@ -7298,6 +7306,7 @@ string NetLand_LocName(string sLoc)
 {
 	if (sLoc == "Clone_location") { return "Ферма"; }		// COOP s27: the template location of the single player (the farm field)
 	if (NetTdm_IsKey(sLoc)) { return NetTdm_Name(sLoc); }		// COOP s27: the locations of TDM
+	if (NetDl_IsKey(sLoc)) { return NetDl_Name(sLoc); }		// COOP s47: a downloaded map ("Другое" when it is not here)
 	int iLocIdx = FindLocation(sLoc);
 	string sName = sLoc;
 	if (iLocIdx >= 0)

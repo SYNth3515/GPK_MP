@@ -597,10 +597,6 @@ void NetClient_OnShipInfo(int iMsg)
 {
 	int wOurClientID = NMGetClientID(iMsg);
 	ref rClient = NetClient_GetClient(wOurClientID);
-
-	ref rBall = Net_GetGoodByIndex(sti(rClient.Ship.Cannons.Charge.Type));
-	string sBallName = rBall.name;
-
 	int iMsgServerTime = NMGetDword(iMsg);
 
 	rClient.Ship.SailState = NMGetByte(iMsg) / 2.0;
@@ -647,6 +643,13 @@ void NetClient_OnShipInfo(int iMsg)
 
 	// COOP: cannons really standing on the ship (see server\OnShip.c), used by the spyglass
 	rClient.Ship.CannonsInstalled = NMGetWord(iMsg);
+
+	// COOP s48g/s48k: a ship not made here yet (a late joiner, a player back in the lobby): nothing more. Only AFTER the last
+	// read: a packet holds several messages, an early return gave the rest of this one to the next (the crash at a reconnect)
+	if (!CheckAttribute(rClient, "Ship.Cannons.Charge.Type")) { return; }
+	if (!CheckAttribute(rClient, "Ship.Type")) { return; }
+	ref rBall = Net_GetGoodByIndex(sti(rClient.Ship.Cannons.Charge.Type));
+	string sBallName = rBall.name;
 
 	rClient.Ship.HP = fHP;
 	rClient.Ship.Crew.Quantity = fCrew;

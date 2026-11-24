@@ -12,8 +12,14 @@ bool bFGAutoRefresh = false;
 
 bool bFGInitDone = false;
 bool bMasterConnecting = false;
+bool bMasterNoAnswer = false;	// COOP s47d: the master did not answer: the Internet tab says so instead of its counter
 bool bFGConnectPending = false;	// P2P: waiting for the host to open its NAT before the connect request is sent
 #define FG_PUNCH_DELAY		700		// ms between the punch request and the connect request
+#define FG_P2P_RESEND		1500	// COOP s47: ms between the copies of the connect request until the host answers
+bool bFGP2PConnect = false;		// COOP s47: a connect to an Internet address: the request is sent again until an answer
+int iFGP2PTime = 0;
+int iFGP2PAnswers = 0;
+bool bFGP2PPunch = false;
 int iMasterTryCount = 0;
 
 int iGetInetServersFrameTime = 0;
@@ -28,6 +34,7 @@ void InitInterface(string iniName)
 
 	bFGInitDone = false;
 	bMasterConnecting = false;
+	bMasterNoAnswer = false;	// COOP s47d
 	iMasterTryCount = 0;
 
 	DeleteAttribute(&NCFavorites, "");
@@ -44,6 +51,7 @@ void InitInterface(string iniName)
 
 	SetEventHandler("NCEvent_MasterServer_Connect", "FG_MasterServerOnConnect", 0);
 	SetEventHandler("NCEvent_MasterServer_GetServers", "FG_MasterServer_GetServers", 0);
+	SetEventHandler("FG_InetRePing", "FG_InetRePing", 0);		// COOP s47
 
 	SetEventHandler("OnRejectedOk", "FG_ClientRejectedOk", 0);
 	SetEventHandler("OnNeedPasswordOk", "FG_ClientNeedPasswordOk", 0);
@@ -301,12 +309,15 @@ void FG_MasterServerTryConnectTimer()
 
 void FG_MasterServerGiveUp()
 {
+	Trace("Master: no answer from " + sMasterServerAddress + ":" + iMasterServerPort);	// COOP s47c
 	bMasterConnecting = false;
+	bMasterNoAnswer = true;		// COOP s47d
 	DelEventHandler("FG_MasterServerTryConnectTimer", "FG_MasterServerTryConnectTimer");
 }
 
 void FG_MasterServerOnConnect()
 {
+	bMasterNoAnswer = false;	// COOP s47d
 	DelEventHandler("FG_MasterServerTryConnectTimer", "FG_MasterServerTryConnectTimer");
 	SetEventHandler("frame", "FG_MasterServer_GetServersFrameTimer", 0);
 
@@ -315,6 +326,7 @@ void FG_MasterServerOnConnect()
 	int iMsg = GetEventData();
 	iNumInternetServerToLoad = NMGet24(iMsg);
 	iCurrentInternetServersLoaded = 0;
+	Trace("Master: " + sMasterServerAddress + ":" + iMasterServerPort + " has " + iNumInternetServerToLoad + " servers");	// COOP s47c
 
 	StringCollection_SetText("STRINGS_INETSERVERLOADING_STATUS", 3, "capNetFG_MS_LoadingServersList");
 	StringCollection_SetText("STRINGS_INETSERVERLOADING_QUANTITY", 2, "#" + "0 / " + iNumInternetServerToLoad);
@@ -354,6 +366,7 @@ void FG_MasterServer_GetServers()
 			int dwIP = NMGetDword(iMsg);
 			int wPort = ntohs(NMGetWord(iMsg));
 
+			Trace("Master: server " + inet_ntoa(dwIP) + ":" + wPort + ", ping sent");	// COOP s47c
 			string sSrvIndex = "l" + iCurrentInternetServersLoaded;
 			NCInetServers.list.(sSrvIndex).IP = dwIP;
 			NCInetServers.list.(sSrvIndex).Port = wPort;
@@ -368,6 +381,9 @@ void FG_MasterServer_GetServers()
 			NetClient_SendMessageDirectToIP(dwIP, wPort, iSMsg);
 			NMDelete(iSMsg);
 		}
+		// COOP s47 (P2P): the master has asked these hosts to open their NAT for us, the first ping may have been faster
+		PostEvent("FG_InetRePing", 900);
+		PostEvent("FG_InetRePing", 2500);
 	}
 
 	StringCollection_SetText("STRINGS_INETSERVERLOADING_QUANTITY", 2, "#" + iCurrentInternetServersLoaded + " / " + iNumInternetServerToLoad);
@@ -438,7 +454,8 @@ void SelectServer(ref rServer, int iSelected)
 	}
 	else
 	{
-		Picture_SetPicture("SERVER_MAP_PICTURE", "Interfaces\Net\Islands\" + sIslandMap + ".tga");
+		if (NetDl_IsKey(sIslandMap)) { Picture_SetPicture("SERVER_MAP_PICTURE", NetDl_Picture()); }		// COOP s47: a downloaded map
+		else { Picture_SetPicture("SERVER_MAP_PICTURE", "Interfaces\Net\Islands\" + sIslandMap + ".tga"); }
 	}
 
 	SetFormatedText("SERVERINFO_NAME", FG_Clean(rServer.Name));
@@ -453,6 +470,7 @@ void SelectServer(ref rServer, int iSelected)
 		StringCollection_SetText("STRINGS_SERVERINFO", 1, "#" + Net_GetIslandName(sIslandMap));
 		StringCollection_SetText("STRINGS_SERVERINFO", 2, "txtCS_" + NetModes[sti(rServer.GameType)].Name);
 	}
+	if (NetDl_KeyOfAdvert(sIslandMap) != "") { StringCollection_SetText("STRINGS_SERVERINFO", 1, "#Другое"); }		// COOP s47
 	StringCollection_SetText("STRINGS_SERVERINFO", 3, "#" + rServer.Credit);
 	StringCollection_SetText("STRINGS_SERVERINFO", 4, "#" + rServer.NumClients + " / " + rServer.MaxClients);
 	StringCollection_SetText("STRINGS_SERVERINFO", 5, "#" + rServer.MaxClass);
@@ -553,6 +571,43 @@ void FG_SelectEmptyServer()
 
 void FG_ClientAccepted()
 {
+	// COOP s47: the map of the server is downloaded first (net\NetDl.c), the window of the connect shows it
+	if (NetDl_CliBusy()) { FG_DlShow(); return; }
+	IDoExit(RC_INTERFACE_NET_BUY);
+}
+
+bool bFGDownloading = false;
+
+void FG_DlShow()
+{
+	DelEventHandler("frame", "FG_OnTryConnectFrame");		// no 30 s limit: the download has its own one (no answer 20 s)
+	bFGDownloading = true;
+	StringCollection_SetText("STRINGS_TRYCONNECT", 1, "#Загрузка ресурсов");
+	SetEventHandler("frame", "FG_OnDlFrame", 0);
+	SetEventHandler("NCEvent_DlDone", "FG_OnDlDone", 0);
+	FG_OnDlFrame();
+}
+
+void FG_OnDlFrame()
+{
+	SetFormatedText("TEXT_TRYCONNECT", NetDl_CliProgress());
+	SetFormatedText("TEXT_TRYCONNECT_TIMER", "");
+}
+
+void FG_DlEnd()
+{
+	DelEventHandler("frame", "FG_OnDlFrame");
+	DelEventHandler("NCEvent_DlDone", "FG_OnDlDone");
+	if (bFGDownloading) { StringCollection_SetText("STRINGS_TRYCONNECT", 1, "capFG_TryConnect"); }
+	bFGDownloading = false;
+}
+
+void FG_OnDlDone()
+{
+	int iOk = GetEventData();
+	FG_OnDlFrame();
+	if (iOk == 0) { return; }		// failed: the reason stays in the window, "Cancel" goes back
+	FG_DlEnd();
 	IDoExit(RC_INTERFACE_NET_BUY);
 }
 
@@ -700,6 +755,8 @@ void FG_TabFavorites()
 
 void IDoExit(int exitCode)
 {
+	FG_DlEnd();		// COOP s47
+	DelEventHandler("frame", "FG_OnTryConnectFrame");
 	DelEventHandler("FG_PreviewConnect", "FG_PreviewConnect");
 	DelEventHandler("NCEvent_Client_Accepted", "FG_ClientAccepted");
 	DelEventHandler("NCEvent_Client_Rejected", "FG_ClientRejected");
@@ -710,6 +767,7 @@ void IDoExit(int exitCode)
 
 	DelEventHandler("NCEvent_MasterServer_Connect", "FG_MasterServerOnConnect");
 	DelEventHandler("NCEvent_MasterServer_GetServers", "FG_MasterServer_GetServers");
+	DelEventHandler("FG_InetRePing", "FG_InetRePing");		// COOP s47
 
 	DelEventHandler("OnRejectedOk", "FG_ClientRejectedOk");
 	DelEventHandler("OnNeedPasswordOk", "FG_ClientNeedPasswordOk");
@@ -1051,6 +1109,11 @@ void FG_OnFrame()
 		break;
 	}
 
+	// COOP s47d: no answer from the master and no server found: the players see why the list is empty
+	if (iCurrentServersList == NET_FG_INTERNET && iNumInternetServers == 0)
+	{
+		if (bMasterNoAnswer) { sNumServers = "Мастер-сервер не отвечает"; }
+	}
 	// the counter is the last (5th) string of STRINGS_INFO; the stale header placeholder is gone
 	StringCollection_SetText("STRINGS_INFO", 5, sNumServers);
 
@@ -1280,6 +1343,10 @@ void FG_OnConnectOk()
 	else
 	{
 		bFGConnectPending = true;
+		bFGP2PConnect = true;		// COOP s47: FG_OnTryConnectFrame sends the request again until the host answers
+		iFGP2PTime = 0;
+		iFGP2PAnswers = iNCConnectAnswers;
+		bFGP2PPunch = false;
 		FG_RequestPunch(sCurrentIP, sti(sCurrentPort));
 		SetEventHandler("FG_DoTryConnect", "FG_DoTryConnect", 0);
 		PostEvent("FG_DoTryConnect", FG_PUNCH_DELAY);
@@ -1310,6 +1377,25 @@ void FG_OnTryConnectFrame()
 
 	SetFormatedText("TEXT_TRYCONNECT_TIMER", XI_ConvertString("Net_TimeToCancelConnection") + (30 - (iTryConnectDeltaTime / 1000)) + XI_ConvertString("seconds"));
 
+	// COOP s47 (P2P): no answer of the host yet - the request (and every second time the punch request) is sent again:
+	// the first one can reach the router of the host before the host has opened it for us
+	if (bFGP2PConnect && !bFGConnectPending)
+	{
+		if (iNCConnectAnswers != iFGP2PAnswers) { bFGP2PConnect = false; }
+		else
+		{
+			iFGP2PTime = iFGP2PTime + iRealDeltaTime;
+			if (iFGP2PTime >= FG_P2P_RESEND)
+			{
+				iFGP2PTime = 0;
+				bFGP2PPunch = !bFGP2PPunch;
+				if (bFGP2PPunch) { FG_RequestPunch(sCurrentIP, sti(sCurrentPort)); }
+				Trace("P2P: connect request again to " + sCurrentIP + ":" + sCurrentPort);
+				NetClient_TryConnect(sCurrentIP, sti(sCurrentPort));
+			}
+		}
+	}
+
 	if (iTryConnectDeltaTime >= 30000)
 	{
 		DelEventHandler("frame", "FG_OnTryConnectFrame");
@@ -1321,8 +1407,16 @@ void FG_OnTryConnectFrame()
 
 void FG_OnTryConnectCancel()
 {
+	// COOP s47: the download of the map is cancelled: we are connected already, the client is made again
+	if (bFGDownloading)
+	{
+		FG_DlEnd();
+		Net_DeleteClient();
+		Net_CreateClient();
+	}
 	NetPreview_Abort("cancel");		// COOP
 	bFGConnectPending = false;
+	bFGP2PConnect = false;		// COOP s47
 	DelEventHandler("FG_DoTryConnect", "FG_DoTryConnect");
 
 	XI_WindowShow("WND_TRYCONNECT", false);
@@ -1428,12 +1522,14 @@ bool AddServerToList(string sTableName, ref rServer, int iIndex)
 	arTable.td2.str = FG_Clean(rServer.Name);
 	arTable.td3.str = "";
 	arTable.td4.str = rServer.IP + ":" + rServer.Port;
+	if (CheckAttribute(rServer, "PubIP")) { arTable.td4.str = rServer.PubIP + ":" + rServer.PubPort; }	// COOP s47d: own server, the connect stays local
 	arTable.td5.str = XI_ConvertString("txtCS_" + NetModes[sti(rServer.GameType)].Name);
 	if (NetLand_IsAdvert(rServer.IslandID))
 	{
 		arTable.td3.str = NetLand_LocName(NetLand_AdvertLoc(rServer.IslandID));
 		arTable.td5.str = XI_ConvertString("txtCS_LandDuel");
 	}
+	if (NetDl_KeyOfAdvert(rServer.IslandID) != "") { arTable.td3.str = "Другое"; }		// COOP s47: a downloaded map
 	arTable.td6.str = rServer.NumClients + " / " + rServer.MaxClients;
 	arTable.td7.str = rServer.Ping;
 
@@ -1454,6 +1550,8 @@ void AddServer(ref rServer, string sName, string sIP, int wPort, bool bSecure, i
 	rServer.NumClients = iNumClients;
 	rServer.MaxClients = iMaxClients;
 	rServer.Ping = iPing;
+	DeleteAttribute(rServer, "PubIP");	// COOP s47d: the slots of the list are used again
+	DeleteAttribute(rServer, "PubPort");
 }
 
 void NetInterface_AddLocalServerToList(string sName, string sIP, int wPort, bool bSecure, int iGameType, int iCredit, int iMaxClass, string sWeatherID, string sIslandID, int iNumClients, int iMaxClients, int iPing)
@@ -1475,7 +1573,22 @@ void NetInterface_AddLocalServerToList(string sName, string sIP, int wPort, bool
 
 void NetInterface_AddInternetServerToList(string sName, string sIP, int wPort, bool bSecure, int iGameType, int iCredit, int iMaxClass, string sWeatherID, string sIslandID, int iNumClients, int iMaxClients, int iPing)
 {
+	// COOP s47: the servers are pinged again (FG_InetRePing): one entry per IP:port
+	bool bDupLan = FG_IsPrivateIP(sIP);
+	for (int iDup=0; iDup<iNumInternetServers; iDup++)
+	{
+		if (sti(InternetServers[iDup].Port) != wPort) { continue; }
+		if (InternetServers[iDup].IP == sIP) { return; }
+		// COOP s47b: the same server through its LAN address (FG_InetLanPing) and its public address
+		// COOP s47d: or through two LAN addresses of one PC (the adapter of a VPN and the network card)
+		// (simple statements: the script compiler fails on "a && (b || f(x[i].y))")
+		if (InternetServers[iDup].Name != sName) { continue; }
+		if (bDupLan) { return; }
+		bool bDupOldLan = FG_IsPrivateIP(InternetServers[iDup].IP);
+		if (bDupOldLan) { return; }
+	}
 	AddServer(&InternetServers[iNumInternetServers], sName, sIP, wPort, bSecure, iGameType, iCredit, iMaxClass, sWeatherID, sIslandID, iNumClients, iMaxClients, iPing);
+	if (bDupLan) { FG_SetOwnPublicAddr(&InternetServers[iNumInternetServers], sName, wPort); }	// COOP s47d
 	if (AddServerToList("TABLE_INETSERVER", &InternetServers[iNumInternetServers], iNumInternetServersList))
 	{
 		InternetServersList[iNumInternetServersList] = iNumInternetServers;
@@ -1483,6 +1596,31 @@ void NetInterface_AddInternetServerToList(string sName, string sIP, int wPort, b
 	}
 	iNumInternetServers++;
 	Table_UpdateWindow("TABLE_INETSERVER");
+}
+
+// COOP s47d: this PC hosts the Internet server that answered through a LAN address (FG_InetLanPing): the list shows the public
+// address the master told this server (NetServer.Public, the one with the same port first); the connect goes to the LAN address
+void FG_SetOwnPublicAddr(ref rServer, string sName, int wPort)
+{
+	if (!NetServer_IsStarted()) { return; }
+	if (!CheckAttribute(&NetServer, "Public")) { return; }
+	if (sti(NetServer.ServerPort) != wPort) { return; }
+	string sOwnName = FG_Clean(NetServer.ServerName);
+	string sAnsName = FG_Clean(sName);
+	if (sOwnName != sAnsName) { return; }
+	aref arPub;
+	makearef(arPub, NetServer.Public);
+	int iNum = GetAttributesNum(arPub);
+	if (iNum <= 0) { return; }
+	int iBest = 0;
+	for (int i=0; i<iNum; i++)
+	{
+		aref arA = GetAttributeN(arPub, i);
+		if (sti(arA.Port) == wPort) { iBest = i; break; }
+	}
+	aref arBest = GetAttributeN(arPub, iBest);
+	rServer.PubIP = arBest.IP;
+	rServer.PubPort = arBest.Port;
 }
 
 // COOP: an attribute that is not there is shown as "(null)": the text is empty instead
@@ -1589,6 +1727,79 @@ void FG_RequestPunch(string sIP, int wPort)
 	NetClient_SendMasterServerMessage(sMasterServerAddress, iMasterServerPort, iSMsg);
 	NMDelete(iSMsg);
 	Trace("P2P: punch request sent to master for " + sIP + ":" + wPort);
+}
+
+// COOP s47 (P2P): the servers of the master list that have not answered are pinged again
+void FG_InetRePing()
+{
+	if (!CheckAttribute(&NCInetServers, "list")) { return; }
+	aref arList;
+	makearef(arList, NCInetServers.list);
+	int iNum = GetAttributesNum(arList);
+	for (int i=0; i<iNum; i++)
+	{
+		aref arSrv = GetAttributeN(arList, i);
+		int dwIP = sti(arSrv.IP);
+		int wPort = sti(arSrv.Port);
+		string sIP = inet_ntoa(dwIP);
+		bool bHave = false;
+		for (int j=0; j<iNumInternetServers; j++)
+		{
+			if (InternetServers[j].IP == sIP && sti(InternetServers[j].Port) == wPort) { bHave = true; break; }
+		}
+		if (bHave) { continue; }
+
+		int iSMsg = NMCreate();
+		NMAddClientID(iSMsg, DST_INVALID);
+		NMAddByte(iSMsg, NC_BROADCAST);
+		NMAddByte(iSMsg, NSC_BROADCAST_INET);
+		NMAddDword(iSMsg, Net_GetTickCount());
+		NetClient_SendMessageDirectToIP(dwIP, wPort, iSMsg);
+		NMDelete(iSMsg);
+	}
+	FG_InetLanPing();
+}
+
+// COOP s47b: an Internet server of this PC / LAN is not reached through its public address (no NAT hairpin, a VPN):
+// the Internet ping is broadcast in the LAN too (it answers with its LAN address, the connect goes there)
+void FG_InetLanPing()
+{
+	string sOldPort = "" + NET_DEFAULT_SERVER_PORT;
+	if (CheckAttribute(&NetClient, "ServerPort")) { sOldPort = NetClient.ServerPort; }
+	int iSMsg = NMCreate();
+	NMAddClientID(iSMsg, DST_INVALID);
+	NMAddByte(iSMsg, NC_BROADCAST);
+	NMAddByte(iSMsg, NSC_BROADCAST_INET);
+	NMAddDword(iSMsg, Net_GetTickCount());
+	int i;
+	for (i=0; i<NET_LAN_SCAN_PORTS; i++)
+	{
+		NetClient.ServerPort = NET_DEFAULT_SERVER_PORT + i;
+		NetClient_SendBroadcastMessage(iSMsg);
+	}
+	if (CheckAttribute(&NCInetServers, "list"))
+	{
+		aref arList;
+		makearef(arList, NCInetServers.list);
+		int iNum = GetAttributesNum(arList);
+		for (i=0; i<iNum; i++)
+		{
+			aref arSrv = GetAttributeN(arList, i);
+			int wPort = sti(arSrv.Port);
+			if (wPort >= NET_DEFAULT_SERVER_PORT && wPort < NET_DEFAULT_SERVER_PORT + NET_LAN_SCAN_PORTS) { continue; }
+			bool bSent = false;
+			for (int j=0; j<i; j++)
+			{
+				aref arPrev = GetAttributeN(arList, j);
+				if (sti(arPrev.Port) == wPort) { bSent = true; break; }
+			}
+			if (bSent) { continue; }
+			NetClient.ServerPort = wPort;
+			NetClient_SendBroadcastMessage(iSMsg);
+		}
+	}
+	NMDelete(iSMsg);
+	NetClient.ServerPort = sOldPort;
 }
 
 // P2P: delayed connect request (the host has opened its NAT by now)

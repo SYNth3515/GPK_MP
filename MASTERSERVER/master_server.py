@@ -13,6 +13,7 @@ Protocol (reverse-engineered from net.dll + PROGRAM/GPK/net):
     CONNECT      (0): [ver:byte]
     GETSERVERS   (1): [start:24]
     DISCONNECT   (5)
+    PUNCH        (6): [ip:4 a.b.c.d][port:2 BIG-endian]   "I am going to connect to this server"
   game server -> master (port of the server = UDP source port of the datagram)
     ADDSERVER    (3): [ver:byte]
     UPDATESERVER (2): [ver:byte]   (ver optional, old scripts send nothing)
@@ -20,6 +21,13 @@ Protocol (reverse-engineered from net.dll + PROGRAM/GPK/net):
   master -> client
     CONNECT    reply: [13][0][count:24]
     GETSERVERS reply: [13][1][start:24][n:byte] n * ([ip:4 bytes a.b.c.d][port:2 bytes BIG-endian])
+  master -> game server (P2P, NAT hole punching; no port forwarding on the host)
+    PUNCH: [ClientID 0xFE][13][6][client ip:4][client port:2 BIG-endian]
+      sent for a PUNCH request of a client and for every server of a GETSERVERS page: the host sends one tiny
+      packet to that client from its game socket, so its router lets the client's ping / connect request in.
+    ADDRESS: [ClientID 0xFE][13][7][server ip:4][server port:2 BIG-endian]
+      the answer to every accepted ADD / UPDATE: the public address the master sees for this game server (one per
+      path: a host with a VPN is seen through the VPN exit too). Old game scripts ignore unknown subcodes.
 
 Only the Python standard library is used.
 """
@@ -33,7 +41,9 @@ import time
 from collections import defaultdict
 
 NC_MASTERSERVER = 13
-SUB_CONNECT, SUB_GETSERVERS, SUB_UPDATE, SUB_ADD, SUB_DEL, SUB_DISCONNECT = 0, 1, 2, 3, 4, 5
+SUB_CONNECT, SUB_GETSERVERS, SUB_UPDATE, SUB_ADD, SUB_DEL, SUB_DISCONNECT, SUB_PUNCH = 0, 1, 2, 3, 4, 5, 6
+SUB_ADDRESS = 7           # master -> game server: its public address
+CLIENT_ID_INVALID = 0xFE  # game servers read a ClientID byte first (DST_INVALID as a byte)
 
 SERVER_TTL = 150          # sec without ADD/UPDATE -> server removed (game sends UPDATE every 60 s)
 CLIENT_TTL = 120          # sec lifetime of a client's list snapshot
@@ -140,6 +150,10 @@ class Master(asyncio.DatagramProtocol):
         elif sub in (SUB_ADD, SUB_UPDATE):
             ver = r.byte() if r.left() else None
             self.on_add(addr, ver, sub == SUB_ADD)
+        elif sub == SUB_PUNCH:
+            ip = socket.inet_ntoa(bytes(r.byte() for _ in range(4)))
+            port = r.byte() << 8 | r.byte()
+            self.on_punch(addr, (ip, port))
         elif sub == SUB_DEL:
             if self.servers.pop(addr, None):
                 log.info("server removed %s:%d", *addr)
@@ -170,6 +184,21 @@ class Master(asyncio.DatagramProtocol):
             out += socket.inet_aton(ip) + struct.pack(">H", port)
         self.send(addr, bytes(out))
         self.stats["getservers"] += 1
+        for srv in chunk:                            # P2P: the hosts open their NAT for the ping of this client
+            self.punch(srv, addr)
+
+    def punch(self, srv, client):
+        self.send(srv, bytes([CLIENT_ID_INVALID, NC_MASTERSERVER, SUB_PUNCH])
+                  + socket.inet_aton(client[0]) + struct.pack(">H", client[1]))
+        self.stats["punches"] += 1
+
+    def on_punch(self, addr, srv):
+        if srv not in self.servers:
+            self.stats["punch_unknown"] += 1
+            log.debug("punch from %s:%d for unknown server %s:%d", addr[0], addr[1], *srv)
+            return
+        self.punch(srv, addr)
+        log.info("punch %s:%d -> server %s:%d", addr[0], addr[1], *srv)
 
     def on_add(self, addr, ver, is_add):
         now = time.monotonic()
@@ -178,6 +207,7 @@ class Master(asyncio.DatagramProtocol):
             s["seen"] = now
             if ver is not None:
                 s["ver"] = ver
+            self.tell_address(addr)
             return
         if sum(1 for a in self.servers if a[0] == addr[0]) >= MAX_SERVERS_PER_IP \
                 or len(self.servers) >= MAX_SERVERS_TOTAL:
@@ -186,6 +216,11 @@ class Master(asyncio.DatagramProtocol):
         self.servers[addr] = {"ver": ver, "seen": now, "added": now}
         log.info("server %s %s:%d ver=%s (total %d)",
                  "added" if is_add else "re-registered by update", addr[0], addr[1], ver, len(self.servers))
+        self.tell_address(addr)
+
+    def tell_address(self, addr):
+        self.send(addr, bytes([CLIENT_ID_INVALID, NC_MASTERSERVER, SUB_ADDRESS])
+                  + socket.inet_aton(addr[0]) + struct.pack(">H", addr[1]))
 
     # -- housekeeping --------------------------------------------------------------------------
     def cleanup(self):

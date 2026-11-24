@@ -19,6 +19,10 @@ srv[0].sendto(msg([13, 3, VER]), (HOST, PORT))
 srv[1].sendto(msg([13, 3, VER]), (HOST, PORT))
 srv[1].sendto(msg([13, 2, VER]), (HOST, PORT))   # heartbeat: must not create a duplicate entry
 time.sleep(0.3)
+# 1b) the master answers ADD / UPDATE with the public address it sees: [0xFE][13][7][ip:4][port BE]
+p = parse_packet(srv[0].recvfrom(1024)[0])
+assert p[:3] == bytes([0xFE, 13, 7]) and struct.unpack(">H", p[7:9])[0] == 31001, p
+print("address answer:", socket.inet_ntoa(p[3:7]), struct.unpack(">H", p[7:9])[0])
 
 # 2) client connects exactly like FG_ConnectToMasterServer
 c = sock()
@@ -60,4 +64,21 @@ p = parse_packet(c.recvfrom(1024)[0]); print("count after del =", p[2]); assert 
 # 6) wrong version client does not see servers
 c.sendto(msg([13, 0, 1]), (HOST, PORT))
 p = parse_packet(c.recvfrom(1024)[0]); print("count for other version =", p[2]); assert p[2] == 0
+# 7) P2P: GETSERVERS makes the master send PUNCH to every listed server, a PUNCH request goes to that server
+for x in srv:                                    # drop the punches of the first client
+    x.settimeout(0.2)
+    try:
+        while True: x.recvfrom(1024)
+    except socket.timeout: pass
+    x.settimeout(2)
+c2 = sock(); c2.sendto(msg([13, 0, VER]), (HOST, PORT)); parse_packet(c2.recvfrom(1024)[0])
+c2.sendto(msg([13, 1], struct.pack("<I", 0)[:3]), (HOST, PORT)); parse_packet(c2.recvfrom(1024)[0])
+cport = c2.getsockname()[1]
+p = parse_packet(srv[1].recvfrom(1024)[0])
+assert p[:3] == bytes([0xFE, 13, 6]) and struct.unpack(">H", p[7:9])[0] == cport, p
+print("punch on getservers: ok")
+c2.sendto(msg([13, 6], socket.inet_aton("127.0.0.1"), struct.pack(">H", 31002)), (HOST, PORT))
+p = parse_packet(srv[1].recvfrom(1024)[0])
+assert p[:3] == bytes([0xFE, 13, 6]) and struct.unpack(">H", p[7:9])[0] == cport, p
+print("punch request: ok")
 print("ALL OK")

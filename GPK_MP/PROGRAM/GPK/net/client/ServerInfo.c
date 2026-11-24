@@ -30,6 +30,7 @@ void NetClient_OnServerInfo_Common(int iMsg)
 	NCServer.GameSpeed = NMGetByte(iMsg);
 	NCServer.WeatherID = NMGetString(iMsg);
 	NCServer.IslandID = NMGetString(iMsg);
+	NetDl_CliMapChanged(NCServer.IslandID);		// COOP s47: the host chose a downloaded map in the lobby: it is downloaded now
 	// COOP: game state and switches of the server
 	NCServer.GameRunning = NMGetByte(iMsg);
 	NCServer.Respawn = NMGetByte(iMsg);

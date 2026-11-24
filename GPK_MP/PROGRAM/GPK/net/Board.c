@@ -683,7 +683,7 @@ void NetServer_BDSendEnd(int w, int iWon)
 {
 	if (w < 0 || w >= NET_MAXPLAYERS) { return; }
 	if (!sti(NSClients[w].Use)) { return; }
-	DeleteAttribute(&NSClients[w], "BoardSent");		// COOP s45: the boarding state goes to him again (his panel of the sea is new)
+	NSClients[w].BoardSent = -2;		// COOP s45/s48i: the boarding state goes to him again, "nothing" too (his panel of the sea is new)
 	int iSMsg = NMCreate();
 	NMAddByte(iSMsg, NC_LAND);
 	NMAddByte(iSMsg, NSC_LAND_BOARD_END);
@@ -868,6 +868,9 @@ void NetBoard_SeaShow()
 	NetBoard_NetWeatherRun(true);
 	NetBoard_SharksBack();
 	NetBoard_SinkBack();
+	// COOP s47e: Sailors.dll keeps the sea entity it found when it was made (a crew rebuild in the duel took the Sea of the
+	// deck); that one is gone now: a sailor jumping overboard crashed the game (ShipMan::Jump). The crew is made again here
+	NetClient_SailorsRebuild();
 	NetClient_CamerasSetActive(true);
 	ResetSoundScheme();
 	SetMusic("music_sea_battle");
@@ -889,6 +892,9 @@ void NetBoard_OnStart(int iMsg)
 	int iEnemy = NMGetByte(iMsg);
 	if (bNetLandActive || bNetBoardDuel) { Trace("COOP: boarding: a start in a duel, no"); return; }
 	bNetBoardDuel = true;
+	// COOP s48i: the server forgets the target it has sent (BoardSent): the old one showed the boarding icon after the duel
+	NetClient_BoardTarget = -1;
+	NetClient_BoardWasAvailable = false;
 	iNetBoardTeam = iTeam;
 	wNetBoardEnemy = wEnemy;
 	iNetBoardUpTeam = iUp;
@@ -1073,6 +1079,7 @@ bool NetBoard_SideLocator(string sName, string sPre, int iPreLen)
 //   NSC_SHIP_PRIZE_END  (server -> winner): the choice is over (the window closes)
 // ================================================================================================
 #define NET_PRIZE_TIME_MS		90000
+#define NET_PRIZE_SAFE_MS		15000	// COOP s47f: the captor is not hurt only this long while he chooses (his ship still stands)
 #define NET_PRIZE_SINK			0
 #define NET_PRIZE_EXCHANGE		1
 #define NET_PRIZE_CAPTURE		2
@@ -1090,6 +1097,18 @@ bool NetServer_ShipHeld(int w)
 	if (NetServer_BDOf(w) > 0) { return true; }
 	if (CheckAttribute(&NSClients[w], "PrizeOf")) { return true; }
 	if (CheckAttribute(&NSClients[w], "PrizeTake")) { return true; }
+	return false;
+}
+
+// COOP s47f: the ship takes no damage (NetServer_IsGod): as NetServer_ShipHeld, but the captor only NET_PRIZE_SAFE_MS
+bool NetServer_ShipSafe(int w)
+{
+	if (w < 0 || w >= NET_MAXCLIENTS) { return false; }
+	if (NetServer_BDOf(w) > 0) { return true; }
+	if (CheckAttribute(&NSClients[w], "PrizeOf")) { return true; }
+	if (!CheckAttribute(&NSClients[w], "PrizeTake")) { return false; }
+	if (!CheckAttribute(&NSClients[w], "PrizeSafeUntil")) { return false; }
+	if (iServerTime < sti(NSClients[w].PrizeSafeUntil)) { return true; }
 	return false;
 }
 
@@ -1176,6 +1195,7 @@ bool NetServer_PrizeStart(int wW, int wL)
 	rL.PrizeOf = wW;
 	rW.PrizeTake = wL;
 	rW.PrizeGen = iGen;
+	rW.PrizeSafeUntil = iServerTime + NET_PRIZE_SAFE_MS;		// COOP s47f
 	NetServer_PrizeStop(rW);
 	NetServer_PrizeStop(rL);
 
@@ -1448,7 +1468,11 @@ void NetServer_PrizeLoserTakesOld(int wL)
 	}
 	NetServer_PrizeCopyShip(arL, arOld);
 	DeleteAttribute(arL, "Ship.Bort");
+	// COOP s48j: "Ship.sails" holds Sails.Color too (a reconnect crashed the client without it)
+	int iSailColL = argb(255, 255, 255, 255);
+	if (CheckAttribute(arL, "Ship.Sails.Color")) { iSailColL = sti(arL.Ship.Sails.Color); }
 	DeleteAttribute(arL, "Ship.sails");
+	arL.Ship.Sails.Color = iSailColL;
 	DeleteAttribute(arL, "Ship.masts");
 	DeleteAttribute(arL, "Ship.MastsFallen");
 	NetServer_PrizeSendSwap(wL, stf(arL.Ship.Pos.x), stf(arL.Ship.Pos.z), stf(arL.Ship.Ang.y));
@@ -1496,7 +1520,11 @@ void NetServer_PrizeSwap(int wW, int wL, int iCrew, int iCannons)
 	if (CheckAttribute(rL, "Ship.TurnRateModifier")) { rW.Ship.TurnRateModifier = stf(rL.Ship.TurnRateModifier); }
 	if (CheckAttribute(rL, "Ship.SailsDamageModifier")) { rW.Ship.SailsDamageModifier = stf(rL.Ship.SailsDamageModifier); }
 	DeleteAttribute(rW, "Ship.Bort");
+	// COOP s48j: "Ship.sails" holds Sails.Color too (a reconnect crashed the client without it)
+	int iSailColW = argb(255, 255, 255, 255);
+	if (CheckAttribute(rW, "Ship.Sails.Color")) { iSailColW = sti(rW.Ship.Sails.Color); }
 	DeleteAttribute(rW, "Ship.sails");
+	rW.Ship.Sails.Color = iSailColW;
 	DeleteAttribute(rW, "Ship.masts");
 	DeleteAttribute(rW, "Ship.MastsFallen");
 	DeleteAttribute(rW, "Ship.ShotAcc");

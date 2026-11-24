@@ -361,6 +361,7 @@ void Main_LogoVideo()
 		// COOP s43: the option "no intro videos" (option_screen: NOINTRO_CHECKBOX, the file "options": cameramode.NoIntro)
 		SendMessage(&GameInterface, "lsa", MSG_INTERFACE_LOADOPTIONS, sNoIntroFile, &oNoIntroOpt);
 		if (CheckAttribute(&oNoIntroOpt, "cameramode.NoIntro")) { bNoIntro = sti(oNoIntroOpt.cameramode.NoIntro) != 0; }
+		if (Dedicated_IsOn()) { bNoIntro = true; }		// COOP s48: the dedicated server (net\server\DedicatedServer.c)
 		InterfaceStates.NoIntro = bNoIntro;
 		if (bNoIntro)
 		{
@@ -423,7 +424,9 @@ void Main_Start()
 
 	StartLanguageSetting(LanguageGetLanguage());
  	LoadPlayerProfileDefault(); // boal
-	LaunchMainMenu();
+	// COOP s48: the dedicated server: no main menu, the server is made from dedicated.ini (net\server\DedicatedServer.c)
+	if (Dedicated_IsOn()) { Dedicated_Start(); }
+	else { LaunchMainMenu(); }
 	//LaunchNetTopListScreen();
 
 	CharacterIsDead(GetMainCharacter());

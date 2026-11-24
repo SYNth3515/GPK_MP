@@ -1289,6 +1289,13 @@ void NetServer_SetClientDead(ref rOurClient, int iKillStatus, int wKillerClientI
 
 	if (NetServer_IsGod(sti(rOurClient.ID))) { return; }		// COOP s27: immortality of the admin menu
 
+	// COOP s47f: the captor goes down while he chooses: his prize goes down, his window closes
+	if (CheckAttribute(rOurClient, "PrizeTake"))
+	{
+		Trace("COOP: prize: the captor " + rOurClient.ID + " goes down while he chooses");
+		NetServer_PrizeCaptorGone(sti(rOurClient.ID));
+	}
+
 	// COOP: respawn mode: the ship is wrecked for a while and comes back (server\OnShip.c: NetServer_SetClientWrecked)
 	// COOP: bots sink, they have no respawn
 	bool bWreckOnly = false;
@@ -2147,7 +2154,11 @@ void NetServer_RespawnShip(int wID)
 	rC.WreckedNow = false;
 	DeleteAttribute(rC, "Killer");
 	DeleteAttribute(rC, "Ship.Sink");
+	// COOP s48j: "Ship.sails" holds Sails.Color too (a reconnect crashed the client without it)
+	int iSailColR = argb(255, 255, 255, 255);
+	if (CheckAttribute(rC, "Ship.Sails.Color")) { iSailColR = sti(rC.Ship.Sails.Color); }
 	DeleteAttribute(rC, "Ship.sails");		// sail damage of the old ship (the new entity has whole sails)
+	rC.Ship.Sails.Color = iSailColR;
 	DeleteAttribute(rC, "Ship.masts");
 	DeleteAttribute(rC, "Ship.MastsFallen");
 	rC.ShipGone = false;

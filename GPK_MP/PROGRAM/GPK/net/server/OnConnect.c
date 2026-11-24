@@ -67,6 +67,7 @@ void NetServer_DropClient(int wNetClientID)
 		DeleteClass(&NSClients[sti(rClient.index)]);
 	}*/
 
+	NetDl_SrvDropClient(wNetClientID);		// COOP s47
 	NetServer_DelClient(wNetClientID);
 
 	// send to all
@@ -154,6 +155,15 @@ void NetServer_OnConnect(int dwIP, int wPort, int iMsg)
 	string sFlagImage = NMGetString(iMsg);
 	string sSailImage = NMGetString(iMsg);
 	int iSailColor = NMGetDword(iMsg);
+	// COOP s47 (P2P): the client sends its connect request again until it gets an answer (FindGame.c): a request from the
+	// address of a connected client is a copy, it must not take a second slot (the accept goes with guaranteed delivery)
+	for (i=0; i<NET_MAXCLIENTS; i++)
+	{
+		if (!sti(NSClients[i].Use)) { continue; }
+		if (sti(NSClients[i].dwIP) != dwIP || sti(NSClients[i].wPort) != wPort) { continue; }
+		Trace("P2P: connect request again from " + inet_ntoa(dwIP) + ":" + ntohs(wPort) + " (slot " + i + "), ignored");
+		return;
+	}
 
 	// check for already connect(maybe if big lag)
 
@@ -352,7 +362,9 @@ void NetServer_SendConnectAccepted(int wNetClientID, bool bReconnect)
 	string sFaceImage = rClient.UserData.Face;
 	string sFlagImage = rClient.UserData.Flag;
 	string sSailImage = rClient.UserData.Sail;
-	int iSailColor = sti(rClient.Ship.Sails.Color);
+	// COOP s48j: a missing colour left the dword out of the message (the client read it shifted and crashed)
+	int iSailColor = argb(255, 255, 255, 255);
+	if (CheckAttribute(rClient, "Ship.Sails.Color")) { iSailColor = sti(rClient.Ship.Sails.Color); }
 
 	// a reconnecting player keeps his ship: the other clients must not forget its type (byte "keep ship")
 	int iKeepShip = 0;
@@ -362,6 +374,9 @@ void NetServer_SendConnectAccepted(int wNetClientID, bool bReconnect)
 	NMAddByte(iSMsg, NC_CONNECT);
 	NMAddByte(iSMsg, NSC_CONNECT_ACCEPTED);
 	NMAddClientID(iSMsg, wNetClientID);
+	string sDlKey = NetDl_SrvKey();		// COOP s47: a map of RESOURCE\Downloads: the client downloads it (net\NetDl.c)
+	NMAddString(iSMsg, sDlKey, 32);
+	if (sDlKey != "") { NetDl_SrvPrepare(sDlKey); }
 	NetServer_SendMessage(wNetClientID, iSMsg, true);
 	Trace("Client with IP " + inet_ntoa(sti(rClient.dwIP)) + ":" + ntohs(sti(rClient.wPort)) + " accepted. wNetClientID = " + wNetClientID + " reconnect=" + rClient.Reconnect);
 	NMDelete(iSMsg);
@@ -399,7 +414,9 @@ void NetServer_SendConnectAccepted(int wNetClientID, bool bReconnect)
 		NMAddString(iSMsg, rOldClient.UserData.Face, 12);		// client face
 		NMAddString(iSMsg, rOldClient.UserData.Flag, 12);		// client flag
 		NMAddString(iSMsg, rOldClient.UserData.Sail, 12);		// client sail emblem
-		NMAddDword(iSMsg, sti(rOldClient.Ship.Sails.Color));	// client sail color
+		int iOldSailColor = argb(255, 255, 255, 255);		// COOP s48j: never a missing dword
+		if (CheckAttribute(rOldClient, "Ship.Sails.Color")) { iOldSailColor = sti(rOldClient.Ship.Sails.Color); }
+		NMAddDword(iSMsg, iOldSailColor);	// client sail color
 		NMAddByte(iSMsg, sti(rOldClient.BuyReady));				// Buy Ready
 		NMAddByte(iSMsg, 0);									// COOP: the new client has no ships yet
 		NMAddByte(iSMsg, 0);											// COOP: 0 = the player was here before the newcomer: no chat line

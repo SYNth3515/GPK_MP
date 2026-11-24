@@ -25,6 +25,7 @@
 #include "GPK\Net\Board.c"		// COOP s37: the real boarding: the captains fight on the deck
 #include "GPK\Net\MenuScene.c"		// COOP s30: the 3D scene of the menu behind the profile screens
 #include "GPK\Net\LandTdm.c"		// COOP s27: the locations of TDM for the land duel
+#include "GPK\Net\NetDl.c"		// COOP s47: the maps of RESOURCE\Downloads, sent by the server
 #include "GPK\Net\NetInfo.c"		// COOP s31: the right click shows a description (loadout, buy screen)
 #include "GPK\Net\Client\ServerInfo.c"
 #include "GPK\Net\Client\PlayerInfo.c"
@@ -90,6 +91,7 @@ void NetClient_LoadLastProfile()
 
 void Net_DeleteClient()
 {
+	NetDl_CliReset();		// COOP s47: the receiver of a download (an object of the entity Net)
 	// COOP: tell the server that we leave (the running game parks our ship for a reconnect at once, without waiting for
 	// the ping timeout). Sent directly and twice: the queue of the client is deleted right after this.
 	if (bNetClientConnected && IsEntity(&NetClient))
@@ -223,13 +225,22 @@ void NetClient_ExitApplication()
 
 void NetClient_FindLocalServers()
 {
+	// COOP s47: net.dll broadcasts to the port NetClient.ServerPort only (to all the network adapters): the ports from the
+	// default one are asked one by one, so a server with another port is in the LAN list too
+	string sOldPort = "" + NET_DEFAULT_SERVER_PORT;
+	if (CheckAttribute(&NetClient, "ServerPort")) { sOldPort = NetClient.ServerPort; }
 	int iSMsg = NMCreate();
 	NMAddClientID(iSMsg, DST_INVALID);
 	NMAddByte(iSMsg, NC_BROADCAST);
 	NMAddByte(iSMsg, NSC_BROADCAST_LOCAL);
 	NMAddDword(iSMsg, Net_GetTickCount());
-	NetClient_SendBroadcastMessage(iSMsg);
+	for (int iScanPort=0; iScanPort<NET_LAN_SCAN_PORTS; iScanPort++)
+	{
+		NetClient.ServerPort = NET_DEFAULT_SERVER_PORT + iScanPort;
+		NetClient_SendBroadcastMessage(iSMsg);
+	}
 	NMDelete(iSMsg);
+	NetClient.ServerPort = sOldPort;
 }
 
 void NetClient_TryConnect(string sServerIP, int wPort)

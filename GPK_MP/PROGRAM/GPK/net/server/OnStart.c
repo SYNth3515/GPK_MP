@@ -1722,9 +1722,13 @@ void NetServer_SpawnLateShip(int wID)
 	rC.Life = 0;
 	DeleteAttribute(rC, "Killer");
 	DeleteAttribute(rC, "Ship.Sink");
+	// COOP s48j: "Ship.sails" holds Sails.Color too (a reconnect crashed the client without it)
+	int iSailColS = argb(255, 255, 255, 255);
+	if (CheckAttribute(rC, "Ship.Sails.Color")) { iSailColS = sti(rC.Ship.Sails.Color); }
 	DeleteAttribute(rC, "Ship.sails");
 	DeleteAttribute(rC, "Ship.masts");
 	rC.Ship.TurnLeft = 0.0;
+	rC.Ship.Sails.Color = iSailColS;
 	rC.Ship.TurnRight = 0.0;
 	rC.Ship.TurnState = 0.0;
 	rC.Ship.SailState = 0.0;

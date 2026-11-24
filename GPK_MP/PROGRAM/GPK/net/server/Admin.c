@@ -133,6 +133,61 @@ string NetServer_AdminWeatherID(int iTime, int iType)
 	}
 	return "11 Hour";
 }
+// COOP s47: the waves follow the weather type (calm / breeze / swell), not the sky of the time of day: the waves of the
+// table skies did not fit the types (day and night: calm = breeze, evening: the calm had the biggest waves). Each type takes
+// the waves of one weather of the table; calm is also capped (MaxSeaHeight, the engine scales Amp1 + Amp2 down to it, as
+// the single player game does near towns), so the sea is nearly flat. Storms and unknown ids keep their own waves.
+// The server (NSSea, the ship physics) and the clients (NCSea) call it with the same id, no net message changes.
+int NetWeather_TypeOfID(string sId)
+{
+	for (int iT=0; iT<4; iT++)
+	{
+		for (int iW=0; iW<3; iW++)
+		{
+			if (NetServer_AdminWeatherID(iT, iW) == sId) { return iW; }
+		}
+	}
+	return -1;
+}
+
+string NetWeather_WavesID(int iType)
+{
+	switch (iType)
+	{
+		case 0: return "6 Hours"; break;	// Amp 5 + 1, capped to 1.5
+		case 1: return "0 Hours"; break;	// Amp 10 + 1
+		case 2: return "10 Hours"; break;	// Amp 25 + 1
+	}
+	return "";
+}
+
+void NetWeather_SetWaves(ref rSea, string sWeatherID)
+{
+	int iType = NetWeather_TypeOfID(sWeatherID);
+	string sW = NetWeather_WavesID(iType);
+	if (sW == "") { return; }
+	int iW = -1;
+	for (int i=0; i<iTotalNumWeathers; i++)
+	{
+		if (Weathers[i].id == sW) { iW = i; break; }
+	}
+	if (iW < 0) { Trace("COOP: waves weather " + sW + " not found"); return; }
+	aref aSea2; makearef(aSea2, Weathers[iW].Sea2);
+
+	rSea.Sea2.Amp1 = Whr_GetFloat(aSea2, "Amp1");
+	rSea.Sea2.AnimSpeed1 = Whr_GetFloat(aSea2, "AnimSpeed1");
+	rSea.Sea2.Scale1 = Whr_GetFloat(aSea2, "Scale1");
+	rSea.Sea2.MoveSpeed1 = Whr_GetString(aSea2, "MoveSpeed1");
+	rSea.Sea2.Amp2 = Whr_GetFloat(aSea2, "Amp2");
+	rSea.Sea2.AnimSpeed2 = Whr_GetFloat(aSea2, "AnimSpeed2");
+	rSea.Sea2.Scale2 = Whr_GetFloat(aSea2, "Scale2");
+	rSea.Sea2.MoveSpeed2 = Whr_GetString(aSea2, "MoveSpeed2");
+	rSea.Sea2.PosShift = Whr_GetFloat(aSea2, "PosShift");
+
+	rSea.MaxSeaHeight = 50.0;
+	if (iType == 0) { rSea.MaxSeaHeight = 1.5; }
+	Trace("COOP: waves of " + sWeatherID + " type " + iType + " from " + sW + " MaxSeaHeight " + rSea.MaxSeaHeight);
+}
 
 void NetServer_AdminSyncWeatherIdx()
 {
@@ -238,7 +293,7 @@ void NetServer_AdminMute(int wTarget)
 int NetServer_IsGod(int i)
 {
 	if (i < 0 || i >= NET_MAXCLIENTS) { return 0; }
-	if (NetServer_ShipHeld(i)) { return 1; }		// COOP s37: the ships of a boarding duel are not hurt (net\Board.c), s41: a prize and its captor
+	if (NetServer_ShipSafe(i)) { return 1; }		// COOP s37: the ships of a boarding duel are not hurt (net\Board.c), s41: a prize and its captor (s47f: 15 s)
 	if (!CheckAttribute(&NSClients[i], "God")) { return 0; }
 	if (sti(NSClients[i].God)) { return 1; }
 	return 0;

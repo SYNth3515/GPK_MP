@@ -39,11 +39,23 @@ void NetServer_WhrCreateSeaEnvironment()
 	NSSea.Sea2.Frenel = Whr_GetFloat(aSea2, "Frenel");
 		
 	NSSea.MaxSeaHeight = 50.0;
+	string sWavesId = aCurWeather.id;
+	NetWeather_SetWaves(&NSSea, sWavesId);	// COOP s47: the waves by the weather type (server\Admin.c)
 	NSSea.isDone = "";
 }
 
 void NetServer_MoveSeaToLayers(string sExecuteLayer, string sRealizeLayer)
 {
 	LayerAddObject(sExecuteLayer, &NSSea, 65530);
-	LayerAddObject(sRealizeLayer, &NSSea, 65530);
+	// COOP s48i: the sea computes its waves in realize; the dedicated server freezes net_realize (nothing drawn) -> the ships
+	// of the server had garbage heights and the cannons fired from the air. Its own realize layer, never frozen.
+	string sRL = sRealizeLayer;
+	if (Dedicated_IsOn())
+	{
+		LayerCreate("ded_sea_realize", 1);
+		LayerSetRealize("ded_sea_realize", 1);
+		LayerFreeze("ded_sea_realize", false);
+		sRL = "ded_sea_realize";
+	}
+	LayerAddObject(sRL, &NSSea, 65530);
 }

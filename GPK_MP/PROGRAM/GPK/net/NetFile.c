@@ -6,6 +6,7 @@ void NetFileSend_SendData()
 	int iIndex = GetEventData();
 	int pData = GetEventData();
 	int iDataSize = GetEventData();
+	if (NetDl_OnSendData(wNetClientID, iFileID1, iFileID2, iIndex, pData, iDataSize)) { return; }		// COOP s47
 
 	int iSMsg = NMCreate();
 
@@ -34,6 +35,7 @@ void NetFileSend_TransferReady()
 	int iFileID2 = GetEventData();
 	int iCRC32 = GetEventData();
 	int iFileSize = GetEventData();
+	if (NetDl_OnTransferReady(wNetClientID, iFileID1, iFileID2, iCRC32, iFileSize)) { return; }		// COOP s47
 
 	int iSMsg = NMCreate();
 	if (wNetClientID < 0)	{ NMAddClientID(iSMsg, wClientID); }

@@ -86,7 +86,7 @@ void NetClient_CreateIslandEffects(int iIslandIndex, string sIslandID)
 		}
 		SendMessage(objGrass, "ls", 41666, "Grass\" + Islands[iIslandIndex].jungle.texture + ".tga");	// MSG_GRASS_SET_TEXTURE
 		SendMessage(objGrass, "lffffff", 42666, fJungleScale, 20.0, 200.0, 100.0, 1000.0, 0.6);			// MSG_GRASS_SET_PARAM
-		SendMessage(objGrass, "ls", 40666, "resource\models\islands\" + Islands[iIslandIndex].id + "\" + Islands[iIslandIndex].jungle.patch + ".grs");	// MSG_GRASS_LOAD_DATA
+		SendMessage(objGrass, "ls", 40666, NetDl_IslandFilesDir(iIslandIndex) + Islands[iIslandIndex].jungle.patch + ".grs");	// MSG_GRASS_LOAD_DATA (COOP s47: a downloaded map has it in its folder)
 	}
 
 	// ---- отражение острова в воде
@@ -221,12 +221,13 @@ void NetClient_CreateIslandReal()
 
 	SetTexturePath(0, "");
 
+	NetBI_SetIslandData();
+	if (NetDl_IsDlIsland(iIslandIndex)) { return; }		// COOP s47: a downloaded map has no foam of the coast (resource\foam\<id>)
+
 	NCCoastFoam.Id = sIslandID;
 	NCCoastFoam.Server = false;
 	CreateEntity(&NCCoastFoam, "NetCoastFoam");
 	LayerAddObject("net_realize", &NCCoastFoam, 65534);
 	LayerAddObject("net_execute", &NCCoastFoam, 65535);
-
-	// COOP: show the island on the minimap of the navigator (like BI_SetIslandData in single player)
-	NetBI_SetIslandData();
+	// COOP: the island is shown on the minimap of the navigator above (like BI_SetIslandData in single player)
 }

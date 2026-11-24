@@ -1,0 +1,24 @@
+# GPK_MP dedicated server, one unit per config: gpk-dedicated@Deathmatch, gpk-dedicated@TDM, ...
+# Install (the game in /opt/gpk_mp, the user gpk):
+#   sudo cp gpk-dedicated@.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now gpk-dedicated@Deathmatch
+# Log: journalctl -u gpk-dedicated@Deathmatch -f   (the game logs: /opt/gpk_mp/dedicated/run/Deathmatch/logs)
+[Unit]
+Description=GPK_MP dedicated server %i
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=gpk
+WorkingDirectory=/opt/gpk_mp
+Environment=GPK_GAME=/opt/gpk_mp
+ExecStart=/bin/bash /opt/gpk_mp/dedicated/linux/gpk-dedicated.sh %i
+Restart=always
+RestartSec=5
+TimeoutStopSec=15
+KillMode=control-group
+
+[Install]
+WantedBy=multi-user.target

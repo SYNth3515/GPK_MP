@@ -840,8 +840,16 @@ void Buy_OnServerInfo()
 		}
 		else
 		{
-			Picture_SetPicture("SERVER_MAP_PICTURE", "Interfaces\Net\Islands\" + sIslandMap + ".tga");
-			SetFormatedText("CAPTION_MAP_NAME", XI_ConvertString(sIslandMap));
+			if (NetDl_IsKey(sIslandMap))		// COOP s47: a downloaded map
+			{
+				Picture_SetPicture("SERVER_MAP_PICTURE", NetDl_Picture());
+				SetFormatedText("CAPTION_MAP_NAME", NetDl_Name(sIslandMap));
+			}
+			else
+			{
+				Picture_SetPicture("SERVER_MAP_PICTURE", "Interfaces\Net\Islands\" + sIslandMap + ".tga");
+				SetFormatedText("CAPTION_MAP_NAME", XI_ConvertString(sIslandMap));
+			}
 		}
 
 		Buy_FillPlayersTable("TABLE_PLAYERS");
@@ -3231,7 +3239,8 @@ void Buy_RespModeInit()
 
 	string sIslandMap = "OpenSea";
 	if (CheckAttribute(&NCServer, "IslandID")) { if (NCServer.IslandID != "") { sIslandMap = NCServer.IslandID; } }
-	Picture_SetPicture("SERVER_MAP_PICTURE", "Interfaces\Net\Islands\" + sIslandMap + ".tga");
+	if (NetDl_IsKey(sIslandMap)) { Picture_SetPicture("SERVER_MAP_PICTURE", NetDl_Picture()); }		// COOP s47
+	else { Picture_SetPicture("SERVER_MAP_PICTURE", "Interfaces\Net\Islands\" + sIslandMap + ".tga"); }
 	SetFormatedText("CAPTION_MAP_NAME", "Корабль после гибели текущего");
 	StringCollection_SetText("STRINGS_MAP_INFO_VALUE", 1, "txtCS_" + NetModes[sti(NCServer.GameType)].Name);
 	StringCollection_SetText("STRINGS_MAP_INFO_VALUE", 4, "#" + NCServer.MaxShipClass);

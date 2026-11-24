@@ -277,7 +277,7 @@ void NetClient_LoadCreateShip(int wNetClientID)
 	{
 		Trace("COOP: cli ship create id=" + wNetClientID + ": the old ship entity still exists, it is deleted first");
 		NetClient_SailorsDeleteShip(wNetClientID);
-		SendMessage(&NetBInterface, "ll", BI_IN_DELETE_SHIP, wNetClientID);
+		NetBI_DelShip(wNetClientID);		// COOP s48i
 		NetClient_ShipReleaseSounds(rClient);
 		rClient.CoopReady = 0;
 		DeleteClass(rClient);
@@ -610,7 +610,7 @@ bool NetClient_ShipEntityDelete(int wID, string sWhy, bool bKeepSlot)
 	}
 	Trace("COOP: cli ship del " + wID + " (" + sWhy + ") start");
 	NetClient_SailorsDeleteShip(wID);
-	SendMessage(&NetBInterface, "ll", BI_IN_DELETE_SHIP, wID);
+	NetBI_DelShip(wID);		// COOP s48i
 	NetClient_ShipReleaseSounds(rC);
 	rC.CoopReady = 0;
 	if (!bKeepSlot)
@@ -695,7 +695,7 @@ void NetClient_BotShipDelete(int wID)
 	}
 	if (iNetBotDelStage >= 3)
 	{
-		SendMessage(&NetBInterface, "ll", BI_IN_DELETE_SHIP, wID);
+		NetBI_DelShip(wID);		// COOP s48i
 		Trace("COOP: cli bot del " + wID + " step 3 done (interface)");
 	}
 	if (iNetBotDelStage >= 4)

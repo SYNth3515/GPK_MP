@@ -8,7 +8,7 @@ title GPK_MP - Build Installer
 set "SOURCE=D:\Repo\GPK_MP\GPK_MP"
 set "OUTPUT=D:\Repo\GPK_MP\Installer"
 set "ISS=%~dp0GPK_MP.iss"
-set "VERSION=16.11.26 ALPHA"
+set "VERSION=24.11.26 ALPHA"
 
 echo ==========================================
 echo        GPK_MP INSTALLER BUILDER

@@ -1,7 +1,10 @@
 
+int iNCConnectAnswers = 0;	// COOP s47: answers of servers to connect requests (FindGame.c stops sending its request again)
+
 void NetClient_OnConnect(int iMsg)
 {
 	int iSubCode = NMGetByte(iMsg);
+	iNCConnectAnswers++;
 	
 	switch (iSubCode)
 	{
@@ -119,7 +122,12 @@ void NetClient_OnConnectReconnect()
 void NetClient_OnConnectAccepted(int iMsg)
 {
 	wClientID = NMGetClientID(iMsg);
+	string sDlKey = NMGetString(iMsg);		// COOP s47: the downloaded map of the server ("" = none)
 	bNetClientConnected = true;
+
+	// COOP s47: its files are asked first (net\NetDl.c); the window of the connect shows the download (FindGame.c)
+	NetDl_CliReset();
+	NetDl_CliStart(sDlKey, false);
 
 	// create chat environment
 	NetClient_CreateChatEnvironment();

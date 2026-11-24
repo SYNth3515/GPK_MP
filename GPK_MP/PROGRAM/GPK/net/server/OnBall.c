@@ -250,7 +250,13 @@ bool NetServer_AimSolve(float x, float y, float z, float fV0, int t, float fAngM
 {
 	ref rT = NetServer_GetClient(t);
 	float fMult = NetServer_BallMult();
-	float fH = y - fNetAimHitY;
+	// COOP s47: the hit point is above the target ship, not above the level 0 of the sea: on a swell (Amp1 up to 25, the "Волнение"
+	// of the day) the ships go up and down by meters and the balls flew over / fell short
+	float fTY = 0.0;
+	if (CheckAttribute(rT, "Ship.Pos.y")) { fTY = stf(rT.Ship.Pos.y); }
+	if (fTY > 15.0) { fTY = 15.0; }
+	if (fTY < -15.0) { fTY = -15.0; }
+	float fH = y - (fTY + fNetAimHitY);
 	float fPX = stf(rT.Ship.Pos.x);
 	float fPZ = stf(rT.Ship.Pos.z);
 	float fD = 0.0;
@@ -284,6 +290,8 @@ bool NetServer_AimSolve(float x, float y, float z, float fV0, int t, float fAngM
 	NSAim.Dir = atan2(fPX - x, fPZ - z);
 	NSAim.Ang = fTheta;
 	NSAim.D = fD;
+	NSAim.TY = fTY;
+	NSAim.SY = y;
 	NSAim.T = fFlight;
 	return true;
 }
@@ -368,7 +376,7 @@ bool NetServer_AimShot(aref arClient, float x, float y, float z, float fV0, floa
 	if (iServerTime - iNetAimLogTime > 1500)
 	{
 		iNetAimLogTime = iServerTime;
-		Trace("COOP: aim shooter=" + s + " tgt=" + t + " D=" + makeint(stf(NSAim.D)) + " ang=" + stf(NSAim.Ang) + " flight=" + stf(NSAim.T) + " mult=" + NetServer_BallMult() + " v0=" + fV0);
+		Trace("COOP: aim shooter=" + s + " tgt=" + t + " D=" + makeint(stf(NSAim.D)) + " ang=" + stf(NSAim.Ang) + " flight=" + stf(NSAim.T) + " y=" + stf(NSAim.SY) + "/" + stf(NSAim.TY) + " mult=" + NetServer_BallMult() + " v0=" + fV0);
 	}
 	return true;
 }

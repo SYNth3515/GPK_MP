@@ -42,6 +42,7 @@ object oNetNpcs;			// client: gen, seen, n<k>: model, anim, sex, blade, h, x, y,
 
 bool NetLand_NpcIsHost()
 {
+	if (Dedicated_IsOn()) { return false; }		// COOP s48: nobody plays on a dedicated server: every player keeps his own NPC
 	return NetServer_IsStarted();
 }
 

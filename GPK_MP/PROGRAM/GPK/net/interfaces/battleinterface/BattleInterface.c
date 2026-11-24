@@ -106,6 +106,8 @@ void NetClient_CreateBattleInterface()
 
 void NetClient_DeleteBattleInterface()
 {
+	// COOP s48i: the log panel goes to the single player layers: without this it kept the boarding icon (even in the main menu)
+	Log_SetActiveAction("Nothing");
 	InterfaceSpyGlassRelease();
 	NetBI_ReleaseBattleInterface();
 }
@@ -749,6 +751,14 @@ void NetBI_MainShipAgain()
 	SendMessage(&NetBInterface, "ll", BI_IN_DELETE_SHIP, wMe);
 	NetBI_CreateShipPrivate(wMe);
 	RefreshBattleInterface();
+}
+
+// COOP s48i: battle_interface.dll forgets its main ship (the ring of the cannons is full bright green then) when a ship that is
+// NOT in its list is deleted (a dead ship deleted again at the respawn, a bot): every delete gives our ship back to it
+void NetBI_DelShip(int wDel)
+{
+	SendMessage(&NetBInterface, "ll", BI_IN_DELETE_SHIP, wDel);
+	if (wDel != NetClient_GetThisClientID()) { NetBI_MainShipAgain(); }
 }
 
 void NetBI_DeadShip()

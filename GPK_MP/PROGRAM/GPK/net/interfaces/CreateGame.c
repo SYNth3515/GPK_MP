@@ -10,6 +10,7 @@ int iCSSortKey3[CS_SORT_MAX];
 int iCSSortIdx[CS_SORT_MAX];
 int iCSSortTmp[CS_SORT_MAX];
 int iCSSortNum = 0;
+bool bCSDlOnly = false;		// COOP s47: the button "Загрузки": only the maps of RESOURCE\Downloads in the lists (net\NetDl.c)
 int iCSSortFort[CS_SORT_MAX];		// the islands: 1 = it has forts (the list of the fort capture)
 int CS_GAMETYPE_LAND = 4;		// COOP: land duel (net\Land.c): the 5th game type, a deathmatch in a location
 int iMaxNumPlayers, iTimeLimit, iStartPosition, iCredit, iMaxShipClass;
@@ -134,7 +135,9 @@ void InitInterface(string iniName)
 	SetEventHandler("DecBotSkill", "CS_DecBotSkill", 0);
 
 	SetEventHandler("CheckButtonChange", "CS_CheckButtonChange", 0);
+	SetEventHandler("OnDownloads", "CS_OnDownloads", 0);		// COOP s47
 
+	NetDl_Scan();		// COOP s47: the maps of RESOURCE\Downloads
 	FillIslandsList();
 
 	// disable OK window
@@ -398,13 +401,48 @@ void CS_DecBotSkill() { iBotSkill--; CS_SetBotSkill(); }
 void CS_AddMaxShipClass() { iMaxShipClass++; CS_SetMaxShipClass(); }
 void CS_DecMaxShipClass() { iMaxShipClass--; CS_SetMaxShipClass(); }
 
+// COOP s47: the rows of a table are made again (the switch "Загрузки")
+void CS_ClearRows(string sTable, int iFrom)
+{
+	for (int i=iFrom; i<=CS_SORT_MAX + 2; i++)
+	{
+		string sRow = "tr" + i;
+		if (!CheckAttribute(&GameInterface, sTable + "." + sRow)) { break; }
+		DeleteAttribute(&GameInterface, sTable + "." + sRow);
+	}
+}
+
+// COOP s47: the button "Загрузки" / "Все карты"
+void CS_OnDownloads()
+{
+	NetDl_Scan();
+	bCSDlOnly = !bCSDlOnly;
+	if (bCSDlOnly) { SendMessage(&GameInterface, "lsls", MSG_INTERFACE_MSG_TO_NODE, "BTN_DOWNLOADS", 0, "btnNetCS_AllMaps"); }
+	else { SendMessage(&GameInterface, "lsls", MSG_INTERFACE_MSG_TO_NODE, "BTN_DOWNLOADS", 0, "btnNetCS_Downloads"); }
+	FillIslandsList();
+}
+
+string CS_IslandPicture(string sIslId)
+{
+	if (NetDl_IsKey(sIslId)) { return NetDl_Picture(); }
+	return "Interfaces\Net\Islands\" + sIslId + ".tga";
+}
+
 void FillIslandsList()
 {
 	int iForts = 1;
+	CS_ClearRows("TABLE_MAPLIST", 1);		// COOP s47
+	CS_ClearRows("TABLE_MAPLIST_FORT", 1);
+	CS_ClearRows("TABLE_MAPLIST_LAND", 1);
 
-	GameInterface.TABLE_MAPLIST.tr1.td1.str = XI_ConvertString("OpenSea");
-	GameInterface.TABLE_MAPLIST.tr1.td1.IslandID = "";
-	GameInterface.TABLE_MAPLIST.tr1.td1.my_texture = "Interfaces\Net\Islands\OpenSea.tga";
+	int iSeaFirst = 1;		// COOP s47: "Загрузки": only the downloaded maps, no open sea
+	if (!bCSDlOnly)
+	{
+		GameInterface.TABLE_MAPLIST.tr1.td1.str = XI_ConvertString("OpenSea");
+		GameInterface.TABLE_MAPLIST.tr1.td1.IslandID = "";
+		GameInterface.TABLE_MAPLIST.tr1.td1.my_texture = "Interfaces\Net\Islands\OpenSea.tga";
+		iSeaFirst = 2;
+	}
 	GameInterface.TABLE_MAPLIST.select = 1;
 
 	GameInterface.TABLE_MAPLIST_FORT.select = 1;
@@ -413,6 +451,7 @@ void FillIslandsList()
 	iCSSortNum = 0;
 	for (int i=0; i<Net_GetIslandsNum(); i++)
 	{
+		if (bCSDlOnly) { break; }		// COOP s47: only the downloaded maps (below)
 		ref rIsland = Net_GetIslandByIndex(i);
 		if (iCSSortNum >= CS_SORT_MAX) { break; }
 		sCSSortName[iCSSortNum] = Net_GetIslandName(rIsland.ID);
@@ -421,14 +460,24 @@ void FillIslandsList()
 		if (Net_IsIslandHaveForts(rIsland)) { iCSSortFort[iCSSortNum] = 1; }
 		iCSSortNum++;
 	}
+	// COOP s47: the sea maps of RESOURCE\Downloads (net\NetDl.c: they are put into an island slot when the game starts)
+	for (int iDl=0; iDl<NetDl_MapsNum(); iDl++)
+	{
+		if (NetDl_MapTypeN(iDl) != "sea") { continue; }
+		if (iCSSortNum >= CS_SORT_MAX) { break; }
+		sCSSortName[iCSSortNum] = NetDl_MapNameN(iDl);
+		sCSSortLoc[iCSSortNum] = NetDl_MapKeyN(iDl);
+		iCSSortFort[iCSSortNum] = 0;
+		iCSSortNum++;
+	}
 	CS_SortLandRows();
 	for (int iSorted=0; iSorted<iCSSortNum; iSorted++)
 	{
 		int iSrc = iCSSortIdx[iSorted];
 		string sIslId = sCSSortLoc[iSrc];
-		string sTexture = "Interfaces\Net\Islands\" + sIslId + ".tga";
+		string sTexture = CS_IslandPicture(sIslId);
 
-		string sTest = "tr" + (iSorted + 2);
+		string sTest = "tr" + (iSorted + iSeaFirst);
 		GameInterface.TABLE_MAPLIST.(sTest).td1.str = sCSSortName[iSrc];
 		GameInterface.TABLE_MAPLIST.(sTest).td1.IslandID = sIslId;
 		GameInterface.TABLE_MAPLIST.(sTest).td1.my_texture = sTexture;
@@ -446,6 +495,9 @@ void FillIslandsList()
 	// COOP: land duel (net\Land.c): the last rows of the list are locations on land
 	CS_AddLandRows("TABLE_MAPLIST_LAND", 1);
 	GameInterface.TABLE_MAPLIST_LAND.select = 1;
+	GameInterface.TABLE_MAPLIST_LAND.top = 0;		// COOP s47: the list starts from its first row (the last game may have scrolled it)
+	GameInterface.TABLE_MAPLIST.top = 0;
+	GameInterface.TABLE_MAPLIST_FORT.top = 0;
 	Table_UpdateWindow("TABLE_MAPLIST_LAND");
 
 	Table_UpdateWindow("TABLE_MAPLIST");
@@ -584,6 +636,24 @@ void CS_AddLandRows(string sTable, int iFirstRow)
 {
 	iCSSortNum = 0;
 	int iLandRow = iFirstRow;
+	// COOP s47: the land maps of RESOURCE\Downloads (net\NetDl.c: they are put into the slot of the TDM locations)
+	int iDlLand = 0;
+	for (int iDl=0; iDl<NetDl_MapsNum(); iDl++)
+	{
+		if (NetDl_MapTypeN(iDl) != "land") { continue; }
+		iLandRow = iLandRow + CS_AddLandRow(sTable, iLandRow, NetDl_MapNameN(iDl), NetDl_MapKeyN(iDl));
+		iDlLand++;
+	}
+	if (bCSDlOnly)		// COOP s47: "Загрузки": only the downloaded maps (an empty list when there are none)
+	{
+		CS_SortLandRows();
+		for (int iDlSorted=0; iDlSorted<iCSSortNum; iDlSorted++)
+		{
+			int iDlSrc = iCSSortIdx[iDlSorted];
+			CS_WriteLandRow(sTable, iFirstRow + iDlSorted, sCSSortName[iDlSrc], sCSSortLoc[iDlSrc]);
+		}
+		return;
+	}
 	iLandRow = iLandRow + CS_AddLandRow(sTable, iLandRow, "Дуэль: каюта", "Cabin");
 	iLandRow = iLandRow + CS_AddLandRow(sTable, iLandRow, "Дуэль: средняя каюта", "Cabin_Medium");
 	iLandRow = iLandRow + CS_AddLandRow(sTable, iLandRow, "Дуэль: большая каюта", "Cabin_Huge");
@@ -657,7 +727,8 @@ void CS_SelectNewIsland()
 {
 	string sControl = CS_MapControl();
 	string sRow = "tr" + sti(GameInterface.(sControl).select);
-	string sTexture = GameInterface.(sControl).(sRow).td1.my_texture;
+	string sTexture = NetDl_Picture();		// COOP s47: an empty list ("Загрузки" without maps)
+	if (CheckAttribute(&GameInterface, sControl + "." + sRow + ".td1.my_texture")) { sTexture = GameInterface.(sControl).(sRow).td1.my_texture; }
 
 	// COOP: the picture is loaded only when it is another one
 	bool bNewPic = true;
@@ -758,6 +829,7 @@ void IDoExit(int exitCode)
 	DelEventHandler("DecBotSkill", "CS_DecBotSkill");
 
 	DelEventHandler("CheckButtonChange", "CS_CheckButtonChange");
+	DelEventHandler("OnDownloads", "CS_OnDownloads");		// COOP s47
 	DelEventHandler("eSlideChange", "CS_SlideChange");
 	DelEventHandler("CS_SlidersOn", "CS_SlidersOn");
 
@@ -810,10 +882,19 @@ string CS_GetCurrentLand()
 	return GameInterface.(sControl).(sRow).td1.LandLoc;
 }
 
+// COOP s47: false = the list of the maps is empty ("Загрузки" without maps)
+bool CS_HasCurrentMap()
+{
+	string sControl = CS_MapControl();
+	string sRow = "tr" + sti(GameInterface.(sControl).select);
+	return CheckAttribute(&GameInterface, sControl + "." + sRow + ".td1.str");
+}
+
 string CS_GetCurrentIsland()
 {
 	string sControl = CS_MapControl();
 	string sRow = "tr" + sti(GameInterface.(sControl).select);
+	if (!CheckAttribute(&GameInterface, sControl + "." + sRow + ".td1.IslandID")) { return ""; }
 	return GameInterface.(sControl).(sRow).td1.IslandID;
 }
 
@@ -866,6 +947,7 @@ string CS_GetCurrentWeather()
 
 void CS_CreateServer()
 {
+	if (!CS_HasCurrentMap()) { return; }		// COOP s47: no map is chosen
 	Object oSrvParams;
 
 	int iCurrentNumTeams = 2;

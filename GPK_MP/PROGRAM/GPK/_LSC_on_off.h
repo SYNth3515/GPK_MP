@@ -2,7 +2,7 @@
 // здесь и далее ник boal - это разработческий ник ALexusB
 
 #define VERSION_NUMBER1       "Корсары: ГПК ver.1.3.2 (14.01.11) AT " // Корсары: ГПК modding base #1
-#define VERSION_NUMBER2       "+ GPK_MP от 22.11.26 by SYNthesis"
+#define VERSION_NUMBER2       "+ GPK_MP от 24.11.26 by SYNthesis"
 #define VERSION_NUMBER3       "Seaward.Ru MP:SYNthesis" // ALexusB&Co
 
 #define VERSION_NUM      99930  // текущий номер
